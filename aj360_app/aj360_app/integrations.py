@@ -11,6 +11,7 @@ import json
 from pathlib import Path
 
 from . import core
+from . import mcp_registry
 
 SKILLS_DIR = Path(core.os.getenv("SKILLS_DIR", str(core.REPO_ROOT / "skills")))
 
@@ -286,8 +287,9 @@ def call_connector(cid: str, path: str) -> str:
 #  This mirrors how Claude Desktop connectors actually work (MCP, not a REST key).
 #
 #  Tool specs are discovered ONCE at registration and cached in mcp_servers.json,
-#  so the per-turn tool assembly stays synchronous; only call_mcp() opens a live
-#  session (per call — robust, no long-lived async session inside Reflex's loop).
+#  so the per-turn tool assembly stays synchronous; live sessions are owned by
+#  the single-spawn mcp_registry (ONE persistent ClientSession per server,
+#  reused across calls, with per-call timeouts + clean shutdown).
 # --------------------------------------------------------------------------- #
 MCP_FILE = core.REPO_ROOT / "mcp_servers.json"
 
@@ -310,52 +312,10 @@ def _save_mcp_servers(items: list[dict]):
         pass
 
 
-def _run_async(coro):
-    """Run an async coroutine to completion from a sync (worker-thread) context."""
-    import asyncio
-    return asyncio.run(coro)
-
-
-async def _mcp_session(cfg: dict):
-    """Async context manager yielding an initialized MCP ClientSession for `cfg`."""
-    import contextlib
-    from mcp import ClientSession, StdioServerParameters
-    from mcp.client.stdio import stdio_client
-
-    @contextlib.asynccontextmanager
-    async def _ctx():
-        params = StdioServerParameters(command=cfg["command"],
-                                       args=list(cfg.get("args", [])), env=None)
-        async with stdio_client(params) as (read, write):
-            async with ClientSession(read, write) as session:
-                await session.initialize()
-                yield session
-    return _ctx()
-
-
-async def _mcp_discover_async(cfg: dict) -> list[dict]:
-    ctx = await _mcp_session(cfg)
-    async with ctx as session:
-        resp = await session.list_tools()
-        return [{"name": t.name, "description": t.description or "",
-                 "inputSchema": (t.inputSchema or {"type": "object", "properties": {}})}
-                for t in resp.tools]
-
-
-async def _mcp_call_async(cfg: dict, tool: str, args: dict) -> str:
-    ctx = await _mcp_session(cfg)
-    async with ctx as session:
-        res = await session.call_tool(tool, args or {})
-        parts: list[str] = []
-        for c in getattr(res, "content", []) or []:
-            if getattr(c, "type", "") == "text":
-                parts.append(c.text)
-            else:
-                parts.append(str(getattr(c, "data", c)))
-        out = "\n".join(p for p in parts if p)
-        if getattr(res, "structuredContent", None):
-            out = (out + "\n" + json.dumps(res.structuredContent, default=str)).strip()
-        return out or "(no content)"
+# NOTE: the per-call spawn helpers (_run_async / _mcp_session /
+# _mcp_discover_async / _mcp_call_async) were removed in favor of the
+# single-spawn mcp_registry, which keeps ONE persistent ClientSession per
+# server (reused across calls) with per-call timeouts and clean shutdown.
 
 
 def add_mcp_server(name: str, command: str, args: list[str] | None = None) -> dict:
@@ -367,7 +327,7 @@ def add_mcp_server(name: str, command: str, args: list[str] | None = None) -> di
     item = {"id": sid, "name": name.strip() or sid, "transport": "stdio",
             "command": command.strip(), "args": args}
     try:
-        item["tools"] = _run_async(_mcp_discover_async(item))
+        item["tools"] = mcp_registry.registry.discover(item)
         item["status"] = "connected"
         item["detail"] = f"{len(item['tools'])} tools"
     except Exception as e:
@@ -388,7 +348,11 @@ def add_demo_mcp_server() -> dict:
 
 
 def remove_mcp_server(sid: str):
-    _save_mcp_servers([s for s in _load_mcp_servers() if s["id"] != sid])
+    items = _load_mcp_servers()
+    for s in items:
+        if s["id"] == sid:
+            mcp_registry.registry.drop(s)  # terminate the persistent subprocess
+    _save_mcp_servers([s for s in items if s["id"] != sid])
 
 
 def refresh_mcp_server(sid: str) -> dict:
@@ -396,7 +360,8 @@ def refresh_mcp_server(sid: str) -> dict:
     for s in items:
         if s["id"] == sid:
             try:
-                s["tools"] = _run_async(_mcp_discover_async(s))
+                mcp_registry.registry.drop(s)  # respawn with fresh state
+                s["tools"] = mcp_registry.registry.discover(s)
                 s["status"] = "connected"
                 s["detail"] = f"{len(s['tools'])} tools"
             except Exception as e:
@@ -439,7 +404,7 @@ def call_mcp(full_name: str, args: dict) -> str:
             tool = full_name[len(prefix):]
             if any(t["name"] == tool for t in s.get("tools", [])):
                 try:
-                    return _run_async(_mcp_call_async(s, tool, args or {}))
+                    return mcp_registry.registry.call(s, tool, args or {})
                 except Exception as e:
                     return f"MCP '{s['id']}' call failed: {str(e)[:200]}"
     return f"MCP tool '{full_name}' not found."

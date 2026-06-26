@@ -39,6 +39,29 @@
 
 ---
 
+## Resolution status (2026-06-26)
+
+**Resolved & pushed** (commits `7515411` → `0868947`): **#1, #2, #4, #6, #8, #9,
+#10, #11, #12, #14, #15, #16, #17** — each verified (compile + tests green; the
+MCP placeholder fix and the auth gate were exercised end-to-end).
+
+**Deferred, with reason:**
+- **#3 god module + shared core** — a multi-file refactor of two *working* apps;
+  too risky to one-shot. Needs a dedicated, planned effort (extract `ocd_core/`,
+  then split `app.py`). Duplication was reduced opportunistically (the read-only
+  SQL guard is correct in both apps).
+- **#5 tests via real imports** — pytest config is in place (#11); converting the
+  `spec_from_file_location` loaders to plain imports is coupled to #3's package
+  restructure (flat `app.py` + nested `aj360_app/aj360_app`). The loaders work and
+  isolate `app.py`'s heavy import side effects.
+- **#7 runtime data layout** — moving `chroma_db/`, `projects/`, etc. under a
+  `runtime/` dir touches many path constants in both apps + live-data migration
+  (risky), and those dirs are already git-ignored (the repo is not polluted).
+- **#13 LICENSE** — intentionally not chosen on your behalf (an ownership/legal
+  decision). The rest of #13 (SECURITY.md, CONTRIBUTING.md, CODEOWNERS) is done.
+
+**Your action still required:** rotate the leaked SA key + `.env` secrets in GCP/Z.ai.
+
 ## Round 1 — Structure (verified)
 
 ### 🔴 1. Chainlit scaffold duplicated into the Reflex app (24 dead files)

@@ -1,0 +1,46 @@
+# ───────────────────────────────────────────────────────────────────
+#  Secrets & credentials — DENY BY DEFAULT. Never commit real secrets.
+# ───────────────────────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+
+# GCP service-account keys (the leaked ajgc-* key + any future key dumps)
+ajgc-*.json
+*-service-account*.json
+*serviceaccount*.json
+*-sa-*.json
+*.key
+*.pem
+*.p12
+*credentials*.json
+
+# ── Virtualenvs ────────────────────────────────────────────────────
+venv/
+venv312/
+
+# ── Local data stores / caches / logs / sandboxes ──────────────────
+logs/
+chroma_db/
+kuzu_db
+kuzu_db.wal
+_sandbox/
+agent_memory/
+__pycache__/
+*.pyc
+*.pyo
+reflex_*.log
+reflex_*.err
+
+# ── Proprietary / runtime DATA — do NOT version (was publicly exposed 2026-06-26) ──
+# Chat transcripts, uploaded files, AJ360 dataset dumps, project workspaces.
+projects/
+.files/
+knowledge/
+aj360.md
+aj360-*.md
+*.csv
+
+# NOTE: non-secret config (mcp_servers.json, connectors.json,
+# aj360_settings.json, package.json, reflex configs) is intentionally
+# NOT ignored — only secret-shaped files are.

@@ -1,0 +1,191 @@
+/* ===================================================================== *
+ *  AJ360 — Claude.com warm-editorial design system
+ *  Re-skins the whole app by remapping the Radix Themes scale variables.
+ *  Two surface modes per the spec: a cream/coral LIGHT theme and the
+ *  dark-navy product surface for DARK mode. Editorial type pairing:
+ *  Cormorant Garamond (serif display) + Inter (humanist sans) + JetBrains
+ *  Mono (code).
+ * ===================================================================== */
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+
+/* ---- Mode-independent tokens: fonts, radius, brand extras ---- */
+:root {
+  --default-font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --heading-font-family: "Cormorant Garamond", "Tiempos Headline", Georgia, "Times New Roman", serif;
+  --code-font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  --strong-font-family: var(--default-font-family);
+  --em-font-family: var(--default-font-family);
+  --quote-font-family: var(--heading-font-family);
+
+  /* coral kept brand-exact for icons/accents; a deeper coral carries small
+     white text (buttons + user bubbles) so it clears WCAG AA (~4.7:1). */
+  --coral-strong: #b3603f;
+  --accent-amber: #e8a55a;   /* decorative warm tone (distinct from warning) */
+  --ink-strong: #252523;     /* emphasized paragraphs */
+  --hairline-soft: #ebe6df;  /* faint in-band divider */
+
+  /* radius ladder: 8px buttons/inputs/tabs · 12px cards · 16px hero · pill */
+  --radius-1: 4px;
+  --radius-2: 6px;
+  --radius-3: 8px;
+  --radius-4: 10px;
+  --radius-5: 12px;
+  --radius-6: 16px;
+
+  /* pre-hydration cream floor (before the .radix-themes class mounts) */
+  --color-background: #faf9f5;
+}
+
+/* ===================================================================== *
+ *  LIGHT — cream canvas → warm ink, coral accent
+ * ===================================================================== */
+:root,
+.radix-themes {
+  --gray-1:  #faf9f5;   /* canvas — page floor                        */
+  --gray-2:  #f5f0e8;   /* surface-soft — subtle bands, answer bubble */
+  --gray-3:  #efe9de;   /* surface-card — hover / active / cards      */
+  --gray-4:  #e8e0d2;   /* surface-cream-strong — chips               */
+  --gray-5:  #e6dfd8;   /* hairline (= primary-disabled) — borders    */
+  --gray-6:  #d8cdb9;   /* stronger hairline                          */
+  --gray-7:  #bcb2a1;   /* UI borders (hover)                         */
+  --gray-8:  #8e8b82;   /* muted-soft — disabled, faint icons         */
+  --gray-9:  #6c6a64;   /* muted — icons + secondary text             */
+  --gray-10: #5e5c56;   /* muted (hover)                              */
+  --gray-11: #3d3d3a;   /* body — secondary text                      */
+  --gray-12: #141413;   /* ink — primary text + headlines             */
+
+  --gray-a3: #14141312;
+  --gray-a4: #1414131f;
+  --gray-a5: #1414132b;
+
+  --accent-1:  #fdf7f4;
+  --accent-2:  #fbeee8;
+  --accent-3:  #f6dccf;
+  --accent-4:  #f0c8b4;
+  --accent-5:  #e9b39b;
+  --accent-6:  #e09f84;
+  --accent-7:  #d98c6f;
+  --accent-8:  #d17a5b;
+  --accent-9:  #cc785c;   /* brand coral — icons, checks, decorative   */
+  --accent-10: #bd6a4f;
+  --accent-11: #a9583e;   /* coral text links (4.8:1 on cream)         */
+  --accent-12: #4a2114;
+  --accent-contrast: #ffffff;
+  --accent-surface: #fbeee8cc;
+  --accent-a3: #cc4a1e26;
+  --accent-a9: #cc785c;
+
+  --focus-8: #cc785c;
+  --focus-a8: #cc785cab;
+
+  --color-background:  #faf9f5;
+  --color-panel-solid: #fffefb;
+  --color-panel-translucent: #fffefbf2;
+  --color-surface:     #fffefbcc;
+  --color-overlay:     #14141359;
+
+  --red-2:   #f9ecea;  --red-9:  #c64545;  --red-10: #b53d3d;  --red-11: #b03c3c;
+  --green-9: #5db872;  --green-11: #3f8a51;
+  --amber-9: #d4a017;  --amber-11: #996f06;
+  --teal-9:  #5db8a6;
+
+  --shadow-2: 0 1px 2px var(--gray-a4);
+  --shadow-3: 0 1px 4px var(--gray-a5);
+}
+
+/* ===================================================================== *
+ *  DARK — dark-navy product surfaces (the spec's second surface mode)
+ *  Higher specificity (.radix-themes.dark) overrides the light block.
+ * ===================================================================== */
+.radix-themes.dark,
+.dark .radix-themes,
+.dark-theme {
+  --gray-1:  #181715;   /* surface-dark — floor          */
+  --gray-2:  #1f1e1b;   /* surface-dark-soft             */
+  --gray-3:  #252320;   /* surface-dark-elevated         */
+  --gray-4:  #2f2c28;
+  --gray-5:  #3a3733;   /* dark hairline                 */
+  --gray-6:  #46423d;
+  --gray-7:  #5a564f;
+  --gray-8:  #7d796f;
+  --gray-9:  #a09d96;   /* on-dark-soft — muted          */
+  --gray-10: #b3b0a8;
+  --gray-11: #d6d3cb;
+  --gray-12: #faf9f5;   /* on-dark — primary text        */
+
+  --gray-a3: #faf9f514;
+  --gray-a4: #faf9f522;
+  --gray-a5: #faf9f532;
+
+  --accent-9:  #cc785c;   /* coral preserved on navy       */
+  --accent-10: #d98a6f;
+  --accent-11: #e6a488;   /* lightened links for legibility */
+  --accent-12: #f6dccf;
+  --accent-contrast: #ffffff;
+  --accent-surface: #cc785c1f;
+
+  --color-background:  #181715;
+  --color-panel-solid: #1f1e1b;
+  --color-panel-translucent: #1f1e1bf2;
+  --color-surface:     #1f1e1bcc;
+  --color-overlay:     #00000080;
+
+  --red-2:   #2a1715;  --red-9:  #c64545;  --red-11: #e88a8a;
+  --green-9: #5db872;  --green-11: #8fd6a0;
+  --amber-9: #d4a017;  --amber-11: #e8c46a;
+
+  --focus-8: #cc785c;
+  --focus-a8: #cc785cab;
+
+  --shadow-2: 0 1px 2px #00000059;
+  --shadow-3: 0 2px 6px #0000006e;
+}
+
+/* Pre-mount + dark page floor */
+html, body { background-color: #faf9f5; font-family: var(--default-font-family); }
+html.dark body, .dark body, html:has(.radix-themes.dark) body { background-color: #181715; }
+
+/* ---- Editorial serif headings: weight 500, negative tracking (never bold) ---- */
+.rt-Heading {
+  font-family: var(--heading-font-family);
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  color: var(--gray-12);
+}
+.rt-Heading.rt-r-size-6 { letter-spacing: -0.02em; }
+.rt-Heading.rt-r-size-7 { letter-spacing: -0.025em; }
+.rt-Heading.rt-r-size-8,
+.rt-Heading.rt-r-size-9 { letter-spacing: -0.03em; }   /* stay weight 500 — no bold */
+
+/* ---- Buttons: AA-safe coral fill under white labels; press → primary-active ---- */
+.rt-Button.rt-variant-solid { background-color: var(--coral-strong); }
+.rt-Button.rt-variant-solid:active { background-color: var(--accent-11); }
+
+/* Coral focus ring on text controls (design text-input-focused) */
+.rt-TextFieldRoot:focus-within,
+.rt-TextAreaRoot:focus-within {
+  outline: 2px solid var(--accent-9);
+  outline-offset: -1px;
+}
+
+/* Uppercase caption / coral badge tracking */
+.rt-Badge.rt-r-size-1 { letter-spacing: 0.04em; }
+
+/* Code + monospace fragments use JetBrains Mono */
+code, pre, .rt-Code, kbd { font-family: var(--code-font-family); }
+.rt-reset pre, pre[class*="language-"] {
+  background: var(--gray-2);
+  border: 1px solid var(--gray-5);
+  border-radius: 12px;
+}
+
+/* Warm scrollbars */
+* { scrollbar-color: var(--gray-6) transparent; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb {
+  background: var(--gray-6);
+  border-radius: 9999px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--gray-7); }

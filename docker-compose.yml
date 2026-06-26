@@ -1,0 +1,31 @@
+# Local Postgres for Chainlit chat history.
+#   docker compose up -d
+# On FIRST start (empty volume), schema.sql is loaded automatically. If you change
+# schema.sql later, re-run it manually or recreate the volume:
+#   docker compose down -v && docker compose up -d
+#
+# Set POSTGRES_PASSWORD in your .env and make DATABASE_URL match it, e.g.:
+#   DATABASE_URL=postgresql+asyncpg://chainlit:changeme@localhost:5432/chainlit
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: aj360-chainlit-pg
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: chainlit
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      POSTGRES_DB: chainlit
+    ports:
+      - "5432:5432"
+    volumes:
+      - aj360_pgdata:/var/lib/postgresql/data
+      - ./schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chainlit -d chainlit"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  aj360_pgdata:

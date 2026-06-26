@@ -61,7 +61,7 @@ _TEXT_EXTS = {"sql", "md", "txt", "csv", "json", "py", "yaml", "yml", "log"}
 # --------------------------------------------------------------------------- #
 #  Global app settings (Customize page)
 # --------------------------------------------------------------------------- #
-_SETTINGS_FILE = REPO_ROOT / "aj360_settings.json"
+_SETTINGS_FILE = REPO_ROOT / "settings.json"
 EFFORT_LEVELS = ["Low", "Medium", "High", "Max"]
 # Claude-style "Extended thinking" levels — each maps to real backend behaviour
 # (steps cap + planning/verification passes + temperature) in agent.EFFORT.

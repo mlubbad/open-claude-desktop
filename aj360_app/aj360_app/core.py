@@ -46,6 +46,9 @@ PROJECT_CAPACITY_BYTES = int(os.getenv("PROJECT_CAPACITY_MB", "50")) * 1024 * 10
 
 # Models (for the chat composer pill / settings).
 AGENT_MODEL = os.getenv("AGENT_MODEL", os.getenv("PLANNER_MODEL", "glm-4-plus"))
+# Cheap tier for low-complexity sub-tasks (titles, short structuring/summaries).
+# Reserve AGENT_MODEL for the main reasoning/agent loop.
+FLASH_MODEL = os.getenv("FLASH_MODEL", "glm-4-flash")
 _glm_default = f"{AGENT_MODEL},glm-4.5-air,glm-4-flash,glm-4-long"
 GLM_MODELS: list[str] = []
 for _m in os.getenv("GLM_MODELS", _glm_default).split(","):
@@ -383,7 +386,7 @@ def generate_conversation_title(first_message: str) -> str:
     try:
         llm = get_llm_client()
         resp = llm.chat.completions.create(
-            model=AGENT_MODEL, temperature=0.2, max_tokens=20,
+            model=FLASH_MODEL, temperature=0.2, max_tokens=20,
             messages=[{"role": "user", "content":
                        "Summarize this request as a 3-6 word title. No quotes, no "
                        f"trailing punctuation:\n\n{first_message}"}])

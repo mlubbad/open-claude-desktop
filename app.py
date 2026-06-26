@@ -91,6 +91,8 @@ PROJECT_ID = os.getenv("GCP_PROJECT_ID", "ajgc-dig-jjc-prod-jawacloud-01")
 
 AGENT_MODEL = os.getenv("AGENT_MODEL", os.getenv("PLANNER_MODEL", "glm-4-plus"))
 VISION_MODEL = os.getenv("VISION_MODEL", "glm-4v-plus")
+# Cheap tier for low-complexity sub-tasks (e.g. /learn-finding structuring).
+FLASH_MODEL = os.getenv("FLASH_MODEL", "glm-4-flash")
 
 _glm_default = f"{AGENT_MODEL},glm-4.5-air,glm-4-flash,glm-4-long"
 GLM_MODELS: list[str] = []
@@ -2692,7 +2694,7 @@ async def on_message(message: cl.Message):
             return
         try:
             resp = await asyncio.to_thread(
-                llm_client.chat.completions.create, model=_active_model(),
+                llm_client.chat.completions.create, model=FLASH_MODEL,
                 messages=[{"role": "system", "content": "Structure this as a wiki entry."},
                           {"role": "user", "content": finding}],
                 temperature=0.1, max_tokens=500)

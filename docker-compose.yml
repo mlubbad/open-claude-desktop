@@ -27,5 +27,26 @@ services:
       timeout: 3s
       retries: 10
 
+  # Chainlit chat app. Build + run:  docker compose up -d --build
+  app:
+    build: .
+    container_name: ocd-chainlit
+    restart: unless-stopped
+    env_file: .env
+    # Reach Postgres over the compose network (overrides .env's localhost).
+    environment:
+      DATABASE_URL: postgresql+asyncpg://chainlit:${POSTGRES_PASSWORD:-changeme}@postgres:5432/chainlit
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # BigQuery uses Application Default Credentials. Provide them via Workload
+    # Identity, or mount a key and set GOOGLE_APPLICATION_CREDENTIALS, e.g.:
+    #   volumes:
+    #     - /path/to/sa-key.json:/creds.json:ro
+    #   environment:
+    #     GOOGLE_APPLICATION_CREDENTIALS: /creds.json
+
 volumes:
   aj360_pgdata:

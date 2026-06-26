@@ -318,6 +318,24 @@ def _save_mcp_servers(items: list[dict]):
 # server (reused across calls) with per-call timeouts and clean shutdown.
 
 
+def _resolve_cfg(cfg: dict) -> dict:
+    """Resolve portable placeholders (${PYTHON}, ${REPO_ROOT}) in an MCP server
+    cfg at call time, so mcp_servers.json never stores machine-absolute paths."""
+    import sys
+    repl = {"${PYTHON}": sys.executable, "${REPO_ROOT}": str(core.REPO_ROOT)}
+
+    def _sub(s):
+        if isinstance(s, str):
+            for k, v in repl.items():
+                s = s.replace(k, v)
+        return s
+
+    out = dict(cfg)
+    out["command"] = _sub(cfg.get("command", ""))
+    out["args"] = [_sub(a) for a in cfg.get("args", [])]
+    return out
+
+
 def add_mcp_server(name: str, command: str, args: list[str] | None = None) -> dict:
     """Register an MCP (stdio) server and cache its tool specs. Discovery happens
     now so the agent tool list can be assembled synchronously later."""
@@ -327,7 +345,7 @@ def add_mcp_server(name: str, command: str, args: list[str] | None = None) -> di
     item = {"id": sid, "name": name.strip() or sid, "transport": "stdio",
             "command": command.strip(), "args": args}
     try:
-        item["tools"] = mcp_registry.registry.discover(item)
+        item["tools"] = mcp_registry.registry.discover(_resolve_cfg(item))
         item["status"] = "connected"
         item["detail"] = f"{len(item['tools'])} tools"
     except Exception as e:
@@ -342,16 +360,15 @@ def add_mcp_server(name: str, command: str, args: list[str] | None = None) -> di
 def add_demo_mcp_server() -> dict:
     """Register the bundled demo MCP server (mcp_servers/demo_server.py) using the
     current Python interpreter — no node, no network, no secrets."""
-    import sys
-    server = str(core.REPO_ROOT / "mcp_servers" / "demo_server.py")
-    return add_mcp_server("AJ360 Demo", sys.executable, [server])
+    return add_mcp_server("AJ360 Demo", "${PYTHON}",
+                          ["${REPO_ROOT}/mcp_servers/demo_server.py"])
 
 
 def remove_mcp_server(sid: str):
     items = _load_mcp_servers()
     for s in items:
         if s["id"] == sid:
-            mcp_registry.registry.drop(s)  # terminate the persistent subprocess
+            mcp_registry.registry.drop(_resolve_cfg(s))  # terminate the persistent subprocess
     _save_mcp_servers([s for s in items if s["id"] != sid])
 
 
@@ -360,8 +377,8 @@ def refresh_mcp_server(sid: str) -> dict:
     for s in items:
         if s["id"] == sid:
             try:
-                mcp_registry.registry.drop(s)  # respawn with fresh state
-                s["tools"] = mcp_registry.registry.discover(s)
+                mcp_registry.registry.drop(_resolve_cfg(s))  # respawn with fresh state
+                s["tools"] = mcp_registry.registry.discover(_resolve_cfg(s))
                 s["status"] = "connected"
                 s["detail"] = f"{len(s['tools'])} tools"
             except Exception as e:
@@ -404,7 +421,7 @@ def call_mcp(full_name: str, args: dict) -> str:
             tool = full_name[len(prefix):]
             if any(t["name"] == tool for t in s.get("tools", [])):
                 try:
-                    return mcp_registry.registry.call(s, tool, args or {})
+                    return mcp_registry.registry.call(_resolve_cfg(s), tool, args or {})
                 except Exception as e:
                     return f"MCP '{s['id']}' call failed: {str(e)[:200]}"
     return f"MCP tool '{full_name}' not found."

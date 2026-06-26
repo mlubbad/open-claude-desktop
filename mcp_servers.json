@@ -3,9 +3,9 @@
     "id": "aj360_demo",
     "name": "AJ360 Demo",
     "transport": "stdio",
-    "command": "D:\\HP\\Projects\\bigquery-app\\venv312\\Scripts\\python.exe",
+    "command": "${PYTHON}",
     "args": [
-      "D:\\HP\\Projects\\bigquery-app\\mcp_servers\\demo_server.py"
+      "${REPO_ROOT}/mcp_servers/demo_server.py"
     ],
     "tools": [
       {

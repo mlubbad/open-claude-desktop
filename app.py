@@ -54,6 +54,7 @@ import uuid
 import base64
 import asyncio
 import logging
+import logging.handlers
 import tempfile
 import threading
 import concurrent.futures
@@ -187,29 +188,33 @@ def _observe(event: str, **fields):
     _logger.info(json.dumps(record, default=str))
 
 
-_AUDIT_LOCK = threading.Lock()
-
-
-def audit(event: dict):
-    """Append an event to the persistent audit trail (JSONL file). Thread-safe."""
-    try:
-        os.makedirs(os.path.dirname(AUDIT_LOG), exist_ok=True)
-        event = {"ts": datetime.now(timezone.utc).isoformat(), **event}
-        with _AUDIT_LOCK:
-            with open(AUDIT_LOG, "a", encoding="utf-8") as f:
-                f.write(json.dumps(event, default=str) + "\n")
-    except Exception as e:
-        print(f"[AUDIT] write failed: {e} | event={event.get('event')}",
-              file=_sys.stderr)
-
-
+# #17: rotating audit trail so the JSONL file can't grow unbounded.
+_AUDIT_MAX_BYTES = int(os.getenv("AUDIT_LOG_MAX_BYTES", str(10 * 1024 * 1024)))
+_AUDIT_BACKUPS = int(os.getenv("AUDIT_LOG_BACKUPS", "5"))
+_audit_logger = logging.getLogger("aj360_audit")
+_audit_logger.setLevel(logging.INFO)
+_audit_logger.propagate = False
 try:
     os.makedirs(os.path.dirname(AUDIT_LOG), exist_ok=True)
-    with open(AUDIT_LOG, "a", encoding="utf-8"):
-        pass
+    _afh = logging.handlers.RotatingFileHandler(
+        AUDIT_LOG, maxBytes=_AUDIT_MAX_BYTES, backupCount=_AUDIT_BACKUPS,
+        encoding="utf-8")
+    _afh.setFormatter(logging.Formatter("%(message)s"))
+    _audit_logger.addHandler(_afh)
 except Exception as _audit_err:
     print(f"[AUDIT] WARNING: audit log not writable ({AUDIT_LOG}): {_audit_err}",
           file=_sys.stderr)
+
+
+def audit(event: dict):
+    """Append an event to the rotating audit trail (JSONL). Thread-safe via the
+    logging handler's internal lock."""
+    try:
+        event = {"ts": datetime.now(timezone.utc).isoformat(), **event}
+        _audit_logger.info(json.dumps(event, default=str))
+    except Exception as e:
+        print(f"[AUDIT] write failed: {e} | event={event.get('event')}",
+              file=_sys.stderr)
 
 # --------------------------------------------------------------------------- #
 #  Rate Limiting

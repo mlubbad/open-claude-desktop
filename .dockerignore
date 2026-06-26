@@ -1,0 +1,43 @@
+.git/
+.github/
+.claude/
+.playwright-mcp/
+
+# virtualenvs / build output
+venv/
+venv312/
+**/.web/
+**/node_modules/
+**/__pycache__/
+*.pyc
+*.pyo
+
+# secrets / local env
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+ajgc-*.json
+
+# runtime data stores (regenerated)
+chroma_db/
+kuzu_db
+kuzu_db.wal
+logs/
+projects/
+knowledge/
+_sandbox/
+agent_memory/
+.files/
+
+# docs / notes / scratch
+docs/
+aj360.md
+aj360-*.md
+*.csv
+reflex_*.log
+reflex_*.err
+
+# the Reflex app builds as a separate image
+aj360_app/

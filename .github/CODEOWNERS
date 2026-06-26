@@ -1,0 +1,9 @@
+# Default owner for everything in this repo.
+* @mlubbad
+
+# Security-sensitive paths (SQL guard, auth, sandboxed execution, MCP spawning).
+/app.py                              @mlubbad
+/aj360_app/aj360_app/auth.py         @mlubbad
+/aj360_app/aj360_app/integrations.py @mlubbad
+/aj360_app/aj360_app/mcp_registry.py @mlubbad
+/.github/                            @mlubbad

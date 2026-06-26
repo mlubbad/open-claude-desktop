@@ -1,0 +1,57 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "open-claude-desktop"
+version = "0.2.0"
+description = "GLM-powered, Claude-Desktop-style agent (Chainlit + Reflex) over BigQuery."
+readme = "README.md"
+requires-python = ">=3.12"
+
+# Human-readable source of truth for DIRECT dependencies. Exact, reproducible
+# pins (incl. transitives) live in requirements.txt (a full pip freeze).
+dependencies = [
+    "zhipuai",
+    "google-cloud-bigquery",
+    "google-auth",
+    "google-auth-oauthlib",
+    "chromadb",
+    "pandas",
+    "mcp",
+    "python-dotenv",
+]
+
+[project.optional-dependencies]
+# Chainlit chat app (app.py): UI + charts + file parsing + Postgres data layer.
+chainlit = ["chainlit", "matplotlib", "pdfplumber", "pdfminer.six", "pillow", "openpyxl", "asyncpg", "nest-asyncio"]
+# Reflex projects UI (aj360_app/).
+reflex = ["reflex"]
+# Optional Arabic chart-label shaping.
+arabic = ["arabic-reshaper", "python-bidi"]
+# Tooling.
+dev = ["pytest", "ruff", "mypy"]
+
+[tool.setuptools]
+py-modules = ["app", "run"]
+packages = []
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = ["venv", "venv312", ".web", "aj360_app/.web", "node_modules", "reflex.lock"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+ignore = ["E501"]  # long lines tolerated in generated SQL / inline HTML strings
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+warn_unused_ignores = true
+exclude = ["venv/", "venv312/", "\\.web/", "node_modules/"]

@@ -34,7 +34,7 @@ dev = ["pytest", "ruff", "mypy"]
 
 [tool.setuptools]
 py-modules = ["app", "run"]
-packages = []
+packages = ["ocd_core"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

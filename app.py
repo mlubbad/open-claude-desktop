@@ -295,8 +295,9 @@ GENERIC_COLS = {
     "country", "city", "region", "month", "week", "weekday", "source", "medium",
     "device", "category", "title", "description", "label", "url", "hour", "day",
 }
-BANNED_ALIASES = {"rows", "range", "groups", "current", "all", "order",
-                  "partition", "window", "over", "rollup", "hash"}
+# Read-only SQL guard — single source of truth shared with the Reflex app.
+from ocd_core.sql_guard import (  # noqa: E402
+    BANNED_ALIASES, check_banned_aliases, is_mutation, tables_out_of_scope)
 
 
 # --------------------------------------------------------------------------- #
@@ -903,41 +904,9 @@ def _fmt_bytes(n):
         n /= 1024
 
 
-def _check_banned_aliases(sql: str):
-    aliases = set()
-    for m in re.finditer(r'\bAS\s+(\w+)', sql, re.IGNORECASE):
-        aliases.add(m.group(1).lower())
-    _sql_keywords_after_paren = {
-        'select', 'from', 'where', 'group', 'order', 'having', 'limit',
-        'union', 'intersect', 'except', 'on', 'and', 'or', 'not',
-        'left', 'right', 'inner', 'outer', 'cross', 'full', 'join', 'into'}
-    for m in re.finditer(r'\)\s+(\w+)', sql):
-        word = m.group(1).lower()
-        if word not in _sql_keywords_after_paren:
-            aliases.add(word)
-    hits = aliases & BANNED_ALIASES
-    if hits:
-        return (f"Banned alias(es) detected: {', '.join(sorted(hits))}. "
-                f"BigQuery reserves these words. Full list: {', '.join(sorted(BANNED_ALIASES))}")
-    return None
-
-
-def _is_mutation(stmt: str | None) -> bool:
-    """Anything the BigQuery dry-run does NOT classify as a pure SELECT is treated
-    as a mutation. Fail-safe: unknown/None counts as a mutation."""
-    return (stmt or "").upper() != "SELECT"
-
-
-def _tables_out_of_scope(referenced, allowed: set) -> list:
-    """Fully-qualified tables the query references that fall outside the allowed
-    `<project>.<dataset>` scopes. `referenced` is BigQuery's parsed
-    referenced_tables list (each item exposes .project/.dataset_id/.table_id)."""
-    out = []
-    for t in referenced or []:
-        scope = f"{getattr(t, 'project', PROJECT_ID)}.{getattr(t, 'dataset_id', '')}"
-        if scope not in allowed:
-            out.append(f"{scope}.{getattr(t, 'table_id', '?')}")
-    return out
+# check_banned_aliases / is_mutation / tables_out_of_scope now live in
+# ocd_core.sql_guard (imported above) — single source of truth shared with the
+# Reflex app, so the read-only guard can't drift between the two surfaces.
 
 
 async def run_sql(sql: str, step) -> str:
@@ -962,7 +931,7 @@ async def run_sql(sql: str, step) -> str:
                 return (f"SQL REJECTED: No allowed table found. "
                         f"Allowed tables for this project: {', '.join(allowlist)}")
 
-    alias_error = _check_banned_aliases(sql)
+    alias_error = check_banned_aliases(sql)
     if alias_error:
         audit({"event": "banned_alias", "sql": sql})
         _observe("banned_alias", sql=sql[:200])
@@ -976,7 +945,7 @@ async def run_sql(sql: str, step) -> str:
 
     # C2: read-only by default — block any non-SELECT unless writes are explicitly
     # enabled. This runs BEFORE the human approval prompt below (defense in depth).
-    if _is_mutation(stmt) and not ALLOW_WRITES:
+    if is_mutation(stmt) and not ALLOW_WRITES:
         audit({"event": "mutation_blocked_readonly", "stmt": stmt, "sql": sql[:200]})
         _observe("mutation_blocked_readonly", stmt=stmt)
         return (f"REJECTED: this agent is read-only. '{stmt}' statements are disabled. "
@@ -984,7 +953,7 @@ async def run_sql(sql: str, step) -> str:
 
     # C2: enforce dataset scope using the engine's PARSED references — not substring
     # matching. Catches forbidden tables even when joined alongside allowed ones.
-    out_of_scope = _tables_out_of_scope(referenced, ALLOWED_TABLE_SCOPES)
+    out_of_scope = tables_out_of_scope(referenced, ALLOWED_TABLE_SCOPES, PROJECT_ID)
     if out_of_scope:
         audit({"event": "dataset_scope_block", "sql": sql[:200], "tables": out_of_scope})
         _observe("dataset_scope_block", tables=out_of_scope[:10])

@@ -37,9 +37,9 @@ def test_slugify():
 
 def test_check_banned_aliases():
     # A normal alias is fine.
-    assert app._check_banned_aliases("SELECT 1 AS foo") is None
+    assert app.check_banned_aliases("SELECT 1 AS foo") is None
     # A reserved word used as an alias is rejected, and is named in the message.
-    err = app._check_banned_aliases("SELECT 1 AS rows")
+    err = app.check_banned_aliases("SELECT 1 AS rows")
     assert err and "rows" in err
 
 

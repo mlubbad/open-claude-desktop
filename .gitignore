@@ -50,3 +50,11 @@ aj360-*.md
 
 # Reflex app is NOT a Chainlit app — keep its stray .chainlit/ scaffold out
 aj360_app/.chainlit/
+
+# Python build / tool caches
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/

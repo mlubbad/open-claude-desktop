@@ -605,8 +605,8 @@ GENERIC_COLS = {
     "country", "city", "region", "month", "week", "weekday", "source", "medium",
     "device", "category", "title", "description", "label", "url", "hour", "day",
 }
-BANNED_ALIASES = {"rows", "range", "groups", "current", "all", "order",
-                  "partition", "window", "over", "rollup", "hash"}
+# Read-only SQL guard — single source of truth shared with the Chainlit app.
+from ocd_core.sql_guard import BANNED_ALIASES, check_banned_aliases  # noqa: E402,F401
 
 VISION_MODEL = os.getenv("VISION_MODEL", "glm-4v-plus")
 
@@ -812,22 +812,8 @@ def fmt_bytes(n) -> str:
         n /= 1024
 
 
-def _check_banned_aliases(sql: str) -> str | None:
-    aliases = set()
-    for m in re.finditer(r"\bAS\s+(\w+)", sql, re.IGNORECASE):
-        aliases.add(m.group(1).lower())
-    keywords = {"select", "from", "where", "group", "order", "having", "limit",
-                "union", "intersect", "except", "on", "and", "or", "not", "left",
-                "right", "inner", "outer", "cross", "full", "join", "into"}
-    for m in re.finditer(r"\)\s+(\w+)", sql):
-        w = m.group(1).lower()
-        if w not in keywords:
-            aliases.add(w)
-    hits = aliases & BANNED_ALIASES
-    if hits:
-        return (f"Banned alias(es): {', '.join(sorted(hits))}. BigQuery reserves these. "
-                f"Rename them.")
-    return None
+# _check_banned_aliases moved to ocd_core.sql_guard.check_banned_aliases
+# (shared with the Chainlit app).
 
 
 def _dry_run(sql: str):
@@ -860,7 +846,7 @@ def execute_sql(sql: str, active_project: str | None = None) -> dict:
             return {"ok": False, "error": "allowlist",
                     "agent_text": f"SQL REJECTED: project allows only: {', '.join(allow)}"}
 
-    alias_err = _check_banned_aliases(sql)
+    alias_err = check_banned_aliases(sql)
     if alias_err:
         return {"ok": False, "error": "alias", "agent_text": f"SQL REJECTED: {alias_err}"}
 

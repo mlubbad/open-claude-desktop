@@ -47,3 +47,6 @@ aj360-*.md
 
 # Playwright MCP scratch (browser smoke tests)
 .playwright-mcp/
+
+# Reflex app is NOT a Chainlit app — keep its stray .chainlit/ scaffold out
+aj360_app/.chainlit/

@@ -44,3 +44,6 @@ aj360-*.md
 # NOTE: non-secret config (mcp_servers.json, connectors.json,
 # aj360_settings.json, package.json, reflex configs) is intentionally
 # NOT ignored — only secret-shaped files are.
+
+# Playwright MCP scratch (browser smoke tests)
+.playwright-mcp/

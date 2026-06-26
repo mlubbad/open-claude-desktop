@@ -1,6 +1,6 @@
-# .chainlit/config.toml  —  AJ360 BigQuery Agent
+# .chainlit/config.toml  —  Open Claude Desktop
 # Based on Chainlit 2.11.0's own default template, with 4 edits applied:
-#   UI.name -> "AJ360 BigQuery Agent"
+#   UI.name -> "Open Claude Desktop"
 #   UI.description set
 #   UI.layout -> "wide"        (room for dataframes/charts)
 #   spontaneous_file_upload.max_size_mb 500 -> 100  (CSV/text ingest reads whole file into RAM)
@@ -109,7 +109,7 @@ reaction_on_message_received = false
 
 [UI]
 # Name of the assistant.
-name = "AJ360 BigQuery Agent"
+name = "Open Claude Desktop"
 
 # default_theme = "dark"
 
@@ -131,7 +131,7 @@ layout = "wide"
 confirm_new_chat = true
 
 # Description of the assistant. This is used for HTML tags.
-description = "Natural-language to BigQuery analytics agent for AJ360."
+description = "Open Claude Desktop — a GLM-powered agent workspace with BigQuery analytics."
 
 # Chain of Thought (CoT) display mode. Can be "hidden", "tool_call" or "full".
 cot = "full"

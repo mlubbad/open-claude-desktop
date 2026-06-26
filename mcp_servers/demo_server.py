@@ -1,5 +1,5 @@
 """
-A tiny, self-contained MCP (Model Context Protocol) server bundled with AJ360.
+A tiny, self-contained MCP (Model Context Protocol) server bundled with Open Claude Desktop.
 
 It exists so the app's MCP *client* connector has a real server to talk to out of
 the box — no network, no secrets, no external downloads. Register it from the

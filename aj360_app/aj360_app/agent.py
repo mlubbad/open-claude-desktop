@@ -1,5 +1,5 @@
 """
-AJ360 BigQuery agent — UI-agnostic orchestration layer.
+Open Claude Desktop BigQuery agent — UI-agnostic orchestration layer.
 
 `run_turn` is an async generator that drives the GLM tool-calling loop and
 *yields structured events* describing what is happening. Any presentation layer

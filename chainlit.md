@@ -1,5 +1,5 @@
-# BigQuery Autonomous Agent 🤖
-## Welcome to your AI-powered BigQuery Data Agent!
+# Open Claude Desktop 🤖
+## Welcome to your GLM-powered BigQuery data agent!
 
 What I can do:
 

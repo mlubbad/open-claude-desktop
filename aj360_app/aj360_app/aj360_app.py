@@ -1384,20 +1384,20 @@ app = rx.App(
     style={"fontFamily": "var(--default-font-family)"},
 )
 app.add_page(dashboard, route="/", on_load=AppState.load_dashboard,
-             title="AJ360 · Projects")
+             title="Open Claude Desktop · Projects")
 app.add_page(workspace, route="/project/[pid]", on_load=AppState.load_workspace,
-             title="AJ360 · Project")
+             title="Open Claude Desktop · Project")
 app.add_page(conversation_page, route="/project/[pid]/c/[cid]",
-             on_load=AppState.load_conversation, title="AJ360 · Chat")
+             on_load=AppState.load_conversation, title="Open Claude Desktop · Chat")
 app.add_page(chats_dashboard, route="/chats", on_load=AppState.load_chats,
-             title="AJ360 · Chats")
+             title="Open Claude Desktop · Chats")
 app.add_page(customize_page, route="/customize", on_load=AppState.load_customize,
-             title="AJ360 · Customize")
+             title="Open Claude Desktop · Customize")
 app.add_page(code_page, route="/code", on_load=AppState.load_code,
-             title="AJ360 · Code")
+             title="Open Claude Desktop · Code")
 app.add_page(artifacts_page, route="/artifacts", on_load=AppState.load_artifacts,
-             title="AJ360 · Artifacts")
+             title="Open Claude Desktop · Artifacts")
 app.add_page(cowork_page, route="/cowork", on_load=AppState.load_cowork,
-             title="AJ360 · General")
+             title="Open Claude Desktop · General")
 app.add_page(connectors_page, route="/connectors",
-             on_load=AppState.load_connectors_page, title="AJ360 · Connectors")
+             on_load=AppState.load_connectors_page, title="Open Claude Desktop · Connectors")

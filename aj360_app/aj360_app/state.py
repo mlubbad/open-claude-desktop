@@ -1,4 +1,4 @@
-"""Reflex application state for the AJ360 Projects UI."""
+"""Reflex application state for the Open Claude Desktop Projects UI."""
 from __future__ import annotations
 
 import time

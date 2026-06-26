@@ -1,5 +1,5 @@
 """
-AJ360 Semantic BigQuery Agent (v2.4.0)
+Open Claude Desktop — Semantic BigQuery Agent (v2.4.0)
 ========================================
 
 Refactored from v2.3.2 — all review findings addressed:

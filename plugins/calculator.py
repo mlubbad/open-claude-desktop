@@ -1,5 +1,5 @@
 """
-Sample AJ360 plugin — a safe arithmetic calculator.
+Sample Open Claude Desktop plugin — a safe arithmetic calculator.
 
 A plugin is any plugins/*.py module that defines:
   NAME         : str   — unique tool name

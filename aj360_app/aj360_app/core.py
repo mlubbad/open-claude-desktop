@@ -1,5 +1,5 @@
 """
-AJ360 backend core — Chainlit-free.
+Open Claude Desktop backend core — Chainlit-free.
 
 Extracted from the original Chainlit app.py so the Reflex UI can reuse the
 exact same on-disk data: ./projects (registry + per-project instructions/KB),

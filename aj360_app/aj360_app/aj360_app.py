@@ -2,6 +2,7 @@
 import reflex as rx
 
 from .state import AppState
+from .auth import AuthState, login_page
 
 # --------------------------------------------------------------------------- #
 #  Design tokens
@@ -1383,21 +1384,34 @@ app = rx.App(
     stylesheets=["/theme.css"],
     style={"fontFamily": "var(--default-font-family)"},
 )
-app.add_page(dashboard, route="/", on_load=AppState.load_dashboard,
+# C4: /login is the only ungated page; every other page redirects to it via
+# AuthState.require_login (runs first in each on_load) when not authenticated.
+app.add_page(login_page, route="/login", on_load=AuthState.redirect_if_authed,
+             title="Open Claude Desktop · Sign in")
+app.add_page(dashboard, route="/",
+             on_load=[AuthState.require_login, AppState.load_dashboard],
              title="Open Claude Desktop · Projects")
-app.add_page(workspace, route="/project/[pid]", on_load=AppState.load_workspace,
+app.add_page(workspace, route="/project/[pid]",
+             on_load=[AuthState.require_login, AppState.load_workspace],
              title="Open Claude Desktop · Project")
 app.add_page(conversation_page, route="/project/[pid]/c/[cid]",
-             on_load=AppState.load_conversation, title="Open Claude Desktop · Chat")
-app.add_page(chats_dashboard, route="/chats", on_load=AppState.load_chats,
+             on_load=[AuthState.require_login, AppState.load_conversation],
+             title="Open Claude Desktop · Chat")
+app.add_page(chats_dashboard, route="/chats",
+             on_load=[AuthState.require_login, AppState.load_chats],
              title="Open Claude Desktop · Chats")
-app.add_page(customize_page, route="/customize", on_load=AppState.load_customize,
+app.add_page(customize_page, route="/customize",
+             on_load=[AuthState.require_login, AppState.load_customize],
              title="Open Claude Desktop · Customize")
-app.add_page(code_page, route="/code", on_load=AppState.load_code,
+app.add_page(code_page, route="/code",
+             on_load=[AuthState.require_login, AppState.load_code],
              title="Open Claude Desktop · Code")
-app.add_page(artifacts_page, route="/artifacts", on_load=AppState.load_artifacts,
+app.add_page(artifacts_page, route="/artifacts",
+             on_load=[AuthState.require_login, AppState.load_artifacts],
              title="Open Claude Desktop · Artifacts")
-app.add_page(cowork_page, route="/cowork", on_load=AppState.load_cowork,
+app.add_page(cowork_page, route="/cowork",
+             on_load=[AuthState.require_login, AppState.load_cowork],
              title="Open Claude Desktop · General")
 app.add_page(connectors_page, route="/connectors",
-             on_load=AppState.load_connectors_page, title="Open Claude Desktop · Connectors")
+             on_load=[AuthState.require_login, AppState.load_connectors_page],
+             title="Open Claude Desktop · Connectors")

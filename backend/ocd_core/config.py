@@ -46,6 +46,14 @@ GLM_MODELS = list(dict.fromkeys(
 
 # --- effort + settings ---
 EFFORT_LEVELS = ["Low", "Medium", "High", "Max"]
+# Claude-style "Extended thinking" levels — each maps to real backend behaviour
+# (steps cap + planning/verification passes + temperature) in agent.EFFORT.
+EFFORT_DESCRIPTIONS = {
+    "Low": "Fast, direct answers",
+    "Medium": "A little more checking",
+    "High": "Plans before answering",
+    "Max": "Plans, then self-verifies",
+}
 DEFAULT_SETTINGS = {"model": AGENT_MODEL, "effort": "High", "theme": "light"}
 SETTINGS_FILE = REPO_ROOT / "settings.json"
 

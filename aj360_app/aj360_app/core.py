@@ -11,7 +11,6 @@ LLM agent integration are added in a later milestone.
 from __future__ import annotations
 
 import os
-import json
 from pathlib import Path
 
 # --------------------------------------------------------------------------- #
@@ -74,45 +73,13 @@ from ocd_core.knowledge import (  # noqa: E402,F401
 )
 
 # --------------------------------------------------------------------------- #
-#  Global app settings (Customize page)
-#  (SETTINGS_FILE imported from ocd_core.config near the top of this module.)
+#  Global app settings (Customize page) moved into ocd_core so the FastAPI
+#  backend and the Reflex frontend read/write one settings.json. Re-exported
+#  here under their original names (core.get_settings / core.save_settings /
+#  core.EFFORT_DESCRIPTIONS) so every existing UI call site keeps working.
 # --------------------------------------------------------------------------- #
-# Claude-style "Extended thinking" levels — each maps to real backend behaviour
-# (steps cap + planning/verification passes + temperature) in agent.EFFORT.
-EFFORT_DESCRIPTIONS = {
-    "Low": "Fast, direct answers",
-    "Medium": "A little more checking",
-    "High": "Plans before answering",
-    "Max": "Plans, then self-verifies",
-}
-
-
-def get_settings() -> dict:
-    s = dict(DEFAULT_SETTINGS)
-    try:
-        if SETTINGS_FILE.exists():
-            data = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
-            if isinstance(data, dict):
-                # Backward-compat: older files stored "reasoning_level".
-                if "effort" not in data and "reasoning_level" in data:
-                    data["effort"] = data["reasoning_level"]
-                s.update({k: v for k, v in data.items() if k in DEFAULT_SETTINGS})
-    except Exception:
-        pass
-    if s.get("effort") not in EFFORT_LEVELS:
-        s["effort"] = "High"
-    return s
-
-
-def save_settings(values: dict) -> dict:
-    s = get_settings()
-    s.update({k: v for k, v in values.items() if k in DEFAULT_SETTINGS})
-    try:
-        SETTINGS_FILE.write_text(json.dumps(s, ensure_ascii=False, indent=2),
-                                 encoding="utf-8")
-    except Exception:
-        pass
-    return s
+from ocd_core.settings import get_settings, save_settings  # noqa: E402,F401
+from ocd_core.config import EFFORT_DESCRIPTIONS  # noqa: E402,F401
 
 
 # =========================================================================== #

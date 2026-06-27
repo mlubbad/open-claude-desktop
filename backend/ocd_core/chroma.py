@@ -19,8 +19,9 @@ _chroma_lock = threading.Lock()
 
 
 def _get_chroma():
-    # Double-checked locking (mirrors llm.get_llm_client / bigquery.get_bq_client)
-    # so concurrent first-callers don't each build a PersistentClient.
+    # Double-checked locking (unlike the lock-always get_llm_client /
+    # get_bq_client) so concurrent first-callers don't each build a
+    # PersistentClient.
     global _chroma
     if _chroma is None:
         with _chroma_lock:

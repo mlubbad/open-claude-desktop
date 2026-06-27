@@ -13,9 +13,7 @@ from __future__ import annotations
 import os
 import json
 import time
-import uuid
 import threading
-from datetime import datetime, timezone
 from pathlib import Path
 
 # --------------------------------------------------------------------------- #
@@ -43,22 +41,42 @@ from ocd_core.config import (
     GENERAL_NAME,
 )  # noqa: E402
 
-# Pure, dependency-free helpers shared with the FastAPI backend. Imported under
-# their original private names so every existing call site keeps working.
+# Pure, dependency-free helpers shared with the FastAPI backend. Only the two
+# still used by the schema-catalog / SQL-execution code remaining in this module
+# are imported here (slugify/fmt_size/chunk_id/relative_time/format_date moved
+# with the data domain into ocd_core.{projects,conversations,knowledge}).
 from ocd_core.util import (  # noqa: E402
-    slugify as _slugify,
-    fmt_size as _fmt_size,
     fmt_bytes,
-    chunk_id as _chunk_id,
     flatten_fields as _flatten_fields,
-    relative_time,
-    format_date,
 )
 
 PROJECTS_DIR.mkdir(parents=True, exist_ok=True)
-_REGISTRY_FILE = PROJECTS_DIR / "_registry.json"
 
-_TEXT_EXTS = {"sql", "md", "txt", "csv", "json", "py", "yaml", "yml", "log"}
+# --------------------------------------------------------------------------- #
+#  Data domain (projects / conversations / knowledge) + small accessors moved
+#  into ocd_core so the FastAPI backend and the Reflex frontend share one
+#  implementation. Re-exported here under their original names so every existing
+#  call site (core.create_project, core._get_chroma, core.get_llm_client, …)
+#  keeps working unchanged. Behavior parity is the contract.
+# --------------------------------------------------------------------------- #
+from ocd_core.chroma import _get_chroma, get_project_kb_collection  # noqa: E402,F401
+from ocd_core.llm import get_llm_client  # noqa: E402,F401
+from ocd_core.projects import (  # noqa: E402,F401
+    list_projects, get_project, create_project, delete_project,
+    get_project_instructions, save_project_instructions, get_project_memory,
+    save_project_memory, get_project_allowlist, project_capacity,
+    project_card_view,
+)
+from ocd_core.conversations import (  # noqa: E402,F401
+    create_conversation, get_conversation, save_conversation,
+    set_conversation_title, set_conversation_pinned, move_conversation,
+    delete_conversation, list_conversations, list_all_conversations,
+    generate_conversation_title, migrate_legacy_chat_history,
+)
+from ocd_core.knowledge import (  # noqa: E402,F401
+    list_project_files, save_uploaded_file, extract_text_from_file,
+    ingest_file_to_kb, list_all_files, search_project_kb,
+)
 
 # --------------------------------------------------------------------------- #
 #  Global app settings (Customize page)
@@ -102,422 +120,6 @@ def save_settings(values: dict) -> dict:
     return s
 
 
-# --------------------------------------------------------------------------- #
-#  Lazy ChromaDB (only touched for file ingest / KB search, not for listing)
-# --------------------------------------------------------------------------- #
-_chroma = None
-
-
-def _get_chroma():
-    global _chroma
-    if _chroma is None:
-        import chromadb
-        _chroma = chromadb.PersistentClient(path=CHROMA_PATH)
-    return _chroma
-
-
-def get_project_kb_collection(project_id: str):
-    return _get_chroma().get_or_create_collection(f"kb_project_{project_id}")
-
-
-def get_project_allowlist(project_id: str) -> list:
-    """Optional per-project table allowlist (projects/<id>/allowlist.json)."""
-    path = PROJECTS_DIR / project_id / "allowlist.json"
-    if path.exists():
-        try:
-            return json.loads(path.read_text(encoding="utf-8"))
-        except Exception:
-            pass
-    return []
-
-
-# --------------------------------------------------------------------------- #
-#  Projects registry (identical semantics to app.py)
-# --------------------------------------------------------------------------- #
-def _load_registry() -> list[dict]:
-    if _REGISTRY_FILE.exists():
-        try:
-            return json.loads(_REGISTRY_FILE.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
-            return []
-    return []
-
-
-def _save_registry(data: list[dict]):
-    tmp = _REGISTRY_FILE.with_suffix(".tmp")
-    tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
-    tmp.replace(_REGISTRY_FILE)
-
-
-def list_projects() -> list[dict]:
-    return _load_registry()
-
-
-def get_project(project_id: str) -> dict | None:
-    return next((p for p in _load_registry() if p["id"] == project_id), None)
-
-
-def create_project(name: str) -> dict:
-    projects = _load_registry()
-    project_id = _slugify(name)
-    if project_id in {p["id"] for p in projects}:
-        project_id = f"{project_id}-{uuid.uuid4().hex[:4]}"
-
-    (PROJECTS_DIR / project_id / "knowledge").mkdir(parents=True, exist_ok=True)
-    instructions_path = PROJECTS_DIR / project_id / "instructions.md"
-    if not instructions_path.exists():
-        instructions_path.write_text(
-            f"# Instructions for {name}\n\nAdd specific guidelines for this project here.\n",
-            encoding="utf-8")
-
-    meta = {"id": project_id, "name": name,
-            "created_at": datetime.now(timezone.utc).isoformat()}
-    projects.append(meta)
-    _save_registry(projects)
-    return meta
-
-
-def delete_project(project_id: str) -> bool:
-    projects = _load_registry()
-    updated = [p for p in projects if p["id"] != project_id]
-    if len(updated) == len(projects):
-        return False
-    _save_registry(updated)
-    proj_dir = PROJECTS_DIR / project_id
-    if proj_dir.exists():
-        import shutil
-        shutil.rmtree(proj_dir, ignore_errors=True)
-    try:
-        _get_chroma().delete_collection(f"kb_project_{project_id}")
-    except Exception:
-        pass
-    return True
-
-
-def get_project_instructions(project_id: str) -> str:
-    path = PROJECTS_DIR / project_id / "instructions.md"
-    return path.read_text(encoding="utf-8") if path.exists() else ""
-
-
-def save_project_instructions(project_id: str, content: str):
-    path = PROJECTS_DIR / project_id / "instructions.md"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="utf-8")
-
-
-def get_project_memory(project_id: str) -> tuple[str, str]:
-    """Returns (memory_text, last_updated_relative) from optional memory.md."""
-    path = PROJECTS_DIR / project_id / "memory.md"
-    if path.exists():
-        try:
-            text = path.read_text(encoding="utf-8", errors="ignore").strip()
-            return text, relative_time(path.stat().st_mtime)
-        except Exception:
-            return "", ""
-    return "", ""
-
-
-def save_project_memory(project_id: str, content: str):
-    path = PROJECTS_DIR / project_id / "memory.md"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="utf-8")
-
-
-# --------------------------------------------------------------------------- #
-#  Per-project CONVERSATIONS (Claude-style threads)
-#  Each conversation is projects/<id>/conversations/<cid>.json:
-#    {id, title, created_at, updated_at, messages: [{role, content, kind}, ...]}
-#  (CONV_MAX_MESSAGES, GENERAL_ID, GENERAL_NAME imported from ocd_core.config.)
-# --------------------------------------------------------------------------- #
-
-
-def _conv_dir(project_id: str) -> Path:
-    return PROJECTS_DIR / project_id / "conversations"
-
-
-def _conv_path(project_id: str, conv_id: str) -> Path:
-    return _conv_dir(project_id) / f"{conv_id}.json"
-
-
-def _conv_title_from(text: str) -> str:
-    t = " ".join((text or "").split())
-    return (t[:48] + "…") if len(t) > 48 else (t or "New conversation")
-
-
-def _write_conversation(project_id: str, conv: dict):
-    d = _conv_dir(project_id)
-    d.mkdir(parents=True, exist_ok=True)
-    path = _conv_path(project_id, conv["id"])
-    tmp = path.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(conv, ensure_ascii=False), encoding="utf-8")
-    tmp.replace(path)  # atomic
-
-
-def create_conversation(project_id: str, first_message: str) -> dict:
-    now = datetime.now(timezone.utc).isoformat()
-    conv = {
-        "id": uuid.uuid4().hex[:12],
-        "title": _conv_title_from(first_message),
-        "created_at": now, "updated_at": now,
-        "messages": [{"role": "user", "content": first_message, "kind": "user"}],
-    }
-    _write_conversation(project_id, conv)
-    return conv
-
-
-def get_conversation(project_id: str, conv_id: str) -> dict | None:
-    path = _conv_path(project_id, conv_id)
-    if path.exists():
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-            if isinstance(data, dict):
-                return data
-        except Exception:
-            pass
-    return None
-
-
-def save_conversation(project_id: str, conv_id: str, messages: list[dict],
-                      title: str | None = None) -> dict:
-    conv = get_conversation(project_id, conv_id) or {
-        "id": conv_id, "title": title or "Conversation",
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    }
-    conv["messages"] = list(messages)[-CONV_MAX_MESSAGES:]
-    if title:
-        conv["title"] = title
-    conv["updated_at"] = datetime.now(timezone.utc).isoformat()
-    _write_conversation(project_id, conv)
-    return conv
-
-
-def set_conversation_title(project_id: str, conv_id: str, title: str):
-    conv = get_conversation(project_id, conv_id)
-    if conv:
-        conv["title"] = title
-        _write_conversation(project_id, conv)
-
-
-def set_conversation_pinned(project_id: str, conv_id: str, pinned: bool):
-    conv = get_conversation(project_id, conv_id)
-    if conv:
-        conv["pinned"] = bool(pinned)
-        _write_conversation(project_id, conv)
-
-
-def move_conversation(src_pid: str, conv_id: str, dst_pid: str) -> bool:
-    """Move a conversation file from one project (or General) to another."""
-    if src_pid == dst_pid:
-        return True
-    conv = get_conversation(src_pid, conv_id)
-    if not conv:
-        return False
-    _write_conversation(dst_pid, conv)
-    delete_conversation(src_pid, conv_id)
-    return True
-
-
-def delete_conversation(project_id: str, conv_id: str):
-    try:
-        _conv_path(project_id, conv_id).unlink()
-    except Exception:
-        pass
-
-
-def list_conversations(project_id: str) -> list[dict]:
-    """Conversation summaries for the workspace 'Recents' list, newest first."""
-    migrate_legacy_chat_history(project_id)
-    d = _conv_dir(project_id)
-    out = []
-    if d.exists():
-        for f in d.glob("*.json"):
-            try:
-                c = json.loads(f.read_text(encoding="utf-8"))
-                ts = c.get("updated_at") or c.get("created_at") or ""
-                out.append({
-                    "id": c["id"], "title": c.get("title", "Conversation"),
-                    "updated_at": ts, "updated_rel": relative_time(ts) if ts else "recently",
-                    "pinned": bool(c.get("pinned", False)),
-                    "href": f"/project/{project_id}/c/{c['id']}",
-                })
-            except Exception:
-                continue
-    out.sort(key=lambda x: (x["pinned"], x["updated_at"]), reverse=True)
-    return out
-
-
-def list_all_conversations(limit: int = 200) -> list[dict]:
-    """All conversations across every project, newest first.
-
-    Feeds the global sidebar 'Recents' and the Chats dashboard. Each item adds
-    project_id / project_name to the per-project summary shape.
-    """
-    out = []
-    spaces = [(p["id"], p.get("name", "Untitled")) for p in list_projects()]
-    spaces.append((GENERAL_ID, GENERAL_NAME))  # include non-project chats
-    for pid, pname in spaces:
-        for c in list_conversations(pid):
-            out.append({**c, "project_id": pid, "project_name": pname})
-    out.sort(key=lambda x: (x["pinned"], x["updated_at"]), reverse=True)
-    return out[:limit]
-
-
-def list_all_files(limit: int = 500) -> list[dict]:
-    """All KB files across every project (Artifacts library)."""
-    out = []
-    for p in list_projects():
-        for f in list_project_files(p["id"]):
-            out.append({**f, "project_name": p.get("name", "Untitled"),
-                        "project_id": p["id"]})
-    return out[:limit]
-
-
-def generate_conversation_title(first_message: str) -> str:
-    """Short Claude-style title from the first message (best-effort LLM, cheap)."""
-    try:
-        llm = get_llm_client()
-        resp = llm.chat.completions.create(
-            model=FLASH_MODEL, temperature=0.2, max_tokens=20,
-            messages=[{"role": "user", "content":
-                       "Summarize this request as a 3-6 word title. No quotes, no "
-                       f"trailing punctuation:\n\n{first_message}"}])
-        t = (resp.choices[0].message.content or "").strip().strip('"').strip()
-        t = t.split("\n")[0][:60]
-        return t or _conv_title_from(first_message)
-    except Exception:
-        return _conv_title_from(first_message)
-
-
-def migrate_legacy_chat_history(project_id: str):
-    """One-time fold of the old single chat_history.json into a conversation."""
-    legacy = PROJECTS_DIR / project_id / "chat_history.json"
-    if not legacy.exists():
-        return
-    has_convs = _conv_dir(project_id).exists() and any(_conv_dir(project_id).glob("*.json"))
-    if not has_convs:
-        try:
-            msgs = json.loads(legacy.read_text(encoding="utf-8"))
-            if isinstance(msgs, list) and msgs:
-                first = next((m.get("content", "") for m in msgs
-                              if m.get("kind") == "user"), "Imported conversation")
-                now = datetime.now(timezone.utc).isoformat()
-                _write_conversation(project_id, {
-                    "id": uuid.uuid4().hex[:12], "title": _conv_title_from(first),
-                    "created_at": now, "updated_at": now, "messages": msgs})
-        except Exception:
-            pass
-    try:
-        legacy.unlink()
-    except Exception:
-        pass
-
-
-# --------------------------------------------------------------------------- #
-#  Files / capacity
-# --------------------------------------------------------------------------- #
-def _file_meta(path: Path) -> dict:
-    size = path.stat().st_size
-    ext = path.suffix.lstrip(".").lower()
-    if ext in _TEXT_EXTS:
-        try:
-            with open(path, "r", encoding="utf-8", errors="ignore") as fh:
-                meta = f"{sum(1 for _ in fh)} lines"
-        except Exception:
-            meta = _fmt_size(size)
-    else:
-        meta = _fmt_size(size)
-    return {"name": path.name, "meta": meta, "badge": (ext.upper() or "FILE"),
-            "size": size}
-
-
-def list_project_files(project_id: str) -> list[dict]:
-    kb_dir = PROJECTS_DIR / project_id / "knowledge"
-    if not kb_dir.exists():
-        return []
-    return [_file_meta(f) for f in sorted(kb_dir.glob("*")) if f.is_file()]
-
-
-def project_capacity(project_id: str) -> dict:
-    files = list_project_files(project_id)
-    used = sum(f["size"] for f in files)
-    pct = min(int(used / PROJECT_CAPACITY_BYTES * 100), 100) if PROJECT_CAPACITY_BYTES else 0
-    return {"used_mb": round(used / (1024 * 1024), 1),
-            "max_mb": round(PROJECT_CAPACITY_BYTES / (1024 * 1024), 1),
-            "percent": pct}
-
-
-def save_uploaded_file(project_id: str, filename: str, data: bytes) -> Path:
-    kb_dir = PROJECTS_DIR / project_id / "knowledge"
-    kb_dir.mkdir(parents=True, exist_ok=True)
-    dest = kb_dir / Path(filename).name
-    dest.write_bytes(data)
-    return dest
-
-
-# --------------------------------------------------------------------------- #
-#  KB ingest (sync; no Chainlit Step) — chunk + upsert into project collection
-# --------------------------------------------------------------------------- #
-def extract_text_from_file(path: Path) -> str:
-    suffix = path.suffix.lower()
-    if suffix == ".pdf":
-        try:
-            import pdfplumber
-            out = []
-            with pdfplumber.open(str(path)) as pdf:
-                for page in pdf.pages[:50]:
-                    out.append(page.extract_text() or "")
-            return "\n".join(out)
-        except Exception:
-            return ""
-    if suffix == ".csv":
-        try:
-            import pandas as pd
-            df = pd.read_csv(path)
-            return (f"CSV {len(df)} rows, cols: {', '.join(map(str, df.columns))}\n"
-                    + df.head(20).to_string(index=False))
-        except Exception:
-            pass
-    try:
-        return path.read_text(encoding="utf-8", errors="ignore")
-    except Exception:
-        return ""
-
-
-def ingest_file_to_kb(project_id: str, path: Path) -> int:
-    """Chunk a file's text and upsert into the project's ChromaDB collection."""
-    text = extract_text_from_file(path)
-    if not text.strip():
-        return 0
-    collection = get_project_kb_collection(project_id)
-    chunks = [text[i:i + 2000] for i in range(0, len(text), 2000)]
-    total = 0
-    for i in range(0, len(chunks), 20):
-        batch = chunks[i:i + 20]
-        ids = [_chunk_id(f"{project_id}_{path.name}", i + j, batch[j])
-               for j in range(len(batch))]
-        metas = [{"source": path.name, "chunk": i + j, "type": "project_upload",
-                  "project_id": project_id} for j in range(len(batch))]
-        collection.upsert(documents=batch, metadatas=metas, ids=ids)
-        total += len(batch)
-    return total
-
-
-# --------------------------------------------------------------------------- #
-#  Display helpers
-# --------------------------------------------------------------------------- #
-def project_card_view(p: dict) -> dict:
-    """Shape a registry entry for the dashboard card."""
-    instr = get_project_instructions(p["id"])
-    desc = instr.split("\n")[0].replace("#", "").strip()
-    if not desc or len(desc) < 5:
-        desc = "No description provided yet."
-    if len(desc) > 80:
-        desc = desc[:77] + "…"
-    return {"id": p["id"], "name": p.get("name", "Untitled"),
-            "updated": format_date(p.get("created_at", "")), "desc": desc,
-            "href": f"/project/{p['id']}"}
-
-
 # =========================================================================== #
 #  BigQuery + schema catalog + SQL execution  (domain layer, UI-agnostic)
 #  (PROJECT_ID, MAX_BYTES_BILLED, QUERY_TIMEOUT_SEC, MAX_*, CATALOG_DATASETS,
@@ -550,21 +152,12 @@ def get_bq_client():
         return _bq_client
 
 
-# ---- LLM client (ZhipuAI / GLM) ---- #
-_llm_client = None
-_llm_lock = threading.Lock()
+# ---- LLM client (ZhipuAI / GLM): get_llm_client now lives in ocd_core.llm and
+# is re-exported at the top of this module. ----
 
-
-def get_llm_client():
-    global _llm_client
-    with _llm_lock:
-        if _llm_client is None:
-            from zhipuai import ZhipuAI
-            _llm_client = ZhipuAI(api_key=os.getenv("ZHIPU_API_KEY"))
-        return _llm_client
-
-
-# ---- ChromaDB catalog collections (shared with the Chainlit app) ---- #
+# ---- ChromaDB catalog collections (shared with the Chainlit app) ----
+# _schema_catalog / _kb_documents stay here until Task 8; they use the
+# re-exported _get_chroma (from ocd_core.chroma) above.
 def _schema_catalog():
     return _get_chroma().get_or_create_collection("schema_catalog")
 
@@ -655,19 +248,9 @@ def ensure_catalog() -> tuple[int, list[str]]:
 
 # --------------------------------------------------------------------------- #
 #  search_schema — catalog + wiki + isolated project KB
+#  (search_project_kb moved to ocd_core.knowledge and is re-exported at the top
+#   of this module; search_schema below uses that re-exported name.)
 # --------------------------------------------------------------------------- #
-def search_project_kb(project_id: str, question: str, top_k: int = 5) -> str:
-    try:
-        coll = get_project_kb_collection(project_id)
-        if coll.count() > 0:
-            docs = coll.query(query_texts=[question], n_results=top_k)
-            if docs.get("documents") and docs["documents"][0]:
-                return "\n\n---\n\n".join(docs["documents"][0])
-    except Exception:
-        pass
-    return ""
-
-
 def search_schema(question: str, active_project: str | None = None, top_k: int = 6) -> str:
     blocks: list[str] = []
     try:

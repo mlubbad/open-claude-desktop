@@ -11,11 +11,9 @@ LLM agent integration are added in a later milestone.
 from __future__ import annotations
 
 import os
-import re
 import json
 import time
 import uuid
-import hashlib
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
@@ -44,6 +42,18 @@ from ocd_core.config import (
     SETTINGS_FILE, PROJECT_CAPACITY_BYTES, CONV_MAX_MESSAGES, GENERAL_ID,
     GENERAL_NAME,
 )  # noqa: E402
+
+# Pure, dependency-free helpers shared with the FastAPI backend. Imported under
+# their original private names so every existing call site keeps working.
+from ocd_core.util import (  # noqa: E402
+    slugify as _slugify,
+    fmt_size as _fmt_size,
+    fmt_bytes,
+    chunk_id as _chunk_id,
+    flatten_fields as _flatten_fields,
+    relative_time,
+    format_date,
+)
 
 PROJECTS_DIR.mkdir(parents=True, exist_ok=True)
 _REGISTRY_FILE = PROJECTS_DIR / "_registry.json"
@@ -124,11 +134,6 @@ def get_project_allowlist(project_id: str) -> list:
 # --------------------------------------------------------------------------- #
 #  Projects registry (identical semantics to app.py)
 # --------------------------------------------------------------------------- #
-def _slugify(text: str) -> str:
-    slug = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
-    return slug or "untitled"
-
-
 def _load_registry() -> list[dict]:
     if _REGISTRY_FILE.exists():
         try:
@@ -452,11 +457,6 @@ def save_uploaded_file(project_id: str, filename: str, data: bytes) -> Path:
 # --------------------------------------------------------------------------- #
 #  KB ingest (sync; no Chainlit Step) — chunk + upsert into project collection
 # --------------------------------------------------------------------------- #
-def _chunk_id(filename: str, idx: int, content: str) -> str:
-    h = hashlib.sha256(f"{filename}:{idx}:{content[:500]}".encode()).hexdigest()[:20]
-    return f"{filename}_{idx}_{h}"
-
-
 def extract_text_from_file(path: Path) -> str:
     suffix = path.suffix.lower()
     if suffix == ".pdf":
@@ -505,51 +505,6 @@ def ingest_file_to_kb(project_id: str, path: Path) -> int:
 # --------------------------------------------------------------------------- #
 #  Display helpers
 # --------------------------------------------------------------------------- #
-def _fmt_size(n: int) -> str:
-    return f"{n // 1024} KB" if n < 1024 * 1024 else f"{n / (1024 * 1024):.1f} MB"
-
-
-def format_date(iso_str: str) -> str:
-    try:
-        dt = datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
-        return f"{dt.strftime('%b')} {dt.day}"
-    except Exception:
-        return "Recently"
-
-
-def relative_time(value) -> str:
-    try:
-        if isinstance(value, str):
-            dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
-        elif isinstance(value, (int, float)):
-            dt = datetime.fromtimestamp(value, tz=timezone.utc)
-        else:
-            dt = value
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        secs = (datetime.now(timezone.utc) - dt).total_seconds()
-        if secs < 60:
-            return "just now"
-        if secs < 3600:
-            m = int(secs // 60)
-            return f"{m} minute{'s' if m != 1 else ''} ago"
-        if secs < 86400:
-            h = int(secs // 3600)
-            return f"{h} hour{'s' if h != 1 else ''} ago"
-        days = int(secs // 86400)
-        if days == 1:
-            return "yesterday"
-        if days < 7:
-            return f"{days} days ago"
-        if days < 30:
-            return f"{days // 7} week{'s' if days // 7 != 1 else ''} ago"
-        if days < 365:
-            return f"{days // 30} month{'s' if days // 30 != 1 else ''} ago"
-        return f"{days // 365} year{'s' if days // 365 != 1 else ''} ago"
-    except Exception:
-        return "recently"
-
-
 def project_card_view(p: dict) -> dict:
     """Shape a registry entry for the dashboard card."""
     instr = get_project_instructions(p["id"])
@@ -621,16 +576,6 @@ def _kb_documents():
 # --------------------------------------------------------------------------- #
 #  Schema catalog build (sync; callers wrap in asyncio.to_thread)
 # --------------------------------------------------------------------------- #
-def _flatten_fields(fields, prefix=""):
-    out = []
-    for f in fields:
-        name = f"{prefix}{f.name}"
-        out.append((name, f.field_type, f.mode or "NULLABLE"))
-        if f.field_type == "RECORD" and f.fields:
-            out.extend(_flatten_fields(f.fields, prefix=name + "."))
-    return out
-
-
 def _catalog_version_matches() -> bool:
     try:
         return _CATALOG_VERSION_FILE.exists() and \
@@ -765,15 +710,7 @@ def search_schema(question: str, active_project: str | None = None, top_k: int =
 # --------------------------------------------------------------------------- #
 #  SQL validation + execution (read-only analytics policy)
 # --------------------------------------------------------------------------- #
-def fmt_bytes(n) -> str:
-    if not n:
-        return "0 B"
-    for unit in ("B", "KB", "MB", "GB", "TB"):
-        if n < 1024 or unit == "TB":
-            return f"{n:.1f} {unit}"
-        n /= 1024
-
-
+# fmt_bytes moved to ocd_core.util (imported near the top of this module).
 # _check_banned_aliases moved to ocd_core.sql_guard.check_banned_aliases
 # (shared with the Chainlit app).
 

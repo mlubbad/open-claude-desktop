@@ -9,13 +9,18 @@ _EXACT = {
     "projects": {"/projects"},
     "skills": {"/skills"},
     "reload_skills": {"/reload-skills"},
-    "lint_knowledge": {"/lint-knowledge"},
 }
 _EXACT_MULTI = {"refresh_catalog": {"/refresh-catalog", "/rebuild-catalog"}}
+# Prefix-matched commands. app.py uses `goal.lower().startswith(<prefix>)`:
+#   - "/project " carries a TRAILING SPACE, so bare "/project" (or "/project "
+#     after .strip()) never matches and falls through to skill matching.
+#   - "/set-instructions", "/learn-finding", "/lint-knowledge" have no trailing
+#     space, so they match both the bare command and "<cmd> <arg>".
 _PREFIX = {
     "project": "/project ",
     "set_instructions": "/set-instructions",
     "learn_finding": "/learn-finding",
+    "lint_knowledge": "/lint-knowledge",
 }
 
 
@@ -33,7 +38,7 @@ def parse(text: str) -> Command:
         if low in prefixes:
             return Command(name=name, arg="", raw=raw)
     for name, prefix in _PREFIX.items():
-        if low == prefix.strip() or low.startswith(prefix):
+        if low.startswith(prefix):
             return Command(name=name, arg=raw[len(prefix):].strip(), raw=raw)
     return Command(name=None, arg=raw, raw=raw)
 

@@ -19,6 +19,16 @@ def test_plain_message_is_not_a_command():
     assert p.name is None and p.arg == "how many users last week?"
 
 
+def test_bare_project_is_not_a_command():
+    assert commands.parse("/project").name is None
+    assert commands.parse("/project ").name is None   # only trailing space, stripped
+
+
+def test_lint_knowledge_with_arg_is_prefix_matched():
+    assert commands.parse("/lint-knowledge").name == "lint_knowledge"
+    assert commands.parse("/lint-knowledge extra text").name == "lint_knowledge"
+
+
 def test_resolve_explicit_skill_strips_prefix(tmp_path):
     (tmp_path / "hero.md").write_text(
         "name: hero\nauto: true\ntriggers: hero\n\nHero help", encoding="utf-8")

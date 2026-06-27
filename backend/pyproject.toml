@@ -21,7 +21,8 @@ dependencies = [
 dev = ["pytest", "ruff", "mypy"]
 
 [tool.setuptools]
-# NOTE: ocd_core.integrations is added in a later task once that subpackage exists.
+# Flat package: all ocd_core/*.py modules (config, integrations, agent, …) ship
+# under this one entry. A future cleanup may split integrations into a subpackage.
 packages = ["ocd_core"]
 package-dir = {"" = "."}
 

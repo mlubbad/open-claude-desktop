@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ocd-backend"
+version = "0.3.0"
+requires-python = ">=3.12"
+dependencies = [
+  "zhipuai",
+  "google-cloud-bigquery",
+  "google-auth",
+  "chromadb",
+  "pandas",
+  "pdfplumber",
+  "mcp",
+  "python-dotenv",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "ruff", "mypy"]
+
+[tool.setuptools]
+# NOTE: ocd_core.integrations is added in a later task once that subpackage exists.
+packages = ["ocd_core"]
+package-dir = {"" = "."}
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

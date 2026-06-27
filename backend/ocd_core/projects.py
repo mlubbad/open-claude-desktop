@@ -11,7 +11,7 @@ import uuid
 from datetime import datetime, timezone
 
 from . import config, util
-from .chroma import get_project_kb_collection, _get_chroma  # noqa: F401
+from .chroma import _get_chroma
 
 # Match core.py: ensure the projects dir exists and snapshot the registry path.
 config.PROJECTS_DIR.mkdir(parents=True, exist_ok=True)

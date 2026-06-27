@@ -7,19 +7,26 @@ contract — do NOT change the logic.
 """
 from __future__ import annotations
 
+import threading
+
 from . import config
 
 # --------------------------------------------------------------------------- #
 #  Lazy ChromaDB (only touched for file ingest / KB search, not for listing)
 # --------------------------------------------------------------------------- #
 _chroma = None
+_chroma_lock = threading.Lock()
 
 
 def _get_chroma():
+    # Double-checked locking (mirrors llm.get_llm_client / bigquery.get_bq_client)
+    # so concurrent first-callers don't each build a PersistentClient.
     global _chroma
     if _chroma is None:
-        import chromadb
-        _chroma = chromadb.PersistentClient(path=config.CHROMA_PATH)
+        with _chroma_lock:
+            if _chroma is None:
+                import chromadb
+                _chroma = chromadb.PersistentClient(path=config.CHROMA_PATH)
     return _chroma
 
 

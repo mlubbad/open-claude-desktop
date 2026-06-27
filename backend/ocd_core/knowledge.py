@@ -12,7 +12,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from . import config, util
-from .chroma import get_project_kb_collection, _get_chroma  # noqa: F401
+from .chroma import get_project_kb_collection
 
 # Matches core.py: extensions whose _file_meta reports a line count.
 _TEXT_EXTS = {"sql", "md", "txt", "csv", "json", "py", "yaml", "yml", "log"}

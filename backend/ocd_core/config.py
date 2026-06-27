@@ -65,4 +65,4 @@ AUDIT_LOG_MAX_BYTES = int(os.getenv("AUDIT_LOG_MAX_BYTES", str(10 * 1024 * 1024)
 AUDIT_LOG_BACKUPS = int(os.getenv("AUDIT_LOG_BACKUPS", "5"))
 
 # --- write posture (kept; intentionally aj360-prefixed per project memory) ---
-ALLOW_WRITES = os.getenv("AJ360_ALLOW_WRITES", "").lower() in ("1", "true", "yes")
+ALLOW_WRITES = os.getenv("AJ360_ALLOW_WRITES", "false").strip().lower() in ("1", "true", "yes")

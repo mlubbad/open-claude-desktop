@@ -41,7 +41,8 @@ from ocd_core.config import (
     MAX_STORED_ROWS, MAX_COLS_PER_CARD, MAX_TABLE_ROWS_UI, CATALOG_DATASETS,
     _CATALOG_VERSION, _CATALOG_VERSION_FILE, GENERIC_COLS, AGENT_MODEL,
     FLASH_MODEL, VISION_MODEL, GLM_MODELS, EFFORT_LEVELS, DEFAULT_SETTINGS,
-    PROJECT_CAPACITY_BYTES, CONV_MAX_MESSAGES, GENERAL_ID, GENERAL_NAME,
+    SETTINGS_FILE, PROJECT_CAPACITY_BYTES, CONV_MAX_MESSAGES, GENERAL_ID,
+    GENERAL_NAME,
 )  # noqa: E402
 
 PROJECTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -51,8 +52,8 @@ _TEXT_EXTS = {"sql", "md", "txt", "csv", "json", "py", "yaml", "yml", "log"}
 
 # --------------------------------------------------------------------------- #
 #  Global app settings (Customize page)
+#  (SETTINGS_FILE imported from ocd_core.config near the top of this module.)
 # --------------------------------------------------------------------------- #
-_SETTINGS_FILE = REPO_ROOT / "settings.json"
 # Claude-style "Extended thinking" levels — each maps to real backend behaviour
 # (steps cap + planning/verification passes + temperature) in agent.EFFORT.
 EFFORT_DESCRIPTIONS = {
@@ -66,8 +67,8 @@ EFFORT_DESCRIPTIONS = {
 def get_settings() -> dict:
     s = dict(DEFAULT_SETTINGS)
     try:
-        if _SETTINGS_FILE.exists():
-            data = json.loads(_SETTINGS_FILE.read_text(encoding="utf-8"))
+        if SETTINGS_FILE.exists():
+            data = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
             if isinstance(data, dict):
                 # Backward-compat: older files stored "reasoning_level".
                 if "effort" not in data and "reasoning_level" in data:
@@ -84,8 +85,8 @@ def save_settings(values: dict) -> dict:
     s = get_settings()
     s.update({k: v for k, v in values.items() if k in DEFAULT_SETTINGS})
     try:
-        _SETTINGS_FILE.write_text(json.dumps(s, ensure_ascii=False, indent=2),
-                                  encoding="utf-8")
+        SETTINGS_FILE.write_text(json.dumps(s, ensure_ascii=False, indent=2),
+                                 encoding="utf-8")
     except Exception:
         pass
     return s

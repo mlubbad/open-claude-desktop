@@ -6,9 +6,9 @@ NOT "improve" the logic here; change the call sites instead if behavior must
 evolve.
 
 Public names: slugify, fmt_bytes, relative_time, format_date, chunk_id,
-flatten_fields. Private back-compat aliases (_slugify, _fmt_size/_fmt_bytes,
-_chunk_id, _flatten_fields) match the original names so existing call sites keep
-working unchanged.
+flatten_fields. Private back-compat aliases (_slugify, _fmt_size, _chunk_id,
+_flatten_fields) match the original names so existing call sites keep working
+unchanged.
 """
 from __future__ import annotations
 
@@ -95,6 +95,6 @@ def relative_time(value) -> str:
 # call sites (e.g. core._slugify, core._fmt_size, core._chunk_id,
 # core._flatten_fields) keep working after they import from here.
 _slugify = slugify
-_fmt_size = _fmt_bytes = fmt_size
+_fmt_size = fmt_size
 _chunk_id = chunk_id
 _flatten_fields = flatten_fields

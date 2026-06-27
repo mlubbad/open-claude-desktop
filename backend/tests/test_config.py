@@ -21,3 +21,9 @@ def test_env_override(monkeypatch):
     cfg = importlib.reload(importlib.import_module("ocd_core.config"))
     assert cfg.PROJECT_ID == "my-proj"
     assert cfg.CATALOG_DATASETS == ["a", "b", "c"]
+
+def test_fractional_gb_parses_like_old_behavior(monkeypatch):
+    import importlib
+    monkeypatch.setenv("MAX_BYTES_BILLED_GB", "0.5")
+    cfg = importlib.reload(importlib.import_module("ocd_core.config"))
+    assert cfg.MAX_BYTES_BILLED == int(0.5 * (1024 ** 3))

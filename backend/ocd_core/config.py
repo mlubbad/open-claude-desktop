@@ -5,8 +5,9 @@ import os
 from pathlib import Path
 
 # --- paths (data dir override) ---
-REPO_ROOT = Path(os.getenv("AJ360_DATA_DIR", "")).resolve() if os.getenv("AJ360_DATA_DIR") \
-    else Path(__file__).resolve().parents[2]
+# Match the pre-refactor core.py exactly: the AJ360_DATA_DIR override is taken
+# verbatim (no .resolve()); only the default branch resolves __file__.
+REPO_ROOT = Path(os.getenv("AJ360_DATA_DIR", str(Path(__file__).resolve().parents[2])))
 PROJECTS_DIR = Path(os.getenv("PROJECTS_DIR", str(REPO_ROOT / "projects")))
 KNOWLEDGE_DIR = Path(os.getenv("KNOWLEDGE_DIR", str(REPO_ROOT / "knowledge")))
 CHROMA_PATH = os.getenv("CHROMA_PATH", str(REPO_ROOT / "chroma_db"))
@@ -16,7 +17,7 @@ PLUGINS_DIR = Path(os.getenv("PLUGINS_DIR", str(REPO_ROOT / "plugins")))
 # --- BigQuery ---
 PROJECT_ID = os.getenv("GCP_PROJECT_ID", "ajgc-dig-jjc-prod-jawacloud-01")
 _GB = 1024 ** 3
-MAX_BYTES_BILLED = int(os.getenv("MAX_BYTES_BILLED_GB", "100")) * _GB
+MAX_BYTES_BILLED = int(float(os.getenv("MAX_BYTES_BILLED_GB", "100")) * _GB)
 QUERY_TIMEOUT_SEC = int(os.getenv("QUERY_TIMEOUT_SEC", "300"))
 MAX_RETURN_ROWS = 50
 MAX_STORED_ROWS = 5000

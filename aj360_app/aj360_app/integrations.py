@@ -18,78 +18,21 @@ SKILLS_DIR = Path(core.os.getenv("SKILLS_DIR", str(core.REPO_ROOT / "skills")))
 
 # --------------------------------------------------------------------------- #
 #  Skills  (skills/*.md with optional YAML-ish frontmatter)
+#
+#  Canonical implementation now lives in ocd_core.skills (merged with the copy
+#  that used to live in root app.py). Re-exported here so the integrations
+#  public API (list_skills/get_skill/matching_skill, plus the private alias
+#  _split_frontmatter) is unchanged. ocd_core.skills defaults to
+#  config.SKILLS_DIR, which resolves to the same skills/ dir as SKILLS_DIR above.
+#  The returned dicts are a superset of the old ones (they additionally carry
+#  file_triggers + references), which is backward-compatible for callers.
 # --------------------------------------------------------------------------- #
-_SKILL_FIELDS = {"name", "description", "auto", "triggers", "disabled",
-                 "file_triggers", "references"}
-
-
-def _split_frontmatter(raw: str) -> tuple[list[str], str]:
-    """Return (frontmatter_lines, body). Supports `---` fences OR bare leading
-    `key: value` lines (this repo's skills/*.md use the bare form)."""
-    m = re.match(r"^---\s*\n(.*?)\n---\s*\n?(.*)$", raw, re.DOTALL)
-    if m:
-        return m.group(1).splitlines(), m.group(2).strip()
-    lines = raw.splitlines()
-    front, body_start = [], len(lines)
-    for i, line in enumerate(lines):
-        key = line.split(":", 1)[0].strip().lower() if ":" in line else ""
-        if key in _SKILL_FIELDS:
-            front.append(line)
-        else:
-            body_start = i
-            break
-    return front, "\n".join(lines[body_start:]).strip()
-
-
-def list_skills() -> list[dict]:
-    out = []
-    if not SKILLS_DIR.is_dir():
-        return out
-    for md in sorted(SKILLS_DIR.glob("*.md")):
-        try:
-            raw = md.read_text(encoding="utf-8")
-        except Exception:
-            continue
-        front, body = _split_frontmatter(raw)
-        name, description, disabled = md.stem, "", False
-        auto, triggers = False, []
-        for line in front:
-            if ":" not in line:
-                continue
-            k, _, v = line.partition(":")
-            k, v = k.strip().lower(), v.strip()
-            if k == "name":
-                name = v
-            elif k == "description":
-                description = v
-            elif k == "disabled":
-                disabled = v.lower() in ("true", "yes", "1")
-            elif k == "auto":
-                auto = v.lower() in ("true", "yes", "1")
-            elif k == "triggers":
-                triggers = [t.strip() for t in v.split(",") if t.strip()]
-        if disabled:
-            continue
-        out.append({"name": name, "description": description or "Skill",
-                    "instructions": body or raw.strip(),
-                    "auto": auto, "triggers": triggers})
-    return out
-
-
-def get_skill(name: str) -> dict | None:
-    return next((s for s in list_skills() if s["name"] == name), None)
-
-
-def matching_skill(text: str) -> str:
-    """Name of the first auto-skill whose triggers word-match the text ('' if none)."""
-    low = (text or "").lower()
-    for s in list_skills():
-        if not s.get("auto"):
-            continue
-        for t in s.get("triggers", []):
-            if re.search(r"\b" + re.escape(t.lower()) + r"\b", low):
-                return s["name"]
-    return ""
+from ocd_core.skills import (  # noqa: E402
+    split_frontmatter as _split_frontmatter,
+    list_skills,
+    get_skill,
+    matching_skill,
+)
 
 
 # --------------------------------------------------------------------------- #

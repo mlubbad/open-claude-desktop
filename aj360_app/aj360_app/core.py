@@ -25,36 +25,27 @@ from pathlib import Path
 #  core.py lives at <repo>/aj360_app/aj360_app/core.py -> parents[2] == <repo>.
 #  Override with AJ360_DATA_DIR if the layout ever changes.
 # --------------------------------------------------------------------------- #
-REPO_ROOT = Path(os.getenv("AJ360_DATA_DIR", str(Path(__file__).resolve().parents[2])))
-
-# Load the shared .env (ZHIPU_API_KEY, GCP_PROJECT_ID, …) from the repo root.
+# Load the shared .env (ZHIPU_API_KEY, GCP_PROJECT_ID, …) from the repo root
+# BEFORE importing ocd_core.config (which reads these env vars at import time).
+_repo_root_for_env = Path(os.getenv("AJ360_DATA_DIR", str(Path(__file__).resolve().parents[2])))
 try:
     from dotenv import load_dotenv
-    load_dotenv(REPO_ROOT / ".env")
+    load_dotenv(_repo_root_for_env / ".env")
 except Exception:
     pass
 
-PROJECTS_DIR = Path(os.getenv("PROJECTS_DIR", str(REPO_ROOT / "projects")))
-KNOWLEDGE_DIR = Path(os.getenv("KNOWLEDGE_DIR", str(REPO_ROOT / "knowledge")))
-CHROMA_PATH = os.getenv("CHROMA_PATH", str(REPO_ROOT / "chroma_db"))
+# Single source of truth for env-driven configuration (de-dups app.py/core.py).
+from ocd_core.config import (
+    REPO_ROOT, PROJECTS_DIR, KNOWLEDGE_DIR, CHROMA_PATH, SKILLS_DIR, PLUGINS_DIR,
+    PROJECT_ID, MAX_BYTES_BILLED, QUERY_TIMEOUT_SEC, MAX_RETURN_ROWS,
+    MAX_STORED_ROWS, MAX_COLS_PER_CARD, MAX_TABLE_ROWS_UI, CATALOG_DATASETS,
+    _CATALOG_VERSION, _CATALOG_VERSION_FILE, GENERIC_COLS, AGENT_MODEL,
+    FLASH_MODEL, VISION_MODEL, GLM_MODELS, EFFORT_LEVELS, DEFAULT_SETTINGS,
+    PROJECT_CAPACITY_BYTES, CONV_MAX_MESSAGES, GENERAL_ID, GENERAL_NAME,
+)  # noqa: E402
 
 PROJECTS_DIR.mkdir(parents=True, exist_ok=True)
 _REGISTRY_FILE = PROJECTS_DIR / "_registry.json"
-
-# Per-project storage cap shown in the UI (mock, matches the Chainlit app).
-PROJECT_CAPACITY_BYTES = int(os.getenv("PROJECT_CAPACITY_MB", "50")) * 1024 * 1024
-
-# Models (for the chat composer pill / settings).
-AGENT_MODEL = os.getenv("AGENT_MODEL", os.getenv("PLANNER_MODEL", "glm-4-plus"))
-# Cheap tier for low-complexity sub-tasks (titles, short structuring/summaries).
-# Reserve AGENT_MODEL for the main reasoning/agent loop.
-FLASH_MODEL = os.getenv("FLASH_MODEL", "glm-4-flash")
-_glm_default = f"{AGENT_MODEL},glm-4.5-air,glm-4-flash,glm-4-long"
-GLM_MODELS: list[str] = []
-for _m in os.getenv("GLM_MODELS", _glm_default).split(","):
-    _m = _m.strip()
-    if _m and _m not in GLM_MODELS:
-        GLM_MODELS.append(_m)
 
 _TEXT_EXTS = {"sql", "md", "txt", "csv", "json", "py", "yaml", "yml", "log"}
 
@@ -62,7 +53,6 @@ _TEXT_EXTS = {"sql", "md", "txt", "csv", "json", "py", "yaml", "yml", "log"}
 #  Global app settings (Customize page)
 # --------------------------------------------------------------------------- #
 _SETTINGS_FILE = REPO_ROOT / "settings.json"
-EFFORT_LEVELS = ["Low", "Medium", "High", "Max"]
 # Claude-style "Extended thinking" levels — each maps to real backend behaviour
 # (steps cap + planning/verification passes + temperature) in agent.EFFORT.
 EFFORT_DESCRIPTIONS = {
@@ -71,7 +61,6 @@ EFFORT_DESCRIPTIONS = {
     "High": "Plans before answering",
     "Max": "Plans, then self-verifies",
 }
-DEFAULT_SETTINGS = {"model": AGENT_MODEL, "effort": "High", "theme": "light"}
 
 
 def get_settings() -> dict:
@@ -232,12 +221,8 @@ def save_project_memory(project_id: str, content: str):
 #  Per-project CONVERSATIONS (Claude-style threads)
 #  Each conversation is projects/<id>/conversations/<cid>.json:
 #    {id, title, created_at, updated_at, messages: [{role, content, kind}, ...]}
+#  (CONV_MAX_MESSAGES, GENERAL_ID, GENERAL_NAME imported from ocd_core.config.)
 # --------------------------------------------------------------------------- #
-CONV_MAX_MESSAGES = int(os.getenv("CONV_MAX_MESSAGES", "400"))
-
-# Reserved space for non-project ("General") conversations — New chat / Cowork.
-GENERAL_ID = "general"
-GENERAL_NAME = "General"
 
 
 def _conv_dir(project_id: str) -> Path:
@@ -579,36 +564,12 @@ def project_card_view(p: dict) -> dict:
 
 # =========================================================================== #
 #  BigQuery + schema catalog + SQL execution  (domain layer, UI-agnostic)
+#  (PROJECT_ID, MAX_BYTES_BILLED, QUERY_TIMEOUT_SEC, MAX_*, CATALOG_DATASETS,
+#   _CATALOG_VERSION[_FILE], GENERIC_COLS, VISION_MODEL imported from
+#   ocd_core.config near the top of this module.)
 # =========================================================================== #
-PROJECT_ID = os.getenv("GCP_PROJECT_ID", "ajgc-dig-jjc-prod-jawacloud-01")
-_GB = 1024 ** 3
-MAX_BYTES_BILLED = int(float(os.getenv("MAX_BYTES_BILLED_GB", "100")) * _GB)
-QUERY_TIMEOUT_SEC = int(os.getenv("QUERY_TIMEOUT_SEC", "300"))
-MAX_RETURN_ROWS = 50          # rows handed back to the LLM
-MAX_STORED_ROWS = 5000        # rows materialised in memory
-MAX_COLS_PER_CARD = 200
-MAX_TABLE_ROWS_UI = 50        # rows rendered in the chat table
-
-CATALOG_DATASETS = [
-    d.strip() for d in os.getenv(
-        "CATALOG_DATASETS",
-        "aj360,aj360_platform,aj360_search_analytics,"
-        "al_jazeera_data_models,aj360_ds,aj360_monitoring,"
-        "aj360_marts,aj360_acquisition_analytics",
-    ).split(",") if d.strip()
-]
-_CATALOG_VERSION = hashlib.md5(",".join(sorted(CATALOG_DATASETS)).encode()).hexdigest()[:12]
-_CATALOG_VERSION_FILE = KNOWLEDGE_DIR / ".catalog_version"
-
-GENERIC_COLS = {
-    "date", "name", "value", "type", "key", "status", "id", "count", "total",
-    "country", "city", "region", "month", "week", "weekday", "source", "medium",
-    "device", "category", "title", "description", "label", "url", "hour", "day",
-}
 # Read-only SQL guard — single source of truth shared with the Chainlit app.
 from ocd_core.sql_guard import BANNED_ALIASES, check_banned_aliases  # noqa: E402,F401
-
-VISION_MODEL = os.getenv("VISION_MODEL", "glm-4v-plus")
 
 _bq_client = None
 _bq_lock = threading.Lock()

@@ -6,18 +6,30 @@ Open Claude Desktop BigQuery agent — UI-agnostic orchestration layer.
 (Reflex, Chainlit, CLI) can consume the stream and render it however it likes —
 the agent knows nothing about the UI.
 
-Event shapes (all dicts with a "type"):
-  {"type": "thought",     "text": str, "phase": str,         # reasoning; phase is
-                          "elapsed": int}                    #   "plan"|"narration"
-  {"type": "verify",      "text": str}                       # self-verification pass
-  {"type": "tool",        "name": str, "detail": str}        # a tool call started
-  {"type": "tool_result", "name": str, "summary": str}       # non-table tool output
-  {"type": "sources",     "items": list}                     # web/research citations:
-                          #   [{"title": str, "url": str, "snippet": str}, ...]
-  {"type": "table",       "columns": list, "rows": list,     # SELECT result
+Event shapes (all dicts with a "type"). These are what `run_turn` actually
+yields; the API layer appends a terminal {"type": "done"} after the stream ends.
+
+  Thinking / answer framing (panel open/close + region switching):
+  {"type": "think_open",      "phase": str}                  # phase "plan"|"verify"
+  {"type": "think_close",     "elapsed": int}                # seconds spent thinking
+  {"type": "answer_open"}                                    # begin the answer region
+  {"type": "answer_to_think", "phase": str, "elapsed": int}  # fold a stray bit back
+                                                             #   into the think panel
+
+  Streamed text (token deltas):
+  {"type": "delta", "scope": str, "text": str}               # scope "answer"|"think"
+
+  Tool lifecycle (all carry "id" = the tool_call_id):
+  {"type": "tool",        "id": str, "name": str, "input": str,
+                          "label_running": str, "label_done": str, "icon": str}
+  {"type": "tool_result", "id": str, "name": str, "summary": str}   # non-table output
+  {"type": "tool_error",  "id": str, "name": str, "text": str}      # tool failed
+  {"type": "table",       "id": str, "columns": list, "rows": list, # SELECT result
                           "total": int, "bytes": int}
-  {"type": "final",       "text": str, "verify_elapsed": int}  # the answer
-  {"type": "error",       "text": str}
+  {"type": "sources",     "id": str, "items": list}          # web/research citations
+
+  Failure:
+  {"type": "error", "text": str}                             # the turn could not proceed
 
 Effort levels (Low/Medium/High/Max) control the depth of multi-turn thinking:
   Low/Medium — direct tool loop, no extra reasoning passes.

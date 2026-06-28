@@ -1,9 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
-from ocd_core import settings
-
-from ..deps import current_user
+from fastapi import APIRouter
 
 router = APIRouter()
 
@@ -21,9 +18,3 @@ def readyz() -> dict:
         return {"status": "ready"}
     except Exception as e:
         return {"status": "unavailable", "error": str(e)}
-
-
-# Temporary settings probe (moved to routes/settings.py in Task 5)
-@router.get("/settings")
-def get_settings(user: str = Depends(current_user)) -> dict:
-    return settings.get_settings()

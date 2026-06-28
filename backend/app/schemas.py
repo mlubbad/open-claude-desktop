@@ -38,3 +38,39 @@ class AgentTurnRequest(BaseModel):
     enabled_plugins: list[str] = []
     enabled_connectors: list[str] = []
     enabled_mcp: list[str] = []
+
+
+class ProjectCreate(BaseModel):
+    name: str
+
+
+class TextBody(BaseModel):       # instructions / memory
+    content: str
+
+
+class AllowlistBody(BaseModel):
+    tables: list[str]
+
+
+class ConversationCreate(BaseModel):
+    first_message: str
+
+
+class ConversationSave(BaseModel):
+    messages: list[Message]
+    title: str | None = None
+
+
+class ConversationPatch(BaseModel):
+    title: str | None = None
+    pinned: bool | None = None
+
+
+class MoveBody(BaseModel):
+    dst_project_id: str
+
+
+class SettingsBody(BaseModel):
+    model: str | None = None
+    effort: str | None = None
+    theme: str | None = None

@@ -21,6 +21,7 @@ import base64
 import hashlib
 import hmac
 import os
+import time
 
 # Session lifetime (seconds). Default 7 days; override with AUTH_SESSION_TTL_SEC.
 _TTL = int(os.getenv("AUTH_SESSION_TTL_SEC", str(7 * 24 * 3600)))
@@ -57,19 +58,33 @@ def make_token(username: str, now: int) -> str:
     return base64.urlsafe_b64encode(raw.encode()).decode()
 
 
-def verify_token(token: str, now: int) -> bool:
-    """True iff the token is well-formed, unexpired, and correctly signed."""
+def decode_token(token: str, now: int | None = None) -> str | None:
+    """Return the username IFF the token is well-formed, unexpired, and
+    correctly signed; otherwise None.
+
+    ``now`` defaults to the current wall-clock time so callers (e.g. the
+    FastAPI auth dependency) need not thread a clock through every request.
+    """
+    if now is None:
+        now = int(time.time())
     if not token or not _secret():
-        return False
+        return None
     try:
         raw = base64.urlsafe_b64decode(token.encode()).decode()
         username, exp_s, sig = raw.split("|")
         exp = int(exp_s)
     except Exception:
-        return False
+        return None
     if exp < now:
-        return False
-    return hmac.compare_digest(sig, _sign(username, exp))
+        return None
+    if not hmac.compare_digest(sig, _sign(username, exp)):
+        return None
+    return username
+
+
+def verify_token(token: str, now: int) -> bool:
+    """True iff the token is well-formed, unexpired, and correctly signed."""
+    return decode_token(token, now) is not None
 
 
 def credentials_ok(username: str, password: str) -> bool:

@@ -51,6 +51,19 @@ def test_auth_disabled_when_unset(monkeypatch):
     assert a.auth_enabled() is False
 
 
+def test_decode_token_returns_username(monkeypatch):
+    import time
+    monkeypatch.setenv("CHAINLIT_AUTH_SECRET", "s")
+    a = importlib.reload(importlib.import_module("ocd_core.auth"))
+    now = int(time.time())
+    tok = a.make_token("alice", now)
+    assert a.decode_token(tok, now) == "alice"
+    assert a.decode_token(tok, now + 10**9) is None      # expired
+    assert a.decode_token(tok + "x", now) is None         # tampered
+    assert a.decode_token("garbage", now) is None
+    assert a.decode_token(tok) == "alice"                 # now defaults to time.time()
+
+
 def test_app_auth_secret_preferred_over_chainlit(monkeypatch):
     """Back-compat: APP_AUTH_SECRET is preferred, CHAINLIT_AUTH_SECRET is the
     fallback. A token minted under APP_AUTH_SECRET must verify under it."""

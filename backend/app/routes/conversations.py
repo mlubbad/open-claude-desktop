@@ -4,7 +4,13 @@ from fastapi import APIRouter, Depends, HTTPException
 from ocd_core import conversations
 
 from ..deps import current_user
-from ..schemas import ConversationCreate, ConversationPatch, ConversationSave, MoveBody
+from ..schemas import (
+    ConversationCreate,
+    ConversationPatch,
+    ConversationSave,
+    MoveBody,
+    TitleRequest,
+)
 
 router = APIRouter()
 
@@ -55,3 +61,8 @@ def move_conv(pid: str, cid: str, body: MoveBody, user: str = Depends(current_us
 @router.get("/conversations")
 def list_all(limit: int = 200, user: str = Depends(current_user)) -> list[dict]:
     return conversations.list_all_conversations(limit)
+
+
+@router.post("/conversations/title")
+def conversation_title(body: TitleRequest, user: str = Depends(current_user)) -> dict:
+    return {"title": conversations.generate_conversation_title(body.first_message)}

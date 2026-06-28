@@ -1,16 +1,36 @@
 """Reflex application state for the Open Claude Desktop Projects UI."""
 from __future__ import annotations
 
+import os
 import time
-import asyncio
 
 import reflex as rx
 
-from . import core
-from . import agent
-from . import integrations
+from . import api_client
+from . import format as fmt
 
 MEMORY_TURNS = 12
+
+# --- Static UI config (pure, no I/O) ------------------------------------- #
+# These were previously read through the now-deleted ``core`` shim from the
+# backend config. The thin frontend has no backend code dependency, so these
+# presentation-only constants are inlined here (verbatim from the backend
+# config module). They drive class-body defaults and @rx.var comparisons,
+# which cannot perform async network I/O.
+GENERAL_ID = "general"
+GENERAL_NAME = "General"
+MAX_TABLE_ROWS_UI = 50
+AGENT_MODEL = os.getenv("AGENT_MODEL", os.getenv("PLANNER_MODEL", "glm-4-plus"))
+_GLM_DEFAULT = f"{AGENT_MODEL},glm-4.5-air,glm-4-flash,glm-4-long"
+GLM_MODELS = list(dict.fromkeys(
+    m.strip() for m in os.getenv("GLM_MODELS", _GLM_DEFAULT).split(",") if m.strip()))
+EFFORT_LEVELS = ["Low", "Medium", "High", "Max"]
+EFFORT_DESCRIPTIONS = {
+    "Low": "Fast, direct answers",
+    "Medium": "A little more checking",
+    "High": "Plans before answering",
+    "Max": "Plans, then self-verifies",
+}
 
 
 def _rows_to_markdown(columns: list, rows: list) -> str:
@@ -32,6 +52,10 @@ class AppState(rx.State):
     # ---- shell ----
     section: str = "chat"   # active top tab: chat | cowork | code
 
+    # ---- backend health (startup ping) ----
+    backend_ok: bool = True
+    backend_error: str = ""
+
     # ---- dashboard ----
     projects: list[dict] = []
     search: str = ""
@@ -48,11 +72,11 @@ class AppState(rx.State):
     cap_used: float = 0.0
     cap_max: float = 50.0
     cap_pct: int = 0
-    model: str = core.AGENT_MODEL
+    model: str = AGENT_MODEL
     effort: str = "High"
-    effort_levels: list[str] = core.EFFORT_LEVELS
-    effort_descriptions: dict[str, str] = core.EFFORT_DESCRIPTIONS
-    model_options: list[str] = core.GLM_MODELS
+    effort_levels: list[str] = EFFORT_LEVELS
+    effort_descriptions: dict[str, str] = EFFORT_DESCRIPTIONS
+    model_options: list[str] = GLM_MODELS
     settings_saved: bool = False
     uploading: bool = False
 
@@ -69,6 +93,9 @@ class AppState(rx.State):
     rename_open: bool = False
     rename_draft: str = ""
     change_open: bool = False
+    # Move-destination list (Projects + General); materialized on load because a
+    # computed @rx.var cannot perform the async project fetch.
+    move_targets: list[dict] = []
 
     # ---- Code (SQL console) ----
     code_sql: str = ""
@@ -148,31 +175,32 @@ class AppState(rx.State):
     # --------------------------------------------------------------- #
     #  Dashboard
     # --------------------------------------------------------------- #
-    def _load_recents(self):
+    async def _load_recents(self):
         """Global sidebar Recents + persisted settings (loaded on every page)."""
-        self.recents = core.list_all_conversations(limit=25)
-        s = core.get_settings()
+        self.recents = await api_client.list_all_conversations(limit=25)
+        s = await api_client.get_settings()
         self.model = s["model"]
         self.effort = s["effort"]
         self.section = "chat"
         if not self.skills:
-            self.skills = integrations.list_skills()
+            self.skills = await api_client.list_skills()
         if not self.plugins:
-            self.plugins = integrations.list_plugins()
-        self.load_connectors()  # re-probe each page so status is never stale
-        self.load_mcp_servers()
+            self.plugins = await api_client.list_plugins()
+        await self.load_connectors()  # re-probe each page so status is never stale
+        await self.load_mcp_servers()
+        await self._refresh_move_targets()
 
     # --------------------------------------------------------------- #
     #  Composer "+" menu
     # --------------------------------------------------------------- #
-    def load_connectors(self):
-        self.connectors = integrations.list_connectors()
+    async def load_connectors(self):
+        self.connectors = await api_client.list_connectors()
         self.connectors_attention = sum(
             1 for c in self.connectors if c["status"] == "error")
 
     # ---- Connectors management page (/connectors) ----
-    def load_connectors_page(self):
-        self._load_recents()
+    async def load_connectors_page(self):
+        await self._load_recents()
         self.conn_test = ""
 
     def toggle_connector(self, cid: str):
@@ -198,8 +226,8 @@ class AppState(rx.State):
         self.expanded_tools = s
 
     # ---- MCP connectors ----
-    def load_mcp_servers(self):
-        self.mcp_servers = integrations.list_mcp_servers()
+    async def load_mcp_servers(self):
+        self.mcp_servers = await api_client.list_mcp_servers()
 
     def toggle_mcp(self, sid: str):
         if sid in self.enabled_mcp:
@@ -227,8 +255,8 @@ class AppState(rx.State):
         """Register the bundled, secret-free demo MCP server (one click)."""
         self.mcp_status = "Connecting to demo MCP server…"
         yield
-        item = await asyncio.to_thread(integrations.add_demo_mcp_server)
-        self.load_mcp_servers()
+        item = await api_client.add_demo_mcp_server()
+        await self.load_mcp_servers()
         if item.get("status") == "connected":
             self.enabled_mcp = [*[x for x in self.enabled_mcp if x != item["id"]],
                                 item["id"]]
@@ -246,8 +274,8 @@ class AppState(rx.State):
         args = [a for a in self.mcp_args.split() if a]
         self.mcp_status = f"Connecting to {name}…"
         yield
-        item = await asyncio.to_thread(integrations.add_mcp_server, name, cmd, args)
-        self.load_mcp_servers()
+        item = await api_client.add_mcp_server(name, cmd, args)
+        await self.load_mcp_servers()
         if item.get("status") == "connected":
             self.enabled_mcp = [*[x for x in self.enabled_mcp if x != item["id"]],
                                 item["id"]]
@@ -257,10 +285,10 @@ class AppState(rx.State):
             self.mcp_status = f"Failed: {item.get('detail', 'unknown error')}"
         yield
 
-    def remove_mcp(self, sid: str):
-        integrations.remove_mcp_server(sid)
+    async def remove_mcp(self, sid: str):
+        await api_client.remove_mcp_server(sid)
         self.enabled_mcp = [x for x in self.enabled_mcp if x != sid]
-        self.load_mcp_servers()
+        await self.load_mcp_servers()
 
     def open_add_connector(self):
         self.conn_name = self.conn_url = self.conn_hkey = self.conn_hval = ""
@@ -281,22 +309,22 @@ class AppState(rx.State):
     def set_conn_hval(self, v: str):
         self.conn_hval = v
 
-    def save_connector(self):
+    async def save_connector(self):
         if self.conn_name.strip() and self.conn_url.strip():
-            integrations.add_connector(self.conn_name, self.conn_url,
-                                       self.conn_hkey, self.conn_hval)
+            await api_client.add_connector(self.conn_name, self.conn_url,
+                                           self.conn_hkey, self.conn_hval)
             self.conn_add_open = False
-            self.load_connectors()
+            await self.load_connectors()
 
-    def remove_user_connector(self, cid: str):
-        integrations.remove_connector(cid)
+    async def remove_user_connector(self, cid: str):
+        await api_client.remove_connector(cid)
         self.enabled_connectors = [x for x in self.enabled_connectors if x != cid]
-        self.load_connectors()
+        await self.load_connectors()
 
     async def test_user_connector(self, cid: str):
         self.conn_test = f"Testing {cid}…"
         yield
-        result = await asyncio.to_thread(integrations.test_connector, cid)
+        result = await api_client.test_connector(cid)
         self.conn_test = f"{cid}: {result}"
         yield
 
@@ -357,13 +385,13 @@ class AppState(rx.State):
             chips.append(self.active_skill)
         return chips
 
-    def select_model(self, m: str):
+    async def select_model(self, m: str):
         self.model = m
-        core.save_settings({"model": m, "effort": self.effort})
+        await api_client.save_settings({"model": m, "effort": self.effort})
 
-    def select_effort(self, level: str):
+    async def select_effort(self, level: str):
         self.effort = level
-        core.save_settings({"model": self.model, "effort": level})
+        await api_client.save_settings({"model": self.model, "effort": level})
 
     # ---- Add from GitHub ----
     def open_github(self):
@@ -379,19 +407,19 @@ class AppState(rx.State):
 
     async def run_github_import(self):
         url = self.github_url.strip()
-        pid = self.current_id or core.GENERAL_ID
+        pid = self.current_id or GENERAL_ID
         if not url:
             return
         self.github_status = "Importing…"
         yield
-        count, err = await asyncio.to_thread(
-            integrations.import_github_repo, url, pid)
-        if err:
-            self.github_status = f"Failed: {err}"
+        res = await api_client.import_github_repo(url, pid)
+        if res["message"]:
+            self.github_status = f"Failed: {res['message']}"
         else:
-            self.github_status = f"Imported {count} file(s) into this project's KB."
-            if pid != core.GENERAL_ID:
-                self._refresh_files()
+            self.github_status = (
+                f"Imported {res['chunks']} file(s) into this project's KB.")
+            if pid != GENERAL_ID:
+                await self._refresh_files()
         yield
 
     # ---- Add files dialog ----
@@ -404,32 +432,38 @@ class AppState(rx.State):
     # --------------------------------------------------------------- #
     #  Customize (settings)
     # --------------------------------------------------------------- #
-    def load_customize(self):
-        self._load_recents()
+    async def load_customize(self):
+        await self._load_recents()
         self.settings_saved = False
 
-    def set_effort(self, v: str):
+    async def set_effort(self, v: str):
         self.effort = v
-        core.save_settings({"model": self.model, "effort": v})
+        await api_client.save_settings({"model": self.model, "effort": v})
 
-    def save_customize(self):
-        core.save_settings({"model": self.model, "effort": self.effort})
+    async def save_customize(self):
+        await api_client.save_settings({"model": self.model, "effort": self.effort})
         self.settings_saved = True
 
-    def load_dashboard(self):
-        self.projects = [
-            core.project_card_view(p)
-            for p in sorted(core.list_projects(),
-                            key=lambda x: x.get("created_at", ""), reverse=True)
-        ]
-        self._load_recents()
+    async def load_dashboard(self):
+        self.projects = await api_client.list_project_cards()
+        await self._load_recents()
+
+    async def check_backend(self):
+        """Startup health ping; surfaces a banner when the API is unreachable."""
+        try:
+            await api_client.health()
+            self.backend_ok = True
+            self.backend_error = ""
+        except Exception as e:
+            self.backend_ok = False
+            self.backend_error = f"Backend unreachable at {api_client._BASE}: {e}"
 
     # --------------------------------------------------------------- #
     #  Chats dashboard (/chats) — all conversations across projects
     # --------------------------------------------------------------- #
-    def load_chats(self):
-        self.all_chats = core.list_all_conversations(limit=200)
-        self._load_recents()
+    async def load_chats(self):
+        self.all_chats = await api_client.list_all_conversations(limit=200)
+        await self._load_recents()
 
     def set_chats_search(self, v: str):
         self.chats_search = v
@@ -462,8 +496,8 @@ class AppState(rx.State):
     def set_code_sql(self, v: str):
         self.code_sql = v
 
-    def load_code(self):
-        self._load_recents()
+    async def load_code(self):
+        await self._load_recents()
         self.section = "code"
 
     async def run_code(self, form_data: dict | None = None):
@@ -474,12 +508,12 @@ class AppState(rx.State):
         self.code_md = ""
         self.code_info = "Running…"
         yield
-        res = await asyncio.to_thread(core.execute_sql, sql, None)
+        res = await api_client.execute_sql(sql, None)
         if res.get("ok"):
             self.code_md = _rows_to_markdown(res["columns"],
-                                             res["rows"][:core.MAX_TABLE_ROWS_UI])
+                                             res["rows"][:MAX_TABLE_ROWS_UI])
             self.code_info = (f"{res['total_rows']} rows · "
-                              f"{core.fmt_bytes(res['bytes'])} scanned")
+                              f"{fmt.fmt_bytes(res['bytes'])} scanned")
         else:
             self.code_md = ""
             self.code_info = res.get("agent_text", res.get("error", "Failed"))
@@ -487,19 +521,19 @@ class AppState(rx.State):
         yield
 
     # ---- Artifacts ----
-    def load_artifacts(self):
-        self.all_files = core.list_all_files()
-        self._load_recents()
+    async def load_artifacts(self):
+        self.all_files = await api_client.list_all_files()
+        await self._load_recents()
 
     @rx.var
     def has_artifacts(self) -> bool:
         return len(self.all_files) > 0
 
     # ---- Cowork / New chat (General space) ----
-    def load_cowork(self):
-        self._load_project_context(core.GENERAL_ID)
-        self.conversations = core.list_conversations(core.GENERAL_ID)
-        self._load_recents()
+    async def load_cowork(self):
+        await self._load_project_context(GENERAL_ID)
+        self.conversations = await api_client.list_conversations(GENERAL_ID)
+        await self._load_recents()
         self.messages = []
         self.current_conv_id = ""
         self.conv_title = ""
@@ -511,49 +545,52 @@ class AppState(rx.State):
         return rx.redirect("/cowork")
 
     # ---- Pin / Change project / Remove from project ----
-    def toggle_pin(self):
+    async def toggle_pin(self):
         if self.current_id and self.current_conv_id:
             self.conv_pinned = not self.conv_pinned
-            core.set_conversation_pinned(self.current_id, self.current_conv_id,
-                                         self.conv_pinned)
-            self._load_recents()
+            await api_client.set_conversation_pinned(
+                self.current_id, self.current_conv_id, self.conv_pinned)
+            await self._load_recents()
 
-    def open_change_project(self):
+    async def open_change_project(self):
+        await self._refresh_move_targets()
         self.change_open = True
 
     def set_change_open(self, value: bool):
         self.change_open = value
 
-    @rx.var
-    def move_targets(self) -> list[dict]:
-        """Projects (+ General) the current conversation can move to."""
-        targets = [{"id": core.GENERAL_ID, "name": core.GENERAL_NAME}]
-        targets += [{"id": p["id"], "name": p["name"]} for p in core.list_projects()]
-        return [t for t in targets if t["id"] != self.current_id]
+    async def _refresh_move_targets(self):
+        """Populate the move-destination list (Projects + General) the current
+        conversation can move to. Backing field for the move submenu + dialog
+        (a computed @rx.var can't be async, so we materialize it on load)."""
+        targets = [{"id": GENERAL_ID, "name": GENERAL_NAME}]
+        targets += [{"id": p["id"], "name": p["name"]}
+                    for p in await api_client.list_projects()]
+        self.move_targets = [t for t in targets if t["id"] != self.current_id]
 
-    def move_to_project(self, dst_pid: str):
+    async def move_to_project(self, dst_pid: str):
         src, cid = self.current_id, self.current_conv_id
         self.change_open = False
         if not dst_pid:
             return
         if cid:
             # Existing conversation → move the file and follow it.
-            core.move_conversation(src, cid, dst_pid)
+            await api_client.move_conversation(src, cid, dst_pid)
             return rx.redirect(f"/project/{dst_pid}/c/{cid}")
         # New-chat composer (no conversation yet): carry the typed draft into a
         # new conversation in the destination, else just open that workspace.
         text = self.chat_input.strip()
         if text:
-            conv = core.create_conversation(dst_pid, text)
+            conv = await api_client.create_conversation(dst_pid, text)
             self.chat_input = ""
             return rx.redirect(f"/project/{dst_pid}/c/{conv['id']}")
         return rx.redirect(f"/project/{dst_pid}")
 
-    def remove_from_project(self):
+    async def remove_from_project(self):
         src, cid = self.current_id, self.current_conv_id
-        if src and cid and src != core.GENERAL_ID:
-            core.move_conversation(src, cid, core.GENERAL_ID)
-        return rx.redirect(f"/project/{core.GENERAL_ID}/c/{cid}")
+        if src and cid and src != GENERAL_ID:
+            await api_client.move_conversation(src, cid, GENERAL_ID)
+        return rx.redirect(f"/project/{GENERAL_ID}/c/{cid}")
 
     # ---- Chats dashboard: filter + bulk select ----
     def set_chats_filter(self, v: str):
@@ -569,15 +606,15 @@ class AppState(rx.State):
         else:
             self.selected_ids = [*self.selected_ids, conv_id]
 
-    def bulk_delete(self):
+    async def bulk_delete(self):
         sel = set(self.selected_ids)
         for c in self.all_chats:
             if c["id"] in sel:
-                core.delete_conversation(c["project_id"], c["id"])
+                await api_client.delete_conversation(c["project_id"], c["id"])
         self.selected_ids = []
         self.select_mode = False
-        self.all_chats = core.list_all_conversations(limit=200)
-        self._load_recents()
+        self.all_chats = await api_client.list_all_conversations(limit=200)
+        await self._load_recents()
 
     # ---- input setters (explicit; Reflex no longer auto-generates) ----
     def set_search(self, v: str):
@@ -618,24 +655,25 @@ class AppState(rx.State):
     def set_new_dialog(self, value: bool):
         self.show_new_dialog = value
 
-    def create_project(self):
+    async def create_project(self):
         name = self.new_name.strip()
         if not name:
             return
-        meta = core.create_project(name)
+        meta = await api_client.create_project(name)
         if self.new_desc.strip():
-            core.save_project_instructions(meta["id"], self.new_desc.strip())
+            await api_client.save_project_instructions(meta["id"],
+                                                       self.new_desc.strip())
         self.show_new_dialog = False
-        self.load_dashboard()
+        await self.load_dashboard()
         return rx.redirect(f"/project/{meta['id']}")
 
     def open_project(self, pid: str):
         self.current_id = pid
         return rx.redirect(f"/project/{pid}")
 
-    def delete_current_project(self):
+    async def delete_current_project(self):
         if self.current_id:
-            core.delete_project(self.current_id)
+            await api_client.delete_project(self.current_id)
         return rx.redirect("/")
 
     # --------------------------------------------------------------- #
@@ -658,53 +696,57 @@ class AppState(rx.State):
 
     @rx.var
     def workspace_href(self) -> str:
-        if self.current_id == core.GENERAL_ID:
+        if self.current_id == GENERAL_ID:
             return "/cowork"
         return f"/project/{self.current_id}"
 
     @rx.var
     def is_general(self) -> bool:
-        return self.current_id == core.GENERAL_ID
+        return self.current_id == GENERAL_ID
 
-    def _load_project_context(self, pid: str) -> dict | None:
-        if pid == core.GENERAL_ID:
+    async def _load_project_context(self, pid: str) -> dict | None:
+        if pid == GENERAL_ID:
             self.current_id = pid
-            self.current_name = core.GENERAL_NAME
+            self.current_name = GENERAL_NAME
             self.instructions = ""
             self.instructions_draft = ""
             self.editing_instructions = False
             self.memory_text, self.memory_updated = "", ""
             self.files = []
             self.cap_used, self.cap_pct = 0.0, 0
-            return {"id": pid, "name": core.GENERAL_NAME}
-        proj = core.get_project(pid)
+            return {"id": pid, "name": GENERAL_NAME}
+        try:
+            proj = await api_client.get_project(pid)
+        except api_client.ApiError:
+            proj = None
         if not proj:
             return None
         self.current_id = pid
         self.current_name = proj.get("name", "Untitled")
-        self.instructions = core.get_project_instructions(pid)
+        self.instructions = await api_client.get_project_instructions(pid)
         self.instructions_draft = self.instructions
         self.editing_instructions = False
-        self.memory_text, self.memory_updated = core.get_project_memory(pid)
-        self._refresh_files()
+        self.memory_text, self.memory_updated = (
+            await api_client.get_project_memory(pid))
+        await self._refresh_files()
         return proj
 
-    def load_workspace(self):
-        self.load_dashboard()  # populate the sidebar project list on deep-links too
+    async def load_workspace(self):
+        await self.load_dashboard()  # populate the sidebar project list on deep-links too
         pid = self._pid()
-        if not self._load_project_context(pid):
+        if not await self._load_project_context(pid):
             return rx.redirect("/")
-        self.conversations = core.list_conversations(pid)
-        self._load_recents()
+        self.conversations = await api_client.list_conversations(pid)
+        await self._load_recents()
         self.messages = []
         self.current_conv_id = ""
         self.conv_title = ""
         self.chat_input = ""
         self.is_running = False
 
-    def _refresh_files(self):
-        self.files = core.list_project_files(self.current_id)
-        cap = core.project_capacity(self.current_id)
+    async def _refresh_files(self):
+        self.files = await api_client.list_project_files(self.current_id)
+        cap = await api_client.project_capacity(self.current_id)
         self.cap_used = cap["used_mb"]
         self.cap_max = cap["max_mb"]
         self.cap_pct = cap["percent"]
@@ -733,8 +775,9 @@ class AppState(rx.State):
     def cancel_edit_instructions(self):
         self.editing_instructions = False
 
-    def save_instructions(self):
-        core.save_project_instructions(self.current_id, self.instructions_draft)
+    async def save_instructions(self):
+        await api_client.save_project_instructions(self.current_id,
+                                                   self.instructions_draft)
         self.instructions = self.instructions_draft
         self.editing_instructions = False
 
@@ -759,23 +802,26 @@ class AppState(rx.State):
         return hist[-MEMORY_TURNS:]
 
     # --- Composer (workspace): start a NEW conversation, then redirect to it --- #
-    def start_conversation(self, form_data: dict | None = None):
+    async def start_conversation(self, form_data: dict | None = None):
         text = self.chat_input.strip()
         if not text or self.is_running or not self.current_id:
             return
-        conv = core.create_conversation(self.current_id, text)
+        conv = await api_client.create_conversation(self.current_id, text)
         self.chat_input = ""
         return rx.redirect(f"/project/{self.current_id}/c/{conv['id']}")
 
     # --- Conversation page on_load: render it, run agent if a turn is pending --- #
     async def load_conversation(self):
-        self.load_dashboard()
+        await self.load_dashboard()
         pid = self._pid()
-        if not self._load_project_context(pid):
+        if not await self._load_project_context(pid):
             yield rx.redirect("/")
             return
         cid = self._cid()
-        conv = core.get_conversation(pid, cid)
+        try:
+            conv = await api_client.get_conversation(pid, cid)
+        except api_client.ApiError:
+            conv = None
         if not conv:
             yield rx.redirect(f"/project/{pid}")
             return
@@ -788,7 +834,7 @@ class AppState(rx.State):
         self.expanded_tools = set()
         self.chat_input = ""
         self.is_running = False
-        self._load_recents()
+        await self._load_recents()
         yield
         # A freshly-created conversation ends on the user's message → answer it.
         if self.messages and self.messages[-1].get("kind") == "user":
@@ -803,8 +849,8 @@ class AppState(rx.State):
             return
         self.messages.append({"role": "user", "content": text, "kind": "user"})
         self.chat_input = ""
-        core.save_conversation(self.current_id, self.current_conv_id, self.messages,
-                               self.conv_title or None)
+        await api_client.save_conversation(self.current_id, self.current_conv_id,
+                                           self.messages, self.conv_title or None)
         yield
         async for _ in self._run_agent(text, self.current_id, self.current_conv_id):
             yield
@@ -824,7 +870,7 @@ class AppState(rx.State):
             elif m.get("kind") == "final" and m.get("content"):
                 # Clean a stray "Corrected Answer" heading saved before the verify-
                 # prompt fix, so legacy answers also read seamlessly.
-                m["content"] = agent._strip_answer_label(m["content"])
+                m["content"] = fmt.strip_answer_label(m["content"])
             elif m.get("kind") == "tool":
                 # Reopened tool cards render finished + collapsed. Legacy flat tool
                 # rows (only "content") become a generic done card.
@@ -928,33 +974,35 @@ class AppState(rx.State):
                 break
         self.messages = self.messages  # nudge reactivity
 
+    def _build_turn_request(self, goal: str, pid: str) -> dict:
+        """Assemble the AgentTurnRequest the backend expects."""
+        return {
+            "project_id": pid or None,
+            "goal": goal,
+            "history": self._chat_history(),
+            "model": self.model,
+            "effort": self.effort,
+            "options": {
+                "web_search": self.web_search_on,
+                "research": self.research_on,
+                "web_fetch": self.web_fetch_on,
+                "code_exec": self.code_exec_on,
+                "bash": self.bash_on,
+                "text_editor": self.text_editor_on,
+                "memory": self.memory_on,
+            },
+            "enabled_plugins": list(self.enabled_plugins),
+            "enabled_connectors": list(self.enabled_connectors),
+            "enabled_mcp": list(self.enabled_mcp),
+        }
+
     # --- Shared agent runner: stream events into the transcript, then persist --- #
     async def _run_agent(self, goal: str, pid: str, cid: str, first_turn: bool = False):
         self.is_running = True
         yield
-        history = self._chat_history()
-        proj_instr = core.get_project_instructions(pid) if pid else ""
-        # Active skill: manual selection, else an auto-trigger match on the goal.
-        skill_name = self.active_skill or integrations.matching_skill(goal)
-        skill_instr = ""
-        if skill_name:
-            sk = integrations.get_skill(skill_name)
-            skill_instr = sk["instructions"] if sk else ""
-        extra_tools = integrations.agent_tools(list(self.enabled_plugins),
-                                               list(self.enabled_connectors),
-                                               list(self.enabled_mcp))
         try:
-            async for ev in agent.run_turn(goal, history, pid or None, self.model,
-                                           proj_instr, effort=self.effort,
-                                           web_search=self.web_search_on,
-                                           skill_instructions=skill_instr,
-                                           research=self.research_on,
-                                           extra_tools=extra_tools,
-                                           web_fetch=self.web_fetch_on,
-                                           code_exec=self.code_exec_on,
-                                           bash=self.bash_on,
-                                           text_editor=self.text_editor_on,
-                                           memory=self.memory_on):
+            async for ev in api_client.run_agent_stream(
+                    self._build_turn_request(goal, pid)):
                 t = ev["type"]
                 if t == "thought":
                     self._append_thought(ev.get("text", ""), ev.get("phase", "plan"),
@@ -994,7 +1042,7 @@ class AppState(rx.State):
                     self.messages.append({"role": "tool", "kind": "sources",
                                           "items": ev["items"]})
                 elif t == "table":
-                    cap = f"**{ev['total']} rows · {core.fmt_bytes(ev['bytes'])} scanned**"
+                    cap = f"**{ev['total']} rows · {fmt.fmt_bytes(ev['bytes'])} scanned**"
                     md = _rows_to_markdown(ev["columns"], ev["rows"])
                     self.messages.append({"role": "tool", "content": f"{cap}\n\n{md}",
                                           "kind": "table"})
@@ -1011,23 +1059,24 @@ class AppState(rx.State):
             self.messages.append({"role": "assistant", "content": f"Agent error: {e}",
                                   "kind": "error"})
         self.is_running = False
-        core.save_conversation(pid, cid, self.messages, self.conv_title or None)
+        await api_client.save_conversation(pid, cid, self.messages,
+                                           self.conv_title or None)
         yield
         # Give a freshly-created conversation a concise Claude-style title.
         if first_turn and pid and cid:
             try:
-                title = await asyncio.to_thread(core.generate_conversation_title, goal)
+                title = await api_client.generate_conversation_title(goal)
                 if title:
                     self.conv_title = title
-                    core.set_conversation_title(pid, cid, title)
+                    await api_client.set_conversation_title(pid, cid, title)
                     yield
             except Exception:
                 pass
 
-    def delete_current_conversation(self):
+    async def delete_current_conversation(self):
         pid = self.current_id
         if pid and self.current_conv_id:
-            core.delete_conversation(pid, self.current_conv_id)
+            await api_client.delete_conversation(pid, self.current_conv_id)
         return rx.redirect(f"/project/{pid}")
 
     # --- Rename current conversation (breadcrumb menu) --- #
@@ -1041,12 +1090,13 @@ class AppState(rx.State):
     def set_rename_draft(self, v: str):
         self.rename_draft = v
 
-    def save_rename(self):
+    async def save_rename(self):
         title = self.rename_draft.strip()
         if title and self.current_id and self.current_conv_id:
-            core.set_conversation_title(self.current_id, self.current_conv_id, title)
+            await api_client.set_conversation_title(
+                self.current_id, self.current_conv_id, title)
             self.conv_title = title
-            self._load_recents()
+            await self._load_recents()
         self.rename_open = False
 
     async def handle_upload(self, files: list[rx.UploadFile]):
@@ -1057,13 +1107,12 @@ class AppState(rx.State):
             name = getattr(f, "name", None) or getattr(f, "filename", "upload.bin")
             try:
                 data = await f.read()
-                dest = core.save_uploaded_file(self.current_id, name, data)
-                core.ingest_file_to_kb(self.current_id, dest)
+                await api_client.upload_file(self.current_id, name, data)
                 ok += 1
             except Exception as e:
                 failed.append(f"{name}: {e}")
-        self._refresh_files()
-        self.all_files = core.list_all_files()   # keep /artifacts in sync
+        await self._refresh_files()
+        self.all_files = await api_client.list_all_files()   # keep /artifacts in sync
         self.uploading = False
         if failed:
             self.attach_status = (f"Uploaded {ok}; {len(failed)} failed: "

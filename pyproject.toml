@@ -45,7 +45,7 @@ addopts = "-q"
 [tool.ruff]
 line-length = 100
 target-version = "py312"
-extend-exclude = ["venv", "venv312", ".web", "aj360_app/.web", "node_modules", "reflex.lock"]
+extend-exclude = ["venv", "venv312", ".web", "frontend/.web", "node_modules", "reflex.lock"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B"]

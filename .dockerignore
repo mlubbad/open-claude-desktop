@@ -40,4 +40,4 @@ reflex_*.log
 reflex_*.err
 
 # the Reflex app builds as a separate image
-aj360_app/
+frontend/

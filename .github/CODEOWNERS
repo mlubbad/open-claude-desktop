@@ -2,10 +2,9 @@
 * @mlubbad
 
 # Security-sensitive paths (SQL guard, auth, sandboxed execution, MCP spawning).
-# The integrations + MCP-registry domain logic now lives in backend/ocd_core/;
-# the aj360_app/aj360_app/*.py files are thin re-export shims.
+# The integrations + MCP-registry domain logic lives in backend/ocd_core/.
 /app.py                              @mlubbad
-/aj360_app/aj360_app/auth.py         @mlubbad
+/frontend/aj360_app/auth.py          @mlubbad
 /backend/ocd_core/integrations.py    @mlubbad
 /backend/ocd_core/mcp_registry.py    @mlubbad
 /backend/ocd_core/sql_guard.py       @mlubbad

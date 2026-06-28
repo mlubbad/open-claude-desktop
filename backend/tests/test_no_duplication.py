@@ -1,14 +1,13 @@
 import pathlib
 
-CORE = pathlib.Path("aj360_app/aj360_app/core.py")
 
-
-def test_core_has_no_domain_defs():
-    text = CORE.read_text(encoding="utf-8")
-    for banned in ("def execute_sql", "def create_project", "def get_settings",
-                   "def search_schema", "def run_turn", "def ingest_file_to_kb",
-                   "def _build_catalog_sync"):
-        assert banned not in text, f"{banned} still defined in core.py shim"
+def test_reflex_shims_are_gone():
+    # Phase 4 Task 5: the frontend is a thin HTTP/SSE client and imports zero
+    # ocd_core. The old re-export shims (core.py / agent.py / integrations.py)
+    # were deleted; assert they stay deleted so the decoupling can't regress.
+    for name in ("core.py", "agent.py", "integrations.py"):
+        p = pathlib.Path("frontend/aj360_app") / name
+        assert not p.exists(), f"{name} shim reintroduced — frontend must not re-import ocd_core"
 
 
 def test_single_definition_homes():
@@ -18,12 +17,3 @@ def test_single_definition_homes():
     assert ocd_core.agent.run_turn.__module__ == "ocd_core.agent"
     assert ocd_core.settings.get_settings.__module__ == "ocd_core.settings"
     assert ocd_core.schema_catalog.search_schema.__module__ == "ocd_core.schema_catalog"
-
-
-def test_reflex_shims_are_thin():
-    # agent.py and integrations.py shims re-export only
-    for name in ("agent.py", "integrations.py"):
-        p = pathlib.Path("aj360_app/aj360_app") / name
-        text = p.read_text(encoding="utf-8")
-        assert "import ocd_core" in text or "from ocd_core" in text
-        assert "def " not in text, f"{name} shim still defines functions"

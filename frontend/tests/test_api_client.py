@@ -128,3 +128,12 @@ async def test_run_agent_stream_raises_apierror_on_429():
             pass
     assert ei.value.status == 429
     assert "rate limit" in ei.value.detail
+
+
+@respx.mock
+async def test_health_pings_healthz():
+    route = respx.get("http://test/healthz").mock(
+        return_value=httpx.Response(200, json={"status": "ok"}))
+    out = await api_client.health()
+    assert out == {"status": "ok"}
+    assert route.called

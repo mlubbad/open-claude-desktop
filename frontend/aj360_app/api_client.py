@@ -83,7 +83,7 @@ async def login(username: str, password: str) -> str:
 
 
 async def health() -> dict:
-    return await _get("/health")  # type: ignore[return-value]
+    return await _get("/healthz")  # type: ignore[return-value]
 
 
 # --------------------------- projects --------------------------- #

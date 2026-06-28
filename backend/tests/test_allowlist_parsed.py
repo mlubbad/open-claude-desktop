@@ -18,6 +18,13 @@ def test_comment_injection_no_longer_bypasses():
     assert sql_guard.tables_off_allowlist(["aj360.users"], ["aj360.events"]) is True
 
 
+def test_fail_safe_denies_when_refs_unresolved():
+    # allowlist in force but the dry-run couldn't resolve any referenced table
+    assert sql_guard.tables_off_allowlist([], ["aj360.events"]) is True
+    # ...but with no allowlist, unresolved refs are still allowed (no restriction)
+    assert sql_guard.tables_off_allowlist([], []) is False
+
+
 def test_execute_sql_blocks_off_allowlist(monkeypatch, db):
     from ocd_core import bigquery, projects
     projects.create_project("Scoped")

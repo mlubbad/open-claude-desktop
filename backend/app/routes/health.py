@@ -1,6 +1,8 @@
 from __future__ import annotations
+
 from fastapi import APIRouter, Depends
 from ocd_core import settings
+
 from ..deps import current_user
 
 router = APIRouter()

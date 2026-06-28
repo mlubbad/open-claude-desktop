@@ -100,7 +100,7 @@ backend/   — FastAPI  →  ocd_core (agent · sql_guard · projects · KB · s
 ## 4. Target directory layout
 
 ```
-bigquery-app/
+open-claude-desktop/
 ├─ backend/
 │  ├─ ocd_core/                    # framework-agnostic domain (single source of truth)
 │  │  ├─ __init__.py

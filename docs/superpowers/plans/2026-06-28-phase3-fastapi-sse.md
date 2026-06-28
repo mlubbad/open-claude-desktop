@@ -13,7 +13,7 @@
 ## Scope & contract (read first)
 
 - **Spec:** `docs/superpowers/specs/2026-06-28-phase3-fastapi-sse-design.md`.
-- **Environment:** repo `D:\HP\Projects\bigquery-app`, branch `refactor/phase3-fastapi`. Interpreter `venv312\Scripts\python.exe`. Tests from **repo root**. `ocd_core` editable-installed. Commit messages end with `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>`.
+- **Environment:** repo `D:\HP\Projects\open-claude-desktop`, branch `refactor/phase3-fastapi`. Interpreter `venv312\Scripts\python.exe`. Tests from **repo root**. `ocd_core` editable-installed. Commit messages end with `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>`.
 - **No external calls in tests:** mock BigQuery (`execute_sql`/dry-run), GLM (`run_turn`), and ChromaDB. The `db` SQLite fixture (in `backend/tests/conftest.py`) isolates DB + filesystem; request it where routes touch the DB.
 - **The agent route resolves the skill** from the goal (UI-agnostic, per the §6 directive) — it does NOT handle the fixed slash-commands (`/projects` etc.); those are UI/REST actions.
 

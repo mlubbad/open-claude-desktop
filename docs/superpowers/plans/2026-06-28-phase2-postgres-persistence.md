@@ -14,7 +14,7 @@
 
 - **Spec:** `docs/superpowers/specs/2026-06-28-phase2-postgres-persistence-design.md`. This plan implements all 6 slices.
 - **Parity contract:** the public functions of `projects.py`/`conversations.py` keep their **exact signatures and return dict shapes** (§8 of the spec). Read the current modules (`backend/ocd_core/projects.py`, `backend/ocd_core/conversations.py`) before rewriting — the rewrite changes *storage*, not the API.
-- **Environment:** repo `D:\HP\Projects\bigquery-app`, branch `refactor/phase2-postgres`. Interpreter `venv312\Scripts\python.exe`. `ocd_core` is editable-installed at `backend/ocd_core/`. Commit messages end with `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>`.
+- **Environment:** repo `D:\HP\Projects\open-claude-desktop`, branch `refactor/phase2-postgres`. Interpreter `venv312\Scripts\python.exe`. `ocd_core` is editable-installed at `backend/ocd_core/`. Commit messages end with `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>`.
 - **Two acknowledged behavior shifts** (spec §8): `get_project_memory()`'s timestamp comes from `updated_at` (not file mtime); `list_conversations()` no longer runs the on-read legacy migration (that fold moves to the migration script).
 - **Datetimes:** stored as DB timestamps, **returned as ISO strings** (`.isoformat()`), so `util.relative_time`/the UI are unaffected.
 

@@ -26,7 +26,7 @@ app = rx.App(
 app.add_page(login_page, route="/login", on_load=AuthState.redirect_if_authed,
              title="Open Claude Desktop · Sign in")
 app.add_page(dashboard, route="/",
-             on_load=[AuthState.require_login, AppState.load_dashboard],
+             on_load=[AuthState.require_login, AppState.load_dashboard, AppState.check_backend],
              title="Open Claude Desktop · Projects")
 app.add_page(workspace, route="/project/[pid]",
              on_load=[AuthState.require_login, AppState.load_workspace],

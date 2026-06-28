@@ -73,6 +73,13 @@ def user_footer() -> rx.Component:
 
 def sidebar() -> rx.Component:
     return rx.vstack(
+        rx.cond(
+            ~AppState.backend_ok,
+            rx.box(
+                rx.text(AppState.backend_error, size="1", color="white"),
+                background="var(--red-9)", padding="6px 10px", width="100%",
+            ),
+        ),
         top_tabs(),
         rx.vstack(
             nav_item("plus", "New chat", href="/cowork"),

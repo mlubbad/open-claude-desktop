@@ -52,6 +52,10 @@ class AppState(rx.State):
     # ---- shell ----
     section: str = "chat"   # active top tab: chat | cowork | code
 
+    # ---- backend health (startup ping) ----
+    backend_ok: bool = True
+    backend_error: str = ""
+
     # ---- dashboard ----
     projects: list[dict] = []
     search: str = ""
@@ -443,6 +447,16 @@ class AppState(rx.State):
     async def load_dashboard(self):
         self.projects = await api_client.list_project_cards()
         await self._load_recents()
+
+    async def check_backend(self):
+        """Startup health ping; surfaces a banner when the API is unreachable."""
+        try:
+            await api_client.health()
+            self.backend_ok = True
+            self.backend_error = ""
+        except Exception as e:
+            self.backend_ok = False
+            self.backend_error = f"Backend unreachable at {api_client._BASE}: {e}"
 
     # --------------------------------------------------------------- #
     #  Chats dashboard (/chats) — all conversations across projects

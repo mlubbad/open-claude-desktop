@@ -1,6 +1,6 @@
 import pathlib
 
-CORE = pathlib.Path("aj360_app/aj360_app/core.py")
+CORE = pathlib.Path("frontend/aj360_app/core.py")
 
 
 def test_core_has_no_domain_defs():
@@ -23,7 +23,7 @@ def test_single_definition_homes():
 def test_reflex_shims_are_thin():
     # agent.py and integrations.py shims re-export only
     for name in ("agent.py", "integrations.py"):
-        p = pathlib.Path("aj360_app/aj360_app") / name
+        p = pathlib.Path("frontend/aj360_app") / name
         text = p.read_text(encoding="utf-8")
         assert "import ocd_core" in text or "from ocd_core" in text
         assert "def " not in text, f"{name} shim still defines functions"

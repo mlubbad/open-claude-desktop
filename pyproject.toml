@@ -49,7 +49,10 @@ extend-exclude = ["venv", "venv312", ".web", "aj360_app/.web", "node_modules", "
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B"]
-ignore = ["E501"]  # long lines tolerated in generated SQL / inline HTML strings
+ignore = [
+  "E501",  # long lines tolerated in generated SQL / inline HTML strings
+  "B008",  # FastAPI Depends() pattern: function call in default arg is intentional
+]
 
 [tool.mypy]
 python_version = "3.12"

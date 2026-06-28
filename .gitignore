@@ -35,6 +35,8 @@ reflex_*.err
 # ── Proprietary / runtime DATA — do NOT version (was publicly exposed 2026-06-26) ──
 # Chat transcripts, uploaded files, AJ360 dataset dumps, project workspaces.
 projects/
+# migration backups written by ocd_core.db.migrate
+projects.backup-*/
 .files/
 knowledge/
 aj360.md

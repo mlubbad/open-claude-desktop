@@ -29,6 +29,18 @@ def get_project_allowlist(project_id: str) -> list:
         return list(p.allowlist) if p and p.allowlist else []
 
 
+def save_project_allowlist(project_id: str, tables: list) -> bool:
+    """Persist the dataset/table allowlist on the Project row."""
+    with session() as s:
+        p = s.get(Project, project_id)
+        if p is None:
+            return False
+        p.allowlist = list(tables)
+        p.updated_at = utcnow()
+        s.add(p)
+        return True
+
+
 def list_projects() -> list[dict]:
     with session() as s:
         return [_meta(p) for p in s.exec(select(Project).order_by(Project.created_at)).all()]

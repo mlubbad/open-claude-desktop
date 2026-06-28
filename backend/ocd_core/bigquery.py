@@ -9,10 +9,11 @@ references:
   * ocd_core.observability.observe in place of the local core._observe (the two
     are behavior-identical — confirmed in a prior slice)
 
-NOTE: this is a faithful move of the Reflex execute_sql. The salvaged
-rate-limit (observability.check_rate_limit) and dataset-scope
-(sql_guard.tables_off_allowlist) guards are deliberately NOT wired in here —
-the original never had them. They stay available for a later, deliberate phase.
+NOTE: started as a faithful move of the Reflex execute_sql. The per-project
+allowlist guard (sql_guard.tables_off_allowlist) is now wired in here, hardened
+to parsed referenced_tables from the dry-run so commented/quoted table names
+can't bypass it. The salvaged rate-limit (observability.check_rate_limit) guard
+is still deliberately NOT wired in — it stays available for a later phase.
 """
 from __future__ import annotations
 
@@ -23,7 +24,7 @@ import time
 from . import config, util
 from .observability import observe
 from .projects import get_project_allowlist
-from .sql_guard import check_banned_aliases
+from .sql_guard import check_banned_aliases, tables_off_allowlist
 
 _bq_client = None
 _bq_lock = threading.Lock()
@@ -46,9 +47,10 @@ def _dry_run(sql: str):
     try:
         job = client.query(sql, QueryJobConfig(dry_run=True, use_query_cache=False))
         stmt = getattr(job, "statement_type", None) or "UNKNOWN"
-        return True, stmt, job.total_bytes_processed or 0, None
+        refs = [f"{t.dataset_id}.{t.table_id}" for t in (job.referenced_tables or [])]
+        return True, stmt, job.total_bytes_processed or 0, refs, None
     except Exception as e:
-        return False, None, 0, str(e)
+        return False, None, 0, [], str(e)
 
 
 def execute_sql(sql: str, active_project: str | None = None) -> dict:
@@ -64,20 +66,20 @@ def execute_sql(sql: str, active_project: str | None = None) -> dict:
     if not sql:
         return {"ok": False, "error": "empty", "agent_text": "No SQL provided."}
 
-    if active_project:
-        allow = get_project_allowlist(active_project)
-        if allow and not any(tok.lower() in sql.lower() for tok in allow):
-            return {"ok": False, "error": "allowlist",
-                    "agent_text": f"SQL REJECTED: project allows only: {', '.join(allow)}"}
-
     alias_err = check_banned_aliases(sql)
     if alias_err:
         return {"ok": False, "error": "alias", "agent_text": f"SQL REJECTED: {alias_err}"}
 
-    ok, stmt, est_bytes, err = _dry_run(sql)
+    ok, stmt, est_bytes, refs, err = _dry_run(sql)
     if not ok:
         return {"ok": False, "stmt": stmt, "error": err,
                 "agent_text": f"VALIDATION FAILED (0 rows scanned). Fix and retry.\nError: {err}"}
+
+    if active_project:
+        allow = get_project_allowlist(active_project)
+        if tables_off_allowlist(refs, allow):
+            return {"ok": False, "error": "allowlist",
+                    "agent_text": f"SQL REJECTED: project allows only: {', '.join(allow)}"}
 
     if stmt != "SELECT":
         return {"ok": False, "stmt": stmt, "error": "mutation_blocked",

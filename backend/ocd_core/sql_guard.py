@@ -4,7 +4,7 @@
 Pure, framework-agnostic helpers that keep the agent's generated SQL safe:
   * is_mutation          — read-only-by-default classification (fail-safe)
   * tables_out_of_scope  — dataset-scope enforcement on parsed referenced_tables
-  * tables_off_allowlist — per-project table allowlist (substring; KNOWN-WART)
+  * tables_off_allowlist — per-project table allowlist (parsed referenced_tables)
   * check_banned_aliases — reject BigQuery reserved words used as bare aliases
 """
 from __future__ import annotations
@@ -44,14 +44,18 @@ def tables_out_of_scope(referenced, allowed: set, project_id: str = "") -> list:
     return out
 
 
-def tables_off_allowlist(sql: str, allowlist: list[str]) -> bool:
-    """True if a non-empty allowlist is in force and NONE of its tables appear
-    in the SQL. KNOWN-WART: substring match (faithful to app.py run_sql); should
-    move to parsed referenced_tables in a later hardening pass."""
+def tables_off_allowlist(referenced_tables: list[str], allowlist: list[str]) -> bool:
+    """True if a non-empty allowlist is in force and ANY referenced table is not
+    in it. `referenced_tables` are qualified ids (e.g. "dataset.table") parsed from
+    the BigQuery dry-run — not substrings — so commented/quoted names can't bypass.
+    Empty allowlist => no restriction (all allowed)."""
     if not allowlist:
         return False
-    low = sql.lower()
-    return not any(t.lower() in low for t in allowlist)
+    allowed = {a.lower() for a in allowlist}
+    refs = [t.lower() for t in (referenced_tables or [])]
+    if not refs:
+        return True  # allowlist in force but refs couldn't be resolved -> deny (fail-safe)
+    return any(r not in allowed for r in refs)
 
 
 def check_banned_aliases(sql: str) -> "str | None":

@@ -65,7 +65,7 @@ from ocd_core.conversations import (  # noqa: E402,F401
     create_conversation, get_conversation, save_conversation,
     set_conversation_title, set_conversation_pinned, move_conversation,
     delete_conversation, list_conversations, list_all_conversations,
-    generate_conversation_title, migrate_legacy_chat_history,
+    generate_conversation_title,
 )
 from ocd_core.knowledge import (  # noqa: E402,F401
     list_project_files, save_uploaded_file, extract_text_from_file,

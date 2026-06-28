@@ -52,7 +52,7 @@ def test_mutation_is_blocked_after_dry_run(bq, monkeypatch):
     # The mutation check runs on the dry-run's statement_type. Fake the dry-run
     # so it classifies DELETE as a non-SELECT mutation; the real client/query
     # must never be reached for execution.
-    monkeypatch.setattr(bq, "_dry_run", lambda sql: (True, "DELETE", 0, None))
+    monkeypatch.setattr(bq, "_dry_run", lambda sql: (True, "DELETE", 0, [], None))
     monkeypatch.setattr(bq, "get_bq_client", _boom_client)
     out = bq.execute_sql("DELETE FROM aj360.events WHERE 1=1")
     assert out["ok"] is False
@@ -63,7 +63,7 @@ def test_mutation_is_blocked_after_dry_run(bq, monkeypatch):
 
 def test_dry_run_validation_failure_is_surfaced(bq, monkeypatch):
     # A failed dry-run (e.g. syntax error) is reported, never executed.
-    monkeypatch.setattr(bq, "_dry_run", lambda sql: (False, None, 0, "Syntax error"))
+    monkeypatch.setattr(bq, "_dry_run", lambda sql: (False, None, 0, [], "Syntax error"))
     monkeypatch.setattr(bq, "get_bq_client", _boom_client)
     out = bq.execute_sql("SELECT bogus(")
     assert out["ok"] is False

@@ -18,76 +18,24 @@ constant-time comparison.
 """
 from __future__ import annotations
 
-import base64
-import hashlib
-import hmac
 import os
 import sys
 import time
 
 import reflex as rx
 
+# Pure HMAC crypto now lives in ocd_core.auth so the FastAPI backend can verify
+# tokens without importing Reflex. Imported here for backwards compatibility.
+from ocd_core.auth import (  # noqa: F401
+    auth_enabled,
+    credentials_ok,
+    make_token,
+    verify_token,
+)
+
 # Session lifetime (seconds). Default 7 days; override with AUTH_SESSION_TTL_SEC.
 _TTL = int(os.getenv("AUTH_SESSION_TTL_SEC", str(7 * 24 * 3600)))
 _COOKIE = "ocd_auth"
-
-
-# --------------------------------------------------------------------------- #
-#  Pure token / credential helpers (unit-tested in tests/test_auth.py)
-#  Env is read at call time so configuration and tests apply without reimport.
-# --------------------------------------------------------------------------- #
-def _secret() -> bytes:
-    return (os.getenv("CHAINLIT_AUTH_SECRET")
-            or os.getenv("AJ360_AUTH_SECRET") or "").encode()
-
-
-def _expected_user() -> str:
-    return os.getenv("APP_USERNAME", "")
-
-
-def _expected_pass() -> str:
-    return os.getenv("APP_PASSWORD", "")
-
-
-def auth_enabled() -> bool:
-    """True only when credentials AND a signing secret are all configured."""
-    return bool(_expected_user() and _expected_pass() and _secret())
-
-
-def _sign(username: str, exp: int) -> str:
-    msg = f"{username}|{exp}".encode()
-    return hmac.new(_secret(), msg, hashlib.sha256).hexdigest()
-
-
-def make_token(username: str, now: int) -> str:
-    """Mint a signed session token that expires at now + _TTL."""
-    exp = now + _TTL
-    raw = f"{username}|{exp}|{_sign(username, exp)}"
-    return base64.urlsafe_b64encode(raw.encode()).decode()
-
-
-def verify_token(token: str, now: int) -> bool:
-    """True iff the token is well-formed, unexpired, and correctly signed."""
-    if not token or not _secret():
-        return False
-    try:
-        raw = base64.urlsafe_b64decode(token.encode()).decode()
-        username, exp_s, sig = raw.split("|")
-        exp = int(exp_s)
-    except Exception:
-        return False
-    if exp < now:
-        return False
-    return hmac.compare_digest(sig, _sign(username, exp))
-
-
-def credentials_ok(username: str, password: str) -> bool:
-    """Constant-time credential check. Fail-closed when not configured."""
-    eu, ep = _expected_user(), _expected_pass()
-    if not eu or not ep:
-        return False
-    return (hmac.compare_digest(username or "", eu)
-            and hmac.compare_digest(password or "", ep))
 
 
 if not auth_enabled():

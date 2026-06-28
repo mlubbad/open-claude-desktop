@@ -4,27 +4,17 @@ These spawn the bundled demo MCP server (mcp_servers/demo_server.py) for real
 and verify that the registry keeps ONE persistent session across calls (no
 re-spawn), returns correct results, and stays usable after an error.
 
-Run:  venv312\\Scripts\\python.exe tests/test_mcp_registry.py
-or:   venv312\\Scripts\\python.exe -m pytest tests/test_mcp_registry.py
+Run:  venv312\\Scripts\\python.exe backend/tests/test_mcp_registry.py
+or:   venv312\\Scripts\\python.exe -m pytest backend/tests/test_mcp_registry.py
 """
-import importlib.util
 import os
 import sys
 
-_HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+from ocd_core import mcp_registry as _mod
+
+# Repo root is two levels up from this file (backend/tests/ -> backend/ -> repo).
+_HERE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 _DEMO = os.path.join(_HERE, "mcp_servers", "demo_server.py")
-
-
-def _load_registry_module():
-    spec = importlib.util.spec_from_file_location(
-        "ocd_mcp_registry",
-        os.path.join(_HERE, "aj360_app", "aj360_app", "mcp_registry.py"))
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
-
-
-_mod = _load_registry_module()
 
 
 def _cfg():

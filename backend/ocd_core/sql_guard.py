@@ -2,8 +2,9 @@
 (app.py) and Reflex (aj360_app) surfaces.
 
 Pure, framework-agnostic helpers that keep the agent's generated SQL safe:
-  * is_mutation         — read-only-by-default classification (fail-safe)
-  * tables_out_of_scope — dataset-scope enforcement on parsed referenced_tables
+  * is_mutation          — read-only-by-default classification (fail-safe)
+  * tables_out_of_scope  — dataset-scope enforcement on parsed referenced_tables
+  * tables_off_allowlist — per-project table allowlist (substring; KNOWN-WART)
   * check_banned_aliases — reject BigQuery reserved words used as bare aliases
 """
 from __future__ import annotations
@@ -41,6 +42,16 @@ def tables_out_of_scope(referenced, allowed: set, project_id: str = "") -> list:
         if scope not in allowed:
             out.append(f"{scope}.{getattr(t, 'table_id', '?')}")
     return out
+
+
+def tables_off_allowlist(sql: str, allowlist: list[str]) -> bool:
+    """True if a non-empty allowlist is in force and NONE of its tables appear
+    in the SQL. KNOWN-WART: substring match (faithful to app.py run_sql); should
+    move to parsed referenced_tables in a later hardening pass."""
+    if not allowlist:
+        return False
+    low = sql.lower()
+    return not any(t.lower() in low for t in allowlist)
 
 
 def check_banned_aliases(sql: str) -> "str | None":

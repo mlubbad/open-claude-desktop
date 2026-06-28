@@ -1,0 +1,116 @@
+"""BigQuery client + SQL validation/execution (read-only analytics policy).
+
+Moved verbatim from aj360_app/aj360_app/core.py (get_bq_client, _dry_run,
+execute_sql). Behavior parity is the contract — the only changes are import
+references:
+  * config.* / util.fmt_bytes for the bare names core.py imported at module top
+  * ocd_core.sql_guard.check_banned_aliases (already the shared guard in core.py)
+  * ocd_core.projects.get_project_allowlist for the per-project allowlist check
+  * ocd_core.observability.observe in place of the local core._observe (the two
+    are behavior-identical — confirmed in a prior slice)
+
+NOTE: this is a faithful move of the Reflex execute_sql. The salvaged
+rate-limit (observability.check_rate_limit) and dataset-scope
+(sql_guard.tables_off_allowlist) guards are deliberately NOT wired in here —
+the original never had them. They stay available for a later, deliberate phase.
+"""
+from __future__ import annotations
+
+import json
+import threading
+import time
+
+from . import config, util
+from .observability import observe
+from .projects import get_project_allowlist
+from .sql_guard import check_banned_aliases
+
+_bq_client = None
+_bq_lock = threading.Lock()
+
+
+def get_bq_client():
+    global _bq_client
+    with _bq_lock:
+        if _bq_client is None:
+            import google.auth
+            from google.cloud import bigquery
+            credentials, _ = google.auth.default()
+            _bq_client = bigquery.Client(project=config.PROJECT_ID, credentials=credentials)
+        return _bq_client
+
+
+def _dry_run(sql: str):
+    from google.cloud.bigquery import QueryJobConfig
+    client = get_bq_client()
+    try:
+        job = client.query(sql, QueryJobConfig(dry_run=True, use_query_cache=False))
+        stmt = getattr(job, "statement_type", None) or "UNKNOWN"
+        return True, stmt, job.total_bytes_processed or 0, None
+    except Exception as e:
+        return False, None, 0, str(e)
+
+
+def execute_sql(sql: str, active_project: str | None = None) -> dict:
+    """Validate + run a query. Read-only policy: only SELECT executes.
+
+    Returns a structured result:
+      {ok, stmt, columns, rows, total_rows, truncated, bytes, agent_text, error}
+    `agent_text` is what the LLM sees; `rows`/`columns` drive the UI table.
+    """
+    from google.cloud.bigquery import QueryJobConfig
+    sql = (sql or "").strip()
+    t0 = time.time()
+    if not sql:
+        return {"ok": False, "error": "empty", "agent_text": "No SQL provided."}
+
+    if active_project:
+        allow = get_project_allowlist(active_project)
+        if allow and not any(tok.lower() in sql.lower() for tok in allow):
+            return {"ok": False, "error": "allowlist",
+                    "agent_text": f"SQL REJECTED: project allows only: {', '.join(allow)}"}
+
+    alias_err = check_banned_aliases(sql)
+    if alias_err:
+        return {"ok": False, "error": "alias", "agent_text": f"SQL REJECTED: {alias_err}"}
+
+    ok, stmt, est_bytes, err = _dry_run(sql)
+    if not ok:
+        return {"ok": False, "stmt": stmt, "error": err,
+                "agent_text": f"VALIDATION FAILED (0 rows scanned). Fix and retry.\nError: {err}"}
+
+    if stmt != "SELECT":
+        return {"ok": False, "stmt": stmt, "error": "mutation_blocked",
+                "agent_text": (f"REJECTED: {stmt} statements are disabled in the chat agent "
+                               f"(read-only analytics). Rewrite as a SELECT.")}
+
+    if est_bytes > config.MAX_BYTES_BILLED:
+        return {"ok": False, "stmt": stmt, "error": "cost",
+                "agent_text": (f"REFUSED: estimated scan {util.fmt_bytes(est_bytes)} exceeds the cap "
+                               f"{util.fmt_bytes(config.MAX_BYTES_BILLED)}. Add partition/date filters.")}
+
+    try:
+        client = get_bq_client()
+        job = client.query(sql, QueryJobConfig(maximum_bytes_billed=config.MAX_BYTES_BILLED))
+        rows_iter = job.result(timeout=config.QUERY_TIMEOUT_SEC)
+        billed = job.total_bytes_billed or job.total_bytes_processed or 0
+        rows = []
+        for r in rows_iter:
+            rows.append(dict(r))
+            if len(rows) >= config.MAX_STORED_ROWS:
+                break
+        total = rows_iter.total_rows if rows_iter.total_rows is not None else len(rows)
+        truncated = total > len(rows)
+        columns = list(rows[0].keys()) if rows else []
+        preview = rows[:config.MAX_RETURN_ROWS]
+        header = (f"[{total} rows; showing first {len(preview)}]"
+                  if total > len(preview) else f"[{total} rows]")
+        agent_text = f"{header} scanned {util.fmt_bytes(billed)}\n{json.dumps(preview, default=str)}"
+        observe("query_ok", rows=total, bytes=billed, latency_s=round(time.time() - t0, 2))
+        return {"ok": True, "stmt": stmt, "columns": columns, "rows": rows,
+                "total_rows": total, "truncated": truncated, "bytes": billed,
+                "agent_text": agent_text}
+    except Exception as e:
+        observe("query_fail", error=str(e))
+        return {"ok": False, "stmt": stmt, "error": str(e),
+                "agent_text": f"EXECUTION FAILED: {e}. Fix the SQL and try again."}

@@ -34,7 +34,8 @@ dev = ["pytest", "ruff", "mypy"]
 
 [tool.setuptools]
 py-modules = ["app", "run"]
-packages = ["ocd_core"]
+# ocd_core now lives in its own installable package under backend/ (see backend/pyproject.toml).
+packages = []
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

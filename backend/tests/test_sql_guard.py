@@ -3,14 +3,9 @@
 This is the single source of truth for the read-only SQL guard that was
 previously duplicated (and divergent) across app.py and aj360_app core.py.
 """
-import os
-import sys
 from collections import namedtuple
 
-# Make the repo-root `ocd_core` importable whether run via pytest or directly.
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from ocd_core import sql_guard as g  # noqa: E402
+from ocd_core import sql_guard as g
 
 Tbl = namedtuple("Tbl", "project dataset_id table_id")
 

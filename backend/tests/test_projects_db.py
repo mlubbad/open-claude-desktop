@@ -33,3 +33,13 @@ def test_delete_removes_row(db):
     assert projects.delete_project("temp") is True
     assert projects.get_project("temp") is None
     assert projects.delete_project("temp") is False
+
+
+def test_card_view_capacity_and_knowledge_dir(db):
+    from ocd_core import config
+    meta = projects.create_project("Alpha")
+    assert (config.PROJECTS_DIR / "alpha" / "knowledge").is_dir()  # disk dir for uploads
+    card = projects.project_card_view(meta)
+    assert card["id"] == "alpha" and card["href"] == "/project/alpha"
+    cap = projects.project_capacity("alpha")
+    assert set(cap) == {"used_mb", "max_mb", "percent"} and cap["used_mb"] == 0.0

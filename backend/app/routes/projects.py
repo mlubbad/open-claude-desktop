@@ -13,6 +13,7 @@ router = APIRouter(prefix="/projects")
 def list_projects(view: str = "", user: str = Depends(current_user)) -> list[dict]:
     rows = projects.list_projects()
     if view == "card":
+        rows = sorted(rows, key=lambda p: p.get("created_at", ""), reverse=True)
         return [projects.project_card_view(p) for p in rows]
     return rows
 

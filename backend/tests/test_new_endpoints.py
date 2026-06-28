@@ -17,6 +17,22 @@ def test_projects_card_view():
     assert r.json() == [fake_card]
 
 
+def test_projects_card_view_newest_first():
+    rows = [
+        {"id": "old", "name": "Old", "created_at": "2026-01-01"},
+        {"id": "new", "name": "New", "created_at": "2026-06-01"},
+        {"id": "mid", "name": "Mid", "created_at": "2026-03-01"},
+    ]
+    # Mock list_projects for the ordering input; patch project_card_view with a
+    # hermetic echo (the real one reads project metadata) so we test ordering only.
+    with patch("app.routes.projects.projects.list_projects", return_value=rows), \
+         patch("app.routes.projects.projects.project_card_view",
+               side_effect=lambda p: {"id": p["id"], "created_at": p["created_at"]}):
+        r = client.get("/projects", params={"view": "card"})
+    ids = [c["id"] for c in r.json()]
+    assert ids == ["new", "mid", "old"]
+
+
 def test_projects_plain_view_unchanged():
     with patch("app.routes.projects.projects.list_projects", return_value=[{"id": "p1"}]):
         r = client.get("/projects")

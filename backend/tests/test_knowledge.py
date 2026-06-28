@@ -67,9 +67,9 @@ def test_save_uploaded_file(tmp_path, monkeypatch):
     assert dest.parent == cfg.PROJECTS_DIR / "p2" / "knowledge"
 
 
-def test_list_all_files_aggregates(tmp_path, monkeypatch):
+def test_list_all_files_aggregates(tmp_path, monkeypatch, db):
     cfg, know = _reload(tmp_path, monkeypatch)
-    # Needs a real project in the registry to be aggregated.
+    # Needs a real project in the (DB-backed) registry to be aggregated.
     projects = importlib.reload(importlib.import_module("ocd_core.projects"))
     projects.create_project("Proj X")
     know.save_uploaded_file("proj-x", "f.txt", b"hi")

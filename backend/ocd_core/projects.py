@@ -1,86 +1,70 @@
-"""Project registry + per-project metadata (instructions, memory, allowlist).
+"""Project registry + per-project metadata, persisted in Postgres (Phase 2).
 
-Moved verbatim from aj360_app/aj360_app/core.py — identical semantics to the
-original app.py. Behavior parity is the contract; only import references were
-adjusted (util.slugify for the old _slugify, ocd_core.chroma for _get_chroma).
+Same public API and return shapes as the prior file-based module; only the
+storage changed. Datetimes are returned as ISO strings. Uploaded KB files still
+live on disk under projects/<id>/knowledge/ and ChromaDB still holds vectors.
 """
 from __future__ import annotations
 
-import json
 import uuid
-from datetime import datetime, timezone
+
+from sqlmodel import select
 
 from . import config, util
 from .chroma import _get_chroma
+from .db.engine import session
+from .db.models import Project, utcnow
 
-# Match core.py: ensure the projects dir exists and snapshot the registry path.
+# Uploaded files still live on disk; ensure the root exists (parity with the old module).
 config.PROJECTS_DIR.mkdir(parents=True, exist_ok=True)
-_REGISTRY_FILE = config.PROJECTS_DIR / "_registry.json"
+
+
+def _meta(p: Project) -> dict:
+    return {"id": p.id, "name": p.name, "created_at": p.created_at.isoformat()}
 
 
 def get_project_allowlist(project_id: str) -> list:
-    """Optional per-project table allowlist (projects/<id>/allowlist.json)."""
-    path = config.PROJECTS_DIR / project_id / "allowlist.json"
-    if path.exists():
-        try:
-            return json.loads(path.read_text(encoding="utf-8"))
-        except Exception:
-            pass
-    return []
-
-
-# --------------------------------------------------------------------------- #
-#  Projects registry (identical semantics to app.py)
-# --------------------------------------------------------------------------- #
-def _load_registry() -> list[dict]:
-    if _REGISTRY_FILE.exists():
-        try:
-            return json.loads(_REGISTRY_FILE.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
-            return []
-    return []
-
-
-def _save_registry(data: list[dict]):
-    tmp = _REGISTRY_FILE.with_suffix(".tmp")
-    tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
-    tmp.replace(_REGISTRY_FILE)
+    with session() as s:
+        p = s.get(Project, project_id)
+        return list(p.allowlist) if p and p.allowlist else []
 
 
 def list_projects() -> list[dict]:
-    return _load_registry()
+    with session() as s:
+        return [_meta(p) for p in s.exec(select(Project).order_by(Project.created_at)).all()]
 
 
 def get_project(project_id: str) -> dict | None:
-    return next((p for p in _load_registry() if p["id"] == project_id), None)
+    with session() as s:
+        p = s.get(Project, project_id)
+        return _meta(p) if p else None
 
 
 def create_project(name: str) -> dict:
-    projects = _load_registry()
     project_id = util.slugify(name)
-    if project_id in {p["id"] for p in projects}:
-        project_id = f"{project_id}-{uuid.uuid4().hex[:4]}"
-
+    with session() as s:
+        if s.get(Project, project_id) is not None:
+            project_id = f"{project_id}-{uuid.uuid4().hex[:4]}"
+        now = utcnow()
+        p = Project(id=project_id, name=name,
+                    instructions=f"# Instructions for {name}\n\n"
+                                 "Add specific guidelines for this project here.\n",
+                    memory="", allowlist=[], created_at=now, updated_at=now)
+        s.add(p)
+        meta = _meta(p)
     (config.PROJECTS_DIR / project_id / "knowledge").mkdir(parents=True, exist_ok=True)
-    instructions_path = config.PROJECTS_DIR / project_id / "instructions.md"
-    if not instructions_path.exists():
-        instructions_path.write_text(
-            f"# Instructions for {name}\n\nAdd specific guidelines for this project here.\n",
-            encoding="utf-8")
-
-    meta = {"id": project_id, "name": name,
-            "created_at": datetime.now(timezone.utc).isoformat()}
-    projects.append(meta)
-    _save_registry(projects)
     return meta
 
 
 def delete_project(project_id: str) -> bool:
-    projects = _load_registry()
-    updated = [p for p in projects if p["id"] != project_id]
-    if len(updated) == len(projects):
-        return False
-    _save_registry(updated)
+    with session() as s:
+        p = s.get(Project, project_id)
+        if p is None:
+            return False
+        s.delete(p)
+        from .db.models import Conversation
+        for c in s.exec(select(Conversation).where(Conversation.project_id == project_id)).all():
+            s.delete(c)
     proj_dir = config.PROJECTS_DIR / project_id
     if proj_dir.exists():
         import shutil
@@ -93,40 +77,40 @@ def delete_project(project_id: str) -> bool:
 
 
 def get_project_instructions(project_id: str) -> str:
-    path = config.PROJECTS_DIR / project_id / "instructions.md"
-    return path.read_text(encoding="utf-8") if path.exists() else ""
+    with session() as s:
+        p = s.get(Project, project_id)
+        return p.instructions if p else ""
 
 
 def save_project_instructions(project_id: str, content: str):
-    path = config.PROJECTS_DIR / project_id / "instructions.md"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="utf-8")
+    with session() as s:
+        p = s.get(Project, project_id)
+        if p:
+            p.instructions = content
+            p.updated_at = utcnow()
+            s.add(p)
 
 
 def get_project_memory(project_id: str) -> tuple[str, str]:
-    """Returns (memory_text, last_updated_relative) from optional memory.md."""
-    path = config.PROJECTS_DIR / project_id / "memory.md"
-    if path.exists():
-        try:
-            text = path.read_text(encoding="utf-8", errors="ignore").strip()
-            return text, util.relative_time(path.stat().st_mtime)
-        except Exception:
+    """Returns (memory_text, last_updated_relative). Timestamp from updated_at."""
+    with session() as s:
+        p = s.get(Project, project_id)
+        if not p:
             return "", ""
-    return "", ""
+        return p.memory, (util.relative_time(p.updated_at.isoformat()) if p.memory else "")
 
 
 def save_project_memory(project_id: str, content: str):
-    path = config.PROJECTS_DIR / project_id / "memory.md"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="utf-8")
+    with session() as s:
+        p = s.get(Project, project_id)
+        if p:
+            p.memory = content
+            p.updated_at = utcnow()
+            s.add(p)
 
 
-# --------------------------------------------------------------------------- #
-#  Files / capacity (project-scoped)
-# --------------------------------------------------------------------------- #
 def project_capacity(project_id: str) -> dict:
-    # Imported lazily to avoid a knowledge<->projects import cycle; knowledge
-    # imports projects only via list_project_files at call time below.
+    # Unchanged: uploaded files still live on disk.
     from .knowledge import list_project_files
     files = list_project_files(project_id)
     used = sum(f["size"] for f in files)
@@ -137,11 +121,7 @@ def project_capacity(project_id: str) -> dict:
             "percent": pct}
 
 
-# --------------------------------------------------------------------------- #
-#  Display helpers
-# --------------------------------------------------------------------------- #
 def project_card_view(p: dict) -> dict:
-    """Shape a registry entry for the dashboard card."""
     instr = get_project_instructions(p["id"])
     desc = instr.split("\n")[0].replace("#", "").strip()
     if not desc or len(desc) < 5:

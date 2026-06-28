@@ -256,6 +256,13 @@ async def run_agent_stream(req: dict) -> AsyncIterator[dict]:
     async with httpx.AsyncClient(base_url=_BASE, timeout=None) as client:
         async with aconnect_sse(client, "POST", "/agent/turn",
                                 json=req, headers=_headers()) as es:
+            if es.response.status_code >= 400:
+                await es.response.aread()
+                try:
+                    detail = es.response.json().get("detail", "")
+                except Exception:
+                    detail = es.response.text
+                raise ApiError(es.response.status_code, detail)
             async for sse in es.aiter_sse():
                 ev = json.loads(sse.data)
                 if ev.get("type") == "done":

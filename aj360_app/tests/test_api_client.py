@@ -117,3 +117,14 @@ async def test_run_agent_stream_yields_error_frame():
         return_value=httpx.Response(200, headers={"content-type": "text/event-stream"}, content=body))
     got = [ev async for ev in api_client.run_agent_stream({"goal": "x", "model": "m"})]
     assert got == [{"type": "error", "text": "boom"}]
+
+
+@respx.mock
+async def test_run_agent_stream_raises_apierror_on_429():
+    respx.post("http://test/agent/turn").mock(
+        return_value=httpx.Response(429, json={"detail": "rate limit exceeded"}))
+    with pytest.raises(api_client.ApiError) as ei:
+        async for _ in api_client.run_agent_stream({"goal": "x", "model": "m"}):
+            pass
+    assert ei.value.status == 429
+    assert "rate limit" in ei.value.detail

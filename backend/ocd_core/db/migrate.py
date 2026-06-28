@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import json
 import sys
-import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -72,13 +71,15 @@ def migrate_filesystem_to_db(projects_dir) -> dict:
                 if isinstance(msgs, list) and msgs:
                     first = next((m.get("content", "") for m in msgs
                                   if m.get("kind") == "user"), "Imported conversation")
-                    cid = uuid.uuid4().hex[:12]
-                    if s.get(Conversation, cid) is None:
-                        now = utcnow()
-                        s.add(Conversation(id=cid, project_id=pid,
-                                           title=first[:48] or "Imported", transcript=msgs,
-                                           created_at=now, updated_at=now))
-                        n_convs += 1
+                    cid = f"legacy-{pid}"  # deterministic → idempotent across re-runs
+                    c = s.get(Conversation, cid) or Conversation(
+                        id=cid, project_id=pid, title="", created_at=utcnow())
+                    c.project_id = pid
+                    c.title = (first[:48] or "Imported")
+                    c.transcript = msgs
+                    c.updated_at = utcnow()
+                    s.add(c)
+                    n_convs += 1
             for cf in (pdir / "conversations").glob("*.json"):
                 data = _read_json(cf, None)
                 if not isinstance(data, dict) or "id" not in data:

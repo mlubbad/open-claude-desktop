@@ -43,3 +43,19 @@ def test_migrate_is_idempotent(db, tmp_path):
     assert again == {"projects": 1, "conversations": 2}
     with session() as s:
         assert len(s.exec(select(Conversation)).all()) == 2  # no duplicates
+
+
+def test_legacy_chat_history_fold_is_idempotent(db, tmp_path):
+    import json
+    pdir = tmp_path / "oldproj" / "conversations"; pdir.mkdir(parents=True)
+    (tmp_path / "oldproj" / "chat_history.json").write_text(json.dumps(
+        [{"role": "user", "content": "legacy hi", "kind": "user"}]), encoding="utf-8")
+    from ocd_core.db.engine import session
+    from ocd_core.db.models import Conversation
+    from sqlmodel import select
+    migrate.migrate_filesystem_to_db(tmp_path)
+    migrate.migrate_filesystem_to_db(tmp_path)  # re-run
+    with session() as s:
+        rows = s.exec(select(Conversation).where(Conversation.project_id == "oldproj")).all()
+        assert len(rows) == 1  # folded once, not duplicated
+        assert rows[0].id == "legacy-oldproj" and rows[0].transcript[0]["content"] == "legacy hi"

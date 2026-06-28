@@ -5,6 +5,7 @@ from ocd_core import integrations, skills
 from pydantic import BaseModel
 
 from ..deps import current_user
+from ..schemas import GithubImportRequest
 
 router = APIRouter()
 
@@ -73,3 +74,14 @@ def remove_mcp(sid: str, user: str = Depends(current_user)) -> dict:
 @router.get("/mcp-servers/{sid}/tools")
 def mcp_tools(sid: str, user: str = Depends(current_user)) -> dict:
     return {"tools": integrations.mcp_tools([sid])}
+
+
+@router.post("/mcp-servers/demo")
+def add_demo_mcp(user: str = Depends(current_user)) -> dict:
+    return integrations.add_demo_mcp_server()
+
+
+@router.post("/connectors/github")
+def import_github(body: GithubImportRequest, user: str = Depends(current_user)) -> dict:
+    count, message = integrations.import_github_repo(body.repo_url, body.project_id)
+    return {"chunks": count, "message": message}

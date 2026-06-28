@@ -13,6 +13,7 @@ from .routes import (
     projects,
     schema,
     settings,
+    sql,
 )
 
 app = FastAPI(title="ocd backend", version="0.4.0")
@@ -26,3 +27,4 @@ app.include_router(settings.router)
 app.include_router(knowledge.router)
 app.include_router(schema.router)
 app.include_router(integrations.router)
+app.include_router(sql.router)

@@ -74,3 +74,17 @@ class SettingsBody(BaseModel):
     model: str | None = None
     effort: str | None = None
     theme: str | None = None
+
+
+class TitleRequest(BaseModel):
+    first_message: str
+
+
+class SqlExecuteRequest(BaseModel):
+    sql: str
+    project: str | None = None
+
+
+class GithubImportRequest(BaseModel):
+    repo_url: str
+    project_id: str

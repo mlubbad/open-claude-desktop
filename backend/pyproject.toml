@@ -15,6 +15,9 @@ dependencies = [
   "pdfplumber",
   "mcp",
   "python-dotenv",
+  "sqlmodel",
+  "alembic",
+  "psycopg[binary]",
 ]
 
 [project.optional-dependencies]
@@ -23,7 +26,7 @@ dev = ["pytest", "ruff", "mypy"]
 [tool.setuptools]
 # Flat package: all ocd_core/*.py modules (config, integrations, agent, …) ship
 # under this one entry. A future cleanup may split integrations into a subpackage.
-packages = ["ocd_core"]
+packages = ["ocd_core", "ocd_core.db"]
 package-dir = {"" = "."}
 
 [tool.pytest.ini_options]

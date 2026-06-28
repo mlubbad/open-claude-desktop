@@ -21,6 +21,7 @@ services:
     volumes:
       - aj360_pgdata:/var/lib/postgresql/data
       - ./schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+      - ./backend/db_init/01_create_ocd.sql:/docker-entrypoint-initdb.d/02_create_ocd.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U chainlit -d chainlit"]
       interval: 5s

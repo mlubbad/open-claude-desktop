@@ -37,3 +37,13 @@ def test_list_all_includes_general(db):
     cv.create_conversation("general", "a general chat")
     items = cv.list_all_conversations()
     assert any(i["project_id"] == "general" for i in items)
+
+
+def test_conversation_persists_to_db(db):
+    conv = cv.create_conversation("p1", "hello world")
+    from ocd_core.db.engine import session
+    from ocd_core.db.models import Conversation
+    with session() as s:
+        row = s.get(Conversation, conv["id"])
+        assert row is not None and row.project_id == "p1"
+        assert row.transcript[0]["content"] == "hello world"

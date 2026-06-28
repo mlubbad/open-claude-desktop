@@ -43,3 +43,12 @@ def test_card_view_capacity_and_knowledge_dir(db):
     assert card["id"] == "alpha" and card["href"] == "/project/alpha"
     cap = projects.project_capacity("alpha")
     assert set(cap) == {"used_mb", "max_mb", "percent"} and cap["used_mb"] == 0.0
+
+
+def test_project_persists_to_db(db):
+    projects.create_project("Persisted")
+    from ocd_core.db.engine import session
+    from ocd_core.db.models import Project
+    with session() as s:
+        row = s.get(Project, "persisted")
+        assert row is not None and row.name == "Persisted"

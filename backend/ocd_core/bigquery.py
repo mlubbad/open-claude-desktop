@@ -41,6 +41,37 @@ def get_bq_client():
         return _bq_client
 
 
+_REAUTH_SIGNATURES = (
+    "reauthentication is needed",
+    "reauthentication failed",
+    "invalid_grant",
+    "refresherror",
+    "invalid_rapt",
+    "could not automatically determine credentials",
+)
+
+
+def needs_reauth(err: str) -> bool:
+    """True when an error string indicates ADC credentials need re-login.
+
+    Used to flag agent/SQL results as ``auth_expired`` so the UI can offer an
+    in-app "Reconnect Google" action instead of a generic failure.
+    """
+    e = (err or "").lower()
+    return any(sig in e for sig in _REAUTH_SIGNATURES)
+
+
+def reset_bq_client() -> None:
+    """Drop the cached client so the next get_bq_client() rebuilds from fresh ADC.
+
+    Called after an in-app reconnect (gcloud ADC re-login) so the new credentials
+    take effect without a process restart.
+    """
+    global _bq_client
+    with _bq_lock:
+        _bq_client = None
+
+
 def _dry_run(sql: str):
     from google.cloud.bigquery import QueryJobConfig
     client = get_bq_client()
@@ -72,7 +103,7 @@ def execute_sql(sql: str, active_project: str | None = None) -> dict:
 
     ok, stmt, est_bytes, refs, err = _dry_run(sql)
     if not ok:
-        return {"ok": False, "stmt": stmt, "error": err,
+        return {"ok": False, "stmt": stmt, "error": err, "auth_expired": needs_reauth(err),
                 "agent_text": f"VALIDATION FAILED (0 rows scanned). Fix and retry.\nError: {err}"}
 
     if active_project:

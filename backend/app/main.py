@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 
+from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -17,6 +18,12 @@ from .routes import (
     settings,
     sql,
 )
+
+# Load repo .env for local/dev runs so ZHIPU_API_KEY (and other vars) are present
+# without a launcher wrapper. override=False -> the real process env always wins
+# (docker-compose env_file / `environment:`, or vars you export), so this is a
+# no-op in containers and only fills gaps when running a bare `uvicorn` locally.
+load_dotenv()
 
 app = FastAPI(title="ocd backend", version="0.4.0")
 _origins = os.environ.get("OCD_CORS_ORIGINS",

@@ -82,8 +82,8 @@ def sidebar() -> rx.Component:
         ),
         top_tabs(),
         rx.vstack(
-            nav_item("plus", "New chat", href="/cowork"),
-            nav_item("folder", "Projects", href="/"),
+            nav_item("plus", "New chat", href="/"),
+            nav_item("folder", "Projects", href="/projects"),
             nav_item("blocks", "Artifacts", href="/artifacts"),
             nav_item("sliders-horizontal", "Customize", href="/customize"),
             spacing="0", width="100%", margin_top="6px",

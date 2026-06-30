@@ -2,9 +2,9 @@
 import reflex as rx
 
 from ..state import AppState
-from .theme import BORDER, CARD_BG
-from .sidebar import sidebar
 from .composer import workspace_composer
+from .sidebar import sidebar
+from .theme import BORDER, CARD_BG
 
 
 def cowork_page() -> rx.Component:
@@ -160,7 +160,7 @@ def workspace() -> rx.Component:
             rx.link(
                 rx.hstack(rx.icon("arrow-left", size=14), rx.text("All projects"),
                           spacing="1", align="center"),
-                href="/", color="var(--gray-9)", size="2", margin_bottom="16px",
+                href="/projects", color="var(--gray-9)", size="2", margin_bottom="16px",
             ),
             rx.hstack(
                 rx.heading(AppState.current_name, size="7", weight="bold"),

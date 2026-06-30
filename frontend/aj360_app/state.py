@@ -61,9 +61,19 @@ def _looks_like_reauth(text: str) -> bool:
     return any(h in t for h in _REAUTH_HINTS)
 
 
+def _time_greeting(hour: int) -> str:
+    """Time-of-day greeting from a 24-hour clock hour."""
+    if 5 <= hour < 12:
+        return "Good morning"
+    if 12 <= hour < 18:
+        return "Good afternoon"
+    return "Good evening"
+
+
 class AppState(rx.State):
     # ---- shell ----
     section: str = "chat"   # active top tab: chat | cowork | code
+    greeting: str = "Good evening"   # chat-home time-of-day greeting
 
     # ---- backend health (startup ping) ----
     backend_ok: bool = True
@@ -560,7 +570,26 @@ class AppState(rx.State):
         self.section = "cowork"
 
     def new_chat(self):
-        return rx.redirect("/cowork")
+        return rx.redirect("/")
+
+    async def load_home(self):
+        """The Claude-style chat home (General space) at /."""
+        await self._load_project_context(GENERAL_ID)
+        self.conversations = await api_client.list_conversations(GENERAL_ID)
+        await self._load_recents()
+        self.messages = []
+        self.current_conv_id = ""
+        self.conv_title = ""
+        self.chat_input = ""
+        self.is_running = False
+        self.section = "chat"
+        self.greeting = _time_greeting(time.localtime().tm_hour)
+
+    def goto_home(self):
+        return rx.redirect("/")
+
+    def chip_query_bigquery(self):
+        self.chat_input = "Query BigQuery: "
 
     # ---- Pin / Change project / Remove from project ----
     async def toggle_pin(self):
@@ -692,7 +721,7 @@ class AppState(rx.State):
     async def delete_current_project(self):
         if self.current_id:
             await api_client.delete_project(self.current_id)
-        return rx.redirect("/")
+        return rx.redirect("/projects")
 
     # --------------------------------------------------------------- #
     #  Workspace
@@ -715,7 +744,7 @@ class AppState(rx.State):
     @rx.var
     def workspace_href(self) -> str:
         if self.current_id == GENERAL_ID:
-            return "/cowork"
+            return "/"
         return f"/project/{self.current_id}"
 
     @rx.var

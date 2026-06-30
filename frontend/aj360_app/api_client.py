@@ -86,6 +86,15 @@ async def health() -> dict:
     return await _get("/healthz")  # type: ignore[return-value]
 
 
+# --------------------------- bigquery --------------------------- #
+async def bigquery_status() -> dict:
+    return await _get("/bigquery/status")  # type: ignore[return-value]
+
+
+async def bigquery_reconnect() -> dict:
+    return await _post("/bigquery/reconnect")  # type: ignore[return-value]
+
+
 # --------------------------- projects --------------------------- #
 async def list_projects() -> list[dict]:
     return await _get("/projects")  # type: ignore[return-value]

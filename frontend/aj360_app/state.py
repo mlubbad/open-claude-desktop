@@ -1,6 +1,7 @@
 """Reflex application state for the Open Claude Desktop Projects UI."""
 from __future__ import annotations
 
+import asyncio
 import os
 import time
 
@@ -48,6 +49,18 @@ def _rows_to_markdown(columns: list, rows: list) -> str:
     return "\n".join([head, sep, *body])
 
 
+_REAUTH_HINTS = (
+    "reauthentication is needed", "reauthentication failed",
+    "invalid_grant", "application-default login",
+)
+
+
+def _looks_like_reauth(text: str) -> bool:
+    """Heuristic: does an agent/tool error mean BigQuery ADC needs re-login?"""
+    t = (text or "").lower()
+    return any(h in t for h in _REAUTH_HINTS)
+
+
 class AppState(rx.State):
     # ---- shell ----
     section: str = "chat"   # active top tab: chat | cowork | code
@@ -55,6 +68,11 @@ class AppState(rx.State):
     # ---- backend health (startup ping) ----
     backend_ok: bool = True
     backend_error: str = ""
+
+    # ---- BigQuery reconnect (ADC re-login) ----
+    bq_auth_expired: bool = False
+    bq_reconnecting: bool = False
+    bq_reconnect_msg: str = ""
 
     # ---- dashboard ----
     projects: list[dict] = []
@@ -996,6 +1014,41 @@ class AppState(rx.State):
             "enabled_mcp": list(self.enabled_mcp),
         }
 
+    # --- BigQuery reconnect (ADC re-login) --- #
+    async def reconnect_bigquery(self):
+        """Trigger gcloud ADC re-login on the backend, then poll until connected."""
+        self.bq_reconnecting = True
+        self.bq_reconnect_msg = "Opening Google sign-in in your browser…"
+        yield
+        try:
+            res = await api_client.bigquery_reconnect()
+        except Exception as e:
+            self.bq_reconnecting = False
+            self.bq_reconnect_msg = f"Couldn't start reconnect: {e}"
+            return
+        if not res.get("started"):
+            self.bq_reconnecting = False
+            self.bq_reconnect_msg = res.get("error", "Reconnect failed.")
+            return
+        self.bq_reconnect_msg = "Complete the Google sign-in; this clears when reconnected…"
+        yield
+        for _ in range(30):  # poll ~60s
+            await asyncio.sleep(2)
+            try:
+                st = await api_client.bigquery_status()
+            except Exception:
+                st = {}
+            if st.get("connected"):
+                self.bq_auth_expired = False
+                self.bq_reconnecting = False
+                self.bq_reconnect_msg = "Reconnected ✓ — retry your question."
+                yield
+                return
+            yield
+        self.bq_reconnecting = False
+        self.bq_reconnect_msg = "Sign-in didn't complete — try again."
+        yield
+
     # --- Shared agent runner: stream events into the transcript, then persist --- #
     async def _run_agent(self, goal: str, pid: str, cid: str, first_turn: bool = False):
         self.is_running = True
@@ -1052,6 +1105,8 @@ class AppState(rx.State):
                                           "kind": "final"})
                 elif t == "error":
                     self._close_thinking()
+                    if _looks_like_reauth(ev["text"]):
+                        self.bq_auth_expired = True
                     self.messages.append({"role": "assistant", "content": ev["text"],
                                           "kind": "error"})
                 yield

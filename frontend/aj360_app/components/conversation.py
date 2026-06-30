@@ -2,10 +2,10 @@
 import reflex as rx
 
 from ..state import AppState
-from .theme import BORDER, CARD_BG
-from .sidebar import sidebar
-from .composer import composer
 from .chat_panel import render_message, thinking_indicator
+from .composer import composer
+from .sidebar import sidebar
+from .theme import BORDER, CARD_BG
 
 
 def rename_dialog() -> rx.Component:
@@ -87,6 +87,35 @@ def conversation_menu() -> rx.Component:
     )
 
 
+def bq_reconnect_banner() -> rx.Component:
+    """Shown when a turn failed because BigQuery's ADC credentials expired."""
+    return rx.cond(
+        AppState.bq_auth_expired,
+        rx.hstack(
+            rx.icon("triangle-alert", size=16, color="var(--amber-11)"),
+            rx.vstack(
+                rx.text("BigQuery needs to reconnect.", size="2", weight="medium",
+                        color="var(--amber-11)"),
+                rx.cond(
+                    AppState.bq_reconnect_msg != "",
+                    rx.text(AppState.bq_reconnect_msg, size="1", color="var(--gray-10)"),
+                ),
+                spacing="0", align="start",
+            ),
+            rx.spacer(),
+            rx.button(
+                rx.cond(AppState.bq_reconnecting, "Reconnecting…", "Reconnect Google"),
+                size="2", on_click=AppState.reconnect_bigquery,
+                disabled=AppState.bq_reconnecting,
+            ),
+            align="center", spacing="3", width="100%",
+            padding="10px 14px", border_radius="10px",
+            background="var(--amber-3)", border="1px solid var(--amber-6)",
+            margin_bottom="10px",
+        ),
+    )
+
+
 def conversation_page() -> rx.Component:
     return rx.hstack(
         sidebar(),
@@ -118,6 +147,7 @@ def conversation_page() -> rx.Component:
             # Composer
             rx.box(
                 rx.box(
+                    bq_reconnect_banner(),
                     composer(AppState.send_message, "Write a message…"),
                     max_width="820px", margin="0 auto", width="100%",
                 ),

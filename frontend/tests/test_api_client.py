@@ -1,10 +1,9 @@
 import json
 
+import aj360_app.api_client as api_client
 import httpx
 import pytest
 import respx
-
-import aj360_app.api_client as api_client
 
 
 def _sse(*events: dict) -> bytes:
@@ -136,4 +135,23 @@ async def test_health_pings_healthz():
         return_value=httpx.Response(200, json={"status": "ok"}))
     out = await api_client.health()
     assert out == {"status": "ok"}
+    assert route.called
+
+
+@respx.mock
+async def test_bigquery_status_gets_status():
+    route = respx.get("http://test/bigquery/status").mock(
+        return_value=httpx.Response(200, json={"connected": True, "project": "p",
+                                               "auth_expired": False, "error": None}))
+    out = await api_client.bigquery_status()
+    assert out["connected"] is True
+    assert route.called
+
+
+@respx.mock
+async def test_bigquery_reconnect_posts():
+    route = respx.post("http://test/bigquery/reconnect").mock(
+        return_value=httpx.Response(200, json={"started": True}))
+    out = await api_client.bigquery_reconnect()
+    assert out["started"] is True
     assert route.called

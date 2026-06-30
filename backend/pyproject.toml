@@ -7,6 +7,13 @@ name = "ocd-backend"
 version = "0.3.0"
 requires-python = ">=3.12"
 dependencies = [
+  # zhipuai MUST be the v2 SDK (>=2.x exposes the `ZhipuAI` class that
+  # ocd_core/llm.py imports). zhipuai 2.x pins pyjwt<2.9, which conflicts with
+  # mcp's pyjwt[crypto]>=2.10.1 — so an UNPINNED resolve silently drops zhipuai
+  # to the broken v1.0.7 (no `ZhipuAI`). Install the pinned versions from
+  # requirements.txt (zhipuai==2.1.5.20250825 + PyJWT==2.8.0), e.g. after the
+  # editable install:  pip install --no-deps zhipuai==2.1.5.20250825 PyJWT==2.8.0
+  # tests/test_llm_client.py guards against the regression.
   "zhipuai",
   "google-cloud-bigquery",
   "google-auth",

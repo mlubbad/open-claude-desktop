@@ -26,6 +26,7 @@ class AgentOptions(BaseModel):
     bash: bool = False
     text_editor: bool = False
     memory: bool = False
+    bigquery: bool = False
 
 
 class AgentTurnRequest(BaseModel):

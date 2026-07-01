@@ -154,10 +154,29 @@ EFFORT = {
     "Max":    {"steps": 16, "plan": True,  "verify": True,  "temp": 0.3},
 }
 
-SYSTEM_PROMPT = f"""You are a BigQuery analytics agent for the AJ360 (Al Jazeera 360) OTT platform.
+BASE_PROMPT = """You are Open Claude Desktop, a helpful, capable assistant.
+
+Use whatever tools are enabled for this turn — which may include web search / web
+fetch, a browser and other MCP connectors, code execution, and file editing — to
+accomplish the user's actual request. Do NOT assume every task is a data query; pick
+the right tool for what was asked, and if no tool fits, just answer directly.
+
+Before calling tools, say in ONE short sentence what you're about to do and why. After
+seeing results, note in ONE short sentence what you learned before the next step. When
+you need several INDEPENDENT pieces of information, request those tools together so they
+run in parallel. If a tool errors, read it, correct your input, and retry — or explain
+why you can't proceed. Never give up silently.
+
+Be terse, evidence-first, American English."""
+
+
+BIGQUERY_PROMPT = f"""
+
+# BIGQUERY (AJ360) CAPABILITY — ENABLED
+You can query the AJ360 (Al Jazeera 360) OTT platform data in BigQuery.
 Project: `{config.PROJECT_ID}`  Region: EU. Dialect: BigQuery standard SQL.
 
-You write and run SQL yourself. Operating loop:
+For BigQuery data questions, the loop is:
 1. Call `search_schema` to get EXACT table and column names AND check the knowledge wiki.
 2. Write fully-qualified SQL using the EXACT table names from search_schema.
 3. Call `run_sql`. If it returns an error, fix the SQL and retry.
@@ -174,25 +193,15 @@ Hard rules (AJ360-specific):
 - Aggregate on series_id, NOT series_title.
 - Default window: CURRENT_DATE() - 2.
 - GA4 tables are huge: filter by stream_id + short window for UNNEST.
-- Search funnels are separate per platform.
-
-How to work (shown to the user as your reasoning):
-- Before calling tools, say in ONE short sentence what you're about to do and why.
-- After seeing tool results, note in ONE short sentence what you learned before the
-  next step. Keep this running narration concise — it is your visible thinking.
-- When you need several INDEPENDENT pieces of information, request those tools TOGETHER
-  in one step so they run in parallel. Only sequence tools when one genuinely depends
-  on another's output (e.g. search_schema before run_sql).
-- If a tool returns an error, read it, correct your input, and retry — or explain why
-  you can't proceed. Never give up silently.
-
-Be terse, evidence-first, American English. Exact numbers.
-"""
+- Search funnels are separate per platform."""
 
 
 def _system_prompt(project_instructions: str = "", skill_instructions: str = "",
-                   research: bool = False, memory: bool = False) -> str:
-    sp = SYSTEM_PROMPT
+                   research: bool = False, memory: bool = False,
+                   bigquery: bool = False) -> str:
+    sp = BASE_PROMPT
+    if bigquery:
+        sp += BIGQUERY_PROMPT
     if memory:
         sp += ("\n\n# MEMORY PROTOCOL\n"
                "You have a persistent `memory` tool backed by /memories. At the START of a "
@@ -545,7 +554,8 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
                    research: bool = False, extra_tools: list | None = None,
                    effort: str = "High", parallel: bool = True,
                    web_fetch: bool = False, code_exec: bool = False, bash: bool = False,
-                   text_editor: bool = False, memory: bool = False):
+                   text_editor: bool = False, memory: bool = False,
+                   bigquery: bool = False):
     """Drive one agent turn, yielding events. `history` is prior (role/content) turns."""
     cfg = EFFORT.get(effort, EFFORT["High"])
     temperature = cfg["temp"]
@@ -553,9 +563,9 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
 
     messages = [{"role": "system",
                  "content": _system_prompt(project_instructions, skill_instructions,
-                                           research, memory=memory)},
+                                           research, memory=memory, bigquery=bigquery)},
                 *history, {"role": "user", "content": goal}]
-    tools = list(TOOLS)
+    tools = list(TOOLS) if bigquery else []
     if web_search or research:
         tools.append(WEB_SEARCH_TOOL)
     if research:

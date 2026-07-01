@@ -45,3 +45,16 @@ def test_save_conversation_accepts_tool_message_without_content(client):
     assert resp.status_code == 200
     got = client.get(f"/projects/p/conversations/{cid}").json()
     assert got["messages"][-1]["name"] == "run_sql"
+
+
+def test_put_conversation_persists_tools(client):
+    client.post("/projects", json={"name": "P"})
+    conv = client.post("/projects/p/conversations", json={"first_message": "hi"}).json()
+    cid = conv["id"]
+    r = client.put(f"/projects/p/conversations/{cid}",
+                   json={"messages": [{"role": "user", "content": "x", "kind": "user"}],
+                         "title": "T",
+                         "tools": {"mcp": ["playwright"], "bigquery": False}})
+    assert r.status_code == 200
+    got = client.get(f"/projects/p/conversations/{cid}").json()
+    assert got["tools"] == {"mcp": ["playwright"], "bigquery": False}

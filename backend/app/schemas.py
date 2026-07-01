@@ -65,6 +65,7 @@ class ConversationSave(BaseModel):
     # round-trips via _normalize_messages() on load.
     messages: list[dict]
     title: str | None = None
+    tools: dict | None = None
 
 
 class ConversationPatch(BaseModel):

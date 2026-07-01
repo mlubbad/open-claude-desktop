@@ -1,7 +1,7 @@
 """AJ360 — Projects UI built in Reflex (Claude-Desktop-style workspace).
 
 Thin shell: assembles the app and registers pages. All UI components live in
-``aj360_app.components`` (split out in Phase 4 Task 6).
+``ocd_app.components`` (split out in Phase 4 Task 6).
 """
 import reflex as rx
 

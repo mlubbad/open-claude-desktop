@@ -1,6 +1,6 @@
 import pytest
 
-import aj360_app.api_client as api_client
+import ocd_app.api_client as api_client
 
 
 @pytest.fixture(autouse=True)

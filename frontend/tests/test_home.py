@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import pytest
-from aj360_app.state import _time_greeting
+from ocd_app.state import _time_greeting
 
 
 @pytest.mark.parametrize("hour", [5, 6, 11])

@@ -7,10 +7,10 @@ import reflex as rx
 # generated/vendored files that never need a backend restart. Scope it to just
 # the actual Python app source. Relative path (not absolute): the underlying
 # env var splits on ":", which collides with Windows drive letters (D:\...).
-os.environ.setdefault("REFLEX_HOT_RELOAD_OVERRIDE_PATHS", "aj360_app")
+os.environ.setdefault("REFLEX_HOT_RELOAD_OVERRIDE_PATHS", "ocd_app")
 
 config = rx.Config(
-    app_name="aj360_app",
+    app_name="ocd_app",
     # C4 defense-in-depth: bind the backend API to loopback by default so the
     # production-agent endpoints aren't exposed on all interfaces. Override with
     # REFLEX_BACKEND_HOST=0.0.0.0 for container/remote deployments.

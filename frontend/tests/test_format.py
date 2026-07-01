@@ -4,7 +4,7 @@ Assertions reflect the VERBATIM behavior of the backend source functions
 they were copied from (ocd_core.util.fmt_bytes and
 ocd_core.agent._strip_answer_label) — the source is the contract.
 """
-from aj360_app.format import fmt_bytes, strip_answer_label
+from ocd_app.format import fmt_bytes, strip_answer_label
 
 
 def test_fmt_bytes_zero_and_falsy():

@@ -1,6 +1,6 @@
 import json
 
-import aj360_app.api_client as api_client
+import ocd_app.api_client as api_client
 import httpx
 import pytest
 import respx

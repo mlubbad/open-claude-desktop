@@ -57,7 +57,13 @@ class ConversationCreate(BaseModel):
 
 
 class ConversationSave(BaseModel):
-    messages: list[Message]
+    # NOT list[Message]: the frontend persists its full rich transcript here,
+    # including tool/table/sources entries with no `content` field (id/name/
+    # icon/status/summary/error, columns/rows, items, ...). Conversation.transcript
+    # is untyped JSON storage with no shape requirement, so this passes through
+    # as-is -- matching what GET already returns and what the frontend already
+    # round-trips via _normalize_messages() on load.
+    messages: list[dict]
     title: str | None = None
 
 

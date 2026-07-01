@@ -35,7 +35,7 @@ def get_conv(pid: str, cid: str, user: str = Depends(current_user)) -> dict:
 
 @router.put("/projects/{pid}/conversations/{cid}")
 def save_conv(pid: str, cid: str, body: ConversationSave, user: str = Depends(current_user)) -> dict:
-    return conversations.save_conversation(pid, cid, [m.model_dump() for m in body.messages], body.title)
+    return conversations.save_conversation(pid, cid, body.messages, body.title)
 
 
 @router.patch("/projects/{pid}/conversations/{cid}")

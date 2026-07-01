@@ -154,9 +154,10 @@ async def get_conversation(pid: str, cid: str) -> dict:
     return await _get(f"/projects/{pid}/conversations/{cid}")  # type: ignore[return-value]
 
 
-async def save_conversation(pid: str, cid: str, messages: list[dict], title: str | None = None) -> dict:
+async def save_conversation(pid: str, cid: str, messages: list[dict],
+                            title: str | None = None, tools: dict | None = None) -> dict:
     return await _put(f"/projects/{pid}/conversations/{cid}",
-                      {"messages": messages, "title": title})  # type: ignore[return-value]
+                      {"messages": messages, "title": title, "tools": tools})  # type: ignore[return-value]
 
 
 async def set_conversation_title(pid: str, cid: str, title: str) -> None:

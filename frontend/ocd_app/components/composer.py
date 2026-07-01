@@ -126,6 +126,8 @@ def plus_menu() -> rx.Component:
             rx.menu.sub(
                 rx.menu.sub_trigger(rx.icon("wrench", size=15), "Tools"),
                 rx.menu.sub_content(
+                    _builtin_tool_item("database", "BigQuery (AJ360)",
+                                       AppState.bigquery_on, AppState.toggle_bigquery),
                     _builtin_tool_item("link", "Web fetch", AppState.web_fetch_on,
                                        AppState.toggle_web_fetch),
                     _builtin_tool_item("brain", "Memory", AppState.memory_on,

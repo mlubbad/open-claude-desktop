@@ -155,3 +155,14 @@ async def test_bigquery_reconnect_posts():
     out = await api_client.bigquery_reconnect()
     assert out["started"] is True
     assert route.called
+
+
+@respx.mock
+async def test_save_conversation_sends_tools():
+    route = respx.put("http://test/projects/p1/conversations/c1").mock(
+        return_value=httpx.Response(200, json={"id": "c1"}))
+    tools = {"mcp": ["playwright"], "bigquery": False}
+    await api_client.save_conversation("p1", "c1", [{"role": "user", "content": "x"}],
+                                       title="T", tools=tools)
+    body = json.loads(route.calls.last.request.content)
+    assert body["tools"] == tools

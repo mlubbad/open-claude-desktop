@@ -165,6 +165,7 @@ class AppState(rx.State):
     bash_on: bool = False
     text_editor_on: bool = False
     memory_on: bool = False
+    bigquery_on: bool = False             # optional BigQuery (AJ360) capability, default OFF
     active_skill: str = ""               # name of the applied skill ("" = none)
     skills: list[dict] = []
     plugins: list[dict] = []
@@ -378,6 +379,9 @@ class AppState(rx.State):
     def toggle_memory(self):
         self.memory_on = not self.memory_on
 
+    def toggle_bigquery(self):
+        self.bigquery_on = not self.bigquery_on
+
     def apply_skill(self, name: str):
         self.active_skill = "" if self.active_skill == name else name
 
@@ -409,6 +413,8 @@ class AppState(rx.State):
             chips.append("Editor")
         if self.memory_on:
             chips.append("Memory")
+        if self.bigquery_on:
+            chips.append("BigQuery")
         if self.active_skill:
             chips.append(self.active_skill)
         return chips
@@ -876,6 +882,7 @@ class AppState(rx.State):
         self.conv_title = conv.get("title", "Conversation")
         self.conv_pinned = bool(conv.get("pinned", False))
         self.messages = self._normalize_messages(conv.get("messages", []))
+        self._apply_tools(conv.get("tools") or {})
         self.expanded_thoughts = set()
         self.expanded_sources = set()
         self.expanded_tools = set()
@@ -897,7 +904,8 @@ class AppState(rx.State):
         self.messages.append({"role": "user", "content": text, "kind": "user"})
         self.chat_input = ""
         await api_client.save_conversation(self.current_id, self.current_conv_id,
-                                           self.messages, self.conv_title or None)
+                                           self.messages, self.conv_title or None,
+                                           self._current_tools())
         yield
         async for _ in self._run_agent(text, self.current_id, self.current_conv_id):
             yield
@@ -1021,6 +1029,40 @@ class AppState(rx.State):
                 break
         self.messages = self.messages  # nudge reactivity
 
+    def _current_tools(self) -> dict:
+        """Snapshot the full per-conversation tool/capability selection."""
+        return {
+            "plugins": list(self.enabled_plugins),
+            "connectors": list(self.enabled_connectors),
+            "mcp": list(self.enabled_mcp),
+            "web_search": self.web_search_on,
+            "research": self.research_on,
+            "web_fetch": self.web_fetch_on,
+            "code_exec": self.code_exec_on,
+            "bash": self.bash_on,
+            "text_editor": self.text_editor_on,
+            "memory": self.memory_on,
+            "skill": self.active_skill,
+            "bigquery": self.bigquery_on,
+        }
+
+    def _apply_tools(self, tools: dict) -> None:
+        """Restore selection from a saved snapshot; keep defaults for absent keys."""
+        if not tools:
+            return
+        self.enabled_plugins = list(tools.get("plugins", self.enabled_plugins))
+        self.enabled_connectors = list(tools.get("connectors", self.enabled_connectors))
+        self.enabled_mcp = list(tools.get("mcp", self.enabled_mcp))
+        self.web_search_on = bool(tools.get("web_search", self.web_search_on))
+        self.research_on = bool(tools.get("research", self.research_on))
+        self.web_fetch_on = bool(tools.get("web_fetch", self.web_fetch_on))
+        self.code_exec_on = bool(tools.get("code_exec", self.code_exec_on))
+        self.bash_on = bool(tools.get("bash", self.bash_on))
+        self.text_editor_on = bool(tools.get("text_editor", self.text_editor_on))
+        self.memory_on = bool(tools.get("memory", self.memory_on))
+        self.active_skill = tools.get("skill", self.active_skill)
+        self.bigquery_on = bool(tools.get("bigquery", self.bigquery_on))
+
     def _build_turn_request(self, goal: str, pid: str) -> dict:
         """Assemble the AgentTurnRequest the backend expects."""
         return {
@@ -1037,6 +1079,7 @@ class AppState(rx.State):
                 "bash": self.bash_on,
                 "text_editor": self.text_editor_on,
                 "memory": self.memory_on,
+                "bigquery": self.bigquery_on,
             },
             "enabled_plugins": list(self.enabled_plugins),
             "enabled_connectors": list(self.enabled_connectors),
@@ -1144,7 +1187,7 @@ class AppState(rx.State):
                                   "kind": "error"})
         self.is_running = False
         await api_client.save_conversation(pid, cid, self.messages,
-                                           self.conv_title or None)
+                                           self.conv_title or None, self._current_tools())
         yield
         # Give a freshly-created conversation a concise Claude-style title.
         if first_turn and pid and cid:

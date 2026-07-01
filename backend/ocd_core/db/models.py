@@ -27,5 +27,6 @@ class Conversation(SQLModel, table=True):
     title: str
     pinned: bool = False
     transcript: list = Field(default_factory=list, sa_column=Column(JSON))
+    tools: dict = Field(default_factory=dict, sa_column=Column(JSON))
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)

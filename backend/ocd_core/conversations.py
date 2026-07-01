@@ -24,7 +24,8 @@ def _to_dict(c: Conversation) -> dict:
     return {"id": c.id, "title": c.title,
             "created_at": c.created_at.isoformat(),
             "updated_at": c.updated_at.isoformat(),
-            "pinned": c.pinned, "messages": list(c.transcript)}
+            "pinned": c.pinned, "messages": list(c.transcript),
+            "tools": getattr(c, "tools", {}) or {}}
 
 
 def _summary(c: Conversation, project_id: str) -> dict:
@@ -52,7 +53,7 @@ def get_conversation(project_id: str, conv_id: str) -> dict | None:
 
 
 def save_conversation(project_id: str, conv_id: str, messages: list[dict],
-                      title: str | None = None) -> dict:
+                      title: str | None = None, tools: dict | None = None) -> dict:
     with session() as s:
         c = s.get(Conversation, conv_id)
         if c is None or c.project_id != project_id:
@@ -63,6 +64,8 @@ def save_conversation(project_id: str, conv_id: str, messages: list[dict],
         c.transcript = list(messages)[-config.CONV_MAX_MESSAGES:]
         if title:
             c.title = title
+        if tools is not None:
+            c.tools = tools
         c.updated_at = utcnow()
         s.add(c)
         return _to_dict(c)

@@ -50,7 +50,7 @@ def _load_plugin_module(path: Path):
     import importlib.util
     try:
         spec = importlib.util.spec_from_file_location(
-            f"aj360_plugin_{path.stem}", path)
+            f"plugin_{path.stem}", path)
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)  # type: ignore[union-attr]
         return mod

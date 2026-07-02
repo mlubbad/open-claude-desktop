@@ -17,6 +17,7 @@ dependencies = [
   "zhipuai",
   "google-cloud-bigquery",
   "google-auth",
+  "google-auth-oauthlib",
   "chromadb",
   "pandas",
   "pdfplumber",

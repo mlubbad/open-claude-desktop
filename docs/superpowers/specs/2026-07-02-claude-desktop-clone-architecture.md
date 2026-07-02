@@ -296,3 +296,81 @@ facts; hybrid RAG + rerank beats the baseline on a fixture; evals gate CI.
    provider; the repo can only prevent recurrence.
 
 None of these block Phase 0, which begins now.
+
+## 9. Independent validation & refinements (multi-agent judge panel)
+
+A structured review workflow drafted **three independent target architectures**
+(bias: evolve-Python, TS-rebuild, assemble-OSS) and scored them with a **three-judge
+panel** (pragmatic-delivery, long-term-product, parity-fidelity lenses). Result: all
+three proposals **independently converged on this document's architecture** — a Tauri
+v2 shell + React/TS client over the kept-and-extended FastAPI/`ocd_core` backend, with
+the `agent.py:9-37` event vocabulary frozen as the wire contract, the `ocd_core/llm`
+BYOK layer kept, and BigQuery demoted to a connector. The panel split **2–1 for the
+"hexagonal Python core + TS/React + Tauri" proposal** (the pragmatic-delivery judge
+preferred an assemble-OSS variant for faster Code/CLI/Cowork delivery). The winner
+equals the owner-locked decisions (D1–D3), so the plan stands. The judges also
+confirmed the in-house thin OpenAI-compatible adapter over LiteLLM-as-a-dependency —
+validating the Phase 1 choice already shipped.
+
+The following graft-worthy refinements from the losing proposals are **adopted** and
+adjust the roadmap ordering above:
+
+1. **Security-before-surface ordering (important).** Land the **interactive HITL
+   tool-permission loop** (`approval_required` SSE event + a reply endpoint + dispatch
+   enforcement) in an **early phase — before** MCP remote transports/OAuth and Cowork
+   working-folder access widen the attack surface. A prompt-injected, tool-enabled
+   model is otherwise dangerous the moment remote MCP/Cowork lands. → Pull the HITL
+   permission loop out of Phase 5 into **Phase 3/4** (right after stop/cancel).
+2. **Don't orphan the one proven capability.** Ship **and validate** a bundled
+   **BigQuery MCP connector** in the *same* Phase 2 slice that removes the hard-coded
+   BigQuery core tools, so the repo's only end-to-end-proven feature is never dead
+   mid-migration.
+3. **Context management before Code/Cowork.** The `ContextManager` (per-model
+   `tiktoken`/HF tokenizers + tool-result eviction + Claude-Code-style compaction,
+   replacing verbatim history concat and the fixed `max_tokens=4096`) is a prerequisite
+   for long coding/Cowork turns — move it **ahead of Phase 6**, not into Phase 7.
+4. **Multi-user seams from day one (cheap insurance).** Add **nullable
+   `owner_id`/`workspace_id`** columns to every table now (inert in local mode), to
+   avoid a painful cross-cutting ownership retrofit later.
+5. **AgentEngine port + optional coding adapter.** Keep a stable `AgentEngine` port
+   (`run(turn) -> AsyncIterator[Event]`) behind the frozen event vocabulary, and ship a
+   **minimal native coding-tool floor** (Read/Glob/Grep/Edit over the existing
+   `text_editor` jail) early — so the Code/CLI surface delivers value before the full
+   substrate, and an OSS coding runtime (OpenCode/Goose) can optionally be dropped in
+   later without a new seam. Adopt (don't hand-write) ripgrep/tree-sitter Grep, PTY via
+   `pexpect`, worktrees via `dulwich`.
+6. **Anthropic-native adapter (additive).** Add an Anthropic adapter behind the same
+   `llm` interface (native thinking + `tool_use` blocks) for users who BYO an Anthropic
+   key — cheap reasoning-UX insurance, additive to the OpenAI-compatible layer.
+7. **BYOK key-bridge invariant.** Project **one** keychain/provider selection onto
+   every sub-process (bundled Playwright MCP, any coding sidecar, `code_execution`) so a
+   second model-config surface never appears.
+8. **Evals as a blocking CI gate — without paid APIs.** Run the agentic-quality evals
+   (`promptfoo`/DeepEval) against a **local stub OpenAI-compatible server + Ollama-in-CI**
+   so model-agnostic parity/regressions are caught for free (weak/local models silently
+   breaking multi-step loops is the key risk).
+9. **Standing original-IP audit.** Treat IP-originality as ongoing, not a one-time
+   scrub: reword the near-verbatim Anthropic tool-output strings (`integrations.py:812`),
+   re-derive the theme, and keep system prompts neutral as features grow.
+10. **Frontend cutover de-risking.** Keep the Reflex app runnable behind a flag as an
+    executable behavioral spec + contract-test corpus during Phase 3, cutting over
+    route-by-route and deleting it only after verified chat parity.
+11. **Migration on-ramp.** Ship a `claude_desktop_config.json` importer + `.mcpb`
+    one-click install as first-class Phase 4/5 features so existing Claude Desktop users'
+    MCP config is portable on day one.
+12. **Known bug to fix (P1 finding).** The non-stream fallback in `agent.py` (the
+    `_stream_llm` except path) can **re-emit already-streamed text**; fix by tracking
+    yielded bytes and emitting only the tail on retry.
+
+## 10. Progress log
+
+- **2026-07-02 — docs:** review + this architecture spec committed.
+- **2026-07-02 — Phase 0 (complete):** C1 fail-closed network guard (`netguard.py`),
+  C2 bash path-jail, C3 keychain secret store (`secrets.py`), C4 Chainlit retirement,
+  C5 real CI + backend Docker/compose, C7 scrubbed prod ids, H1 login rate-limit, H2
+  connector SSRF, H6 tool-enablement-at-dispatch; MIT LICENSE. +40 tests.
+- **2026-07-02 — Phase 1a (complete):** `ocd_core/llm/` provider layer (12 providers,
+  BYOK via keychain, capability catalog, OpenAI-compatible client), `/providers` API,
+  zhipuai dependency removed, provider-shape contract tests. Backend suite: 175 passed.
+- **Deferred/refined by §9:** HITL permission loop pulled earlier; ContextManager before
+  Code/Cowork; owner_id/workspace_id seams; AgentEngine port + native coding floor.

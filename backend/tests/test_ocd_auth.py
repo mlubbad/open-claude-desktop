@@ -32,23 +32,21 @@ def test_token_roundtrip_and_tamper(monkeypatch):
     assert a.verify_token(tok, now + 10**9) is False
 
 
-def test_credentials_ok(monkeypatch):
-    monkeypatch.setenv("CHAINLIT_AUTH_SECRET", "test-secret")
-    monkeypatch.setenv("APP_USERNAME", "u")
-    monkeypatch.setenv("APP_PASSWORD", "p")
-    a = importlib.reload(importlib.import_module("ocd_core.auth"))
-    assert a.credentials_ok("u", "p") is True
-    assert a.credentials_ok("u", "wrong") is False
-
-
 def test_auth_disabled_when_unset(monkeypatch):
-    monkeypatch.delenv("APP_USERNAME", raising=False)
-    monkeypatch.delenv("APP_PASSWORD", raising=False)
-    monkeypatch.delenv("CHAINLIT_AUTH_SECRET", raising=False)
-    monkeypatch.delenv("AJ360_AUTH_SECRET", raising=False)
-    monkeypatch.delenv("APP_AUTH_SECRET", raising=False)
+    for k in ("APP_USERNAME", "APP_PASSWORD", "CHAINLIT_AUTH_SECRET",
+              "AJ360_AUTH_SECRET", "APP_AUTH_SECRET",
+              "GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET"):
+        monkeypatch.delenv(k, raising=False)
     a = importlib.reload(importlib.import_module("ocd_core.auth"))
     assert a.auth_enabled() is False
+
+
+def test_auth_enabled_with_google(monkeypatch):
+    monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_ID", "cid")
+    monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_SECRET", "sec")
+    monkeypatch.setenv("APP_AUTH_SECRET", "s")
+    a = importlib.reload(importlib.import_module("ocd_core.auth"))
+    assert a.auth_enabled() is True
 
 
 def test_decode_token_returns_username(monkeypatch):

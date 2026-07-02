@@ -1,10 +1,11 @@
-"""Backend-usable HMAC session-token crypto for Open Claude Desktop.
+"""Backend HMAC session-token crypto for Open Claude Desktop.
 
-These pure helpers were extracted VERBATIM from the Reflex login module
-(``aj360_app/aj360_app/auth.py``) so the FastAPI backend can mint and verify
-session tokens without importing Reflex. The Reflex module now re-imports
-``make_token`` / ``verify_token`` / ``credentials_ok`` from here and keeps only
-its ``AuthState`` / ``login_page`` UI.
+Identity is proven via Google OAuth (see ``ocd_core.google_oauth``); this module
+only MINTS and VERIFIES the opaque HMAC session token that represents a logged-in
+session. ``auth_enabled()`` reports whether the login gate is active (Google client
+credentials + a signing secret all configured); when unconfigured, auth is open
+(local dev). ``make_token`` / ``verify_token`` / ``decode_token`` are reused by both
+the FastAPI backend (Bearer auth) and the Reflex UI gate.
 
 Token format (opaque to the client): base64url("<user>|<exp>|<hmac_sha256>").
 The HMAC is keyed by the auth secret; expiry is enforced on verify with a
@@ -33,17 +34,12 @@ def _secret() -> bytes:
             or os.getenv("AJ360_AUTH_SECRET") or "").encode()
 
 
-def _expected_user() -> str:
-    return os.getenv("APP_USERNAME", "")
-
-
-def _expected_pass() -> str:
-    return os.getenv("APP_PASSWORD", "")
-
-
 def auth_enabled() -> bool:
-    """True only when credentials AND a signing secret are all configured."""
-    return bool(_expected_user() and _expected_pass() and _secret())
+    """True only when Google OAuth client credentials AND a signing secret are
+    all configured. Unconfigured -> open (local dev), matching prior behaviour."""
+    return bool(os.getenv("GOOGLE_OAUTH_CLIENT_ID")
+                and os.getenv("GOOGLE_OAUTH_CLIENT_SECRET")
+                and _secret())
 
 
 def _sign(username: str, exp: int) -> str:
@@ -85,12 +81,3 @@ def decode_token(token: str, now: int | None = None) -> str | None:
 def verify_token(token: str, now: int) -> bool:
     """True iff the token is well-formed, unexpired, and correctly signed."""
     return decode_token(token, now) is not None
-
-
-def credentials_ok(username: str, password: str) -> bool:
-    """Constant-time credential check. Fail-closed when not configured."""
-    eu, ep = _expected_user(), _expected_pass()
-    if not eu or not ep:
-        return False
-    return (hmac.compare_digest(username or "", eu)
-            and hmac.compare_digest(password or "", ep))

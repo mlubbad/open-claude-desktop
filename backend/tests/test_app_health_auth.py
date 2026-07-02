@@ -14,20 +14,26 @@ def test_healthz(client):
 
 
 def test_auth_disabled_allows_unauthed(client, monkeypatch):
-    monkeypatch.delenv("APP_USERNAME", raising=False)
-    monkeypatch.delenv("APP_PASSWORD", raising=False)
+    for k in ("APP_USERNAME", "APP_PASSWORD", "APP_AUTH_SECRET",
+              "CHAINLIT_AUTH_SECRET", "AJ360_AUTH_SECRET",
+              "GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET"):
+        monkeypatch.delenv(k, raising=False)
     r = client.get("/settings")
     assert r.status_code == 200
 
 
-def test_login_and_protected_route(monkeypatch):
-    monkeypatch.setenv("APP_USERNAME", "u")
-    monkeypatch.setenv("APP_PASSWORD", "p")
-    monkeypatch.setenv("CHAINLIT_AUTH_SECRET", "s")
+def test_protected_route_requires_valid_token(monkeypatch):
+    import time
+
+    monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_ID", "cid")
+    monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_SECRET", "sec")
+    monkeypatch.setenv("APP_AUTH_SECRET", "s")
+    from ocd_core import auth
     from backend.app.main import app
     c = TestClient(app)
-    assert c.get("/settings").status_code == 401          # no token
-    tok = c.post("/auth/login", json={"username": "u", "password": "p"}).json()["token"]
+    assert c.get("/settings").status_code == 401                     # no token
+    tok = auth.make_token("alice@example.com", int(time.time()))
     r = c.get("/settings", headers={"Authorization": f"Bearer {tok}"})
     assert r.status_code == 200
-    assert c.post("/auth/login", json={"username": "u", "password": "x"}).status_code == 401
+    assert c.get("/settings",
+                 headers={"Authorization": "Bearer garbage"}).status_code == 401

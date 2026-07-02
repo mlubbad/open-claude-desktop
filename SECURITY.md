@@ -21,8 +21,8 @@ executes model-written code, so several guards are enforced in code:
 - **Authentication.** Both surfaces are gated by **Google OAuth** ("Sign in with
   Google", `GOOGLE_OAUTH_CLIENT_ID` / `GOOGLE_OAUTH_CLIENT_SECRET`) plus a session
   signing secret (`APP_AUTH_SECRET`, with `CHAINLIT_AUTH_SECRET` accepted for
-  back-compat). The Reflex app gates every page (`tests/test_auth.py`); its backend
-  binds to loopback by default.
+  back-compat). The Reflex app gates every page (`backend/tests/test_ocd_auth.py`);
+  its backend binds to loopback by default.
 - **Credentials.** BigQuery auth uses Application Default Credentials (Workload
   Identity / `gcloud auth application-default login`) — **never** a key file in
   the repo. `.gitignore` is deny-by-default for secrets, and a `gitleaks`

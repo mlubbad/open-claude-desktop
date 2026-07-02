@@ -15,12 +15,10 @@ WORKDIR /srv
 
 # Install the backend package. Copy only what the install needs first so the
 # dependency layer caches across source-only changes.
-COPY backend/pyproject.toml backend/constraints.txt backend/alembic.ini ./backend/
+COPY backend/pyproject.toml backend/alembic.ini ./backend/
 COPY backend/ocd_core ./backend/ocd_core
 COPY backend/app ./backend/app
-RUN pip install ./backend \
-    # Hold the working zhipuai v2 + compatible PyJWT (see backend/constraints.txt).
-    && pip install --no-deps -r ./backend/constraints.txt
+RUN pip install ./backend
 
 # Runtime configs the backend reads from the repo root (connectors / MCP / skills /
 # plugins). Data dirs are created at runtime under AJ360_DATA_DIR.

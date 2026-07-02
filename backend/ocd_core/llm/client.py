@@ -1,0 +1,101 @@
+"""OpenAI-compatible client factory (Phase 1).
+
+One ``openai.OpenAI(base_url, api_key)`` client per provider drives every backend.
+This replaces the hard-coded zhipuai singleton: the call shape the agent loop uses
+(``client.chat.completions.create(model=, messages=, tools=, tool_choice=,
+stream=, temperature=, max_tokens=)``) is identical, and reasoning deltas
+(``delta.reasoning_content``) pass through unchanged because the OpenAI SDK models
+allow extra fields.
+"""
+from __future__ import annotations
+
+import os
+import threading
+
+from . import keys
+from .providers import CUSTOM_BASE_URL_ENV, default_provider_id, get_provider
+
+
+class LLMConfigError(RuntimeError):
+    """Raised when a provider is selected but not usable (missing key/base_url)."""
+
+
+_clients: dict[str, object] = {}
+_lock = threading.Lock()
+
+
+def split_model(model: str | None) -> tuple[str | None, str]:
+    """Split a ``provider/model`` string. Bare names get provider None (default).
+
+    Only the FIRST slash is treated as a provider separator, and only when the
+    prefix is a known provider id — so OpenRouter-style ``vendor/model`` names
+    (e.g. ``meta-llama/Llama-3``) are left intact under the default provider.
+    """
+    m = (model or "").strip()
+    if "/" in m:
+        head, tail = m.split("/", 1)
+        from .providers import _REGISTRY  # local import to avoid cycle at import time
+        if head in _REGISTRY:
+            return head, tail
+    return None, m
+
+
+def _base_url(provider_id: str) -> str | None:
+    prov = get_provider(provider_id)
+    # Let LLM_BASE_URL override the base URL of the DEFAULT provider (custom endpoint).
+    if provider_id == default_provider_id() and os.getenv(CUSTOM_BASE_URL_ENV):
+        return os.getenv(CUSTOM_BASE_URL_ENV)
+    return prov.base_url
+
+
+def get_client(provider_id: str | None = None):
+    """Return a cached OpenAI-compatible client for a provider (default if None)."""
+    pid = (provider_id or default_provider_id()).strip()
+    with _lock:
+        if pid in _clients:
+            return _clients[pid]
+        prov = get_provider(pid)
+        api_key = keys.get_api_key(pid)
+        if prov.requires_key and not api_key:
+            raise LLMConfigError(
+                f"No API key configured for provider '{prov.label}'. Set one via the "
+                f"settings/keys API or the {prov.key_env or 'LLM_API_KEY'} env var.")
+        from openai import OpenAI
+        client = OpenAI(base_url=_base_url(pid), api_key=api_key or "not-needed")
+        _clients[pid] = client
+        return client
+
+
+def get_client_for_model(model: str | None):
+    """Resolve (client, bare_model) from a possibly ``provider/model`` string."""
+    pid, bare = split_model(model)
+    return get_client(pid), bare
+
+
+def get_llm_client():
+    """Back-compat accessor: the default provider's client.
+
+    Existing call sites (agent loop, title generation, research sub-queries) keep
+    working unchanged; they use the model string they already pass.
+    """
+    return get_client()
+
+
+def reasoning_of(delta) -> str | None:
+    """Extract a reasoning/thinking delta across provider shapes.
+
+    Covers ``reasoning_content`` (Zhipu/DeepSeek/Qwen) and ``reasoning`` (some
+    OpenAI-compatible gateways), via direct attribute or the SDK's model_extra.
+    """
+    for attr in ("reasoning_content", "reasoning"):
+        val = getattr(delta, attr, None)
+        if val:
+            return val
+    extra = getattr(delta, "model_extra", None) or {}
+    return extra.get("reasoning_content") or extra.get("reasoning")
+
+
+def reset_clients() -> None:
+    """Drop cached clients (tests / after a key or provider change)."""
+    with _lock:
+        _clients.clear()

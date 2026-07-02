@@ -11,8 +11,7 @@
 ```bash
 python3.12 -m venv .venv && source .venv/bin/activate   # (Windows: .venv\Scripts\activate)
 pip install -e "./backend[dev]"
-pip install --no-deps -r backend/constraints.txt        # hold zhipuai v2 (Phase 1 removes this)
-cp .env.example .env                                    # fill in your model key, auth, etc.
+cp .env.example .env                                    # pick LLM_PROVIDER + its API key, auth, etc.
 pre-commit install                                      # ruff + gitleaks gates
 ```
 

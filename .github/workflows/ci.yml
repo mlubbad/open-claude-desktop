@@ -15,10 +15,7 @@ jobs:
           python-version: "3.12"
           cache: pip
       - name: Install backend (+ dev)
-        run: |
-          pip install -e ./backend[dev]
-          # Hold the working zhipuai v2 + compatible PyJWT (see backend/constraints.txt).
-          pip install --no-deps -r backend/constraints.txt
+        run: pip install -e ./backend[dev]
       - name: Run backend tests
         # Run from the repo root so both `app.main` and `backend.app.main` test
         # import styles resolve.

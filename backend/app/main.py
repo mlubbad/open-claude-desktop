@@ -25,6 +25,7 @@ from .routes import (  # noqa: E402
     integrations,
     knowledge,
     projects,
+    providers,
     schema,
     settings,
     sql,
@@ -60,3 +61,4 @@ app.include_router(schema.router)
 app.include_router(integrations.router)
 app.include_router(sql.router)
 app.include_router(bigquery.router)
+app.include_router(providers.router)

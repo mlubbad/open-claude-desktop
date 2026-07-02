@@ -48,9 +48,7 @@ the desktop app, and a self-hosted server are all thin frontends over one engine
 ```bash
 python3.12 -m venv .venv && source .venv/bin/activate   # POSIX
 pip install -e "./backend[dev]"
-# Hold the working zhipuai v2 (until the Phase 1 provider abstraction removes it):
-pip install --no-deps -r backend/constraints.txt
-cp .env.example .env            # fill in your model key + config
+cp .env.example .env            # pick a provider (LLM_PROVIDER) + set its API key
 ```
 
 ## Run

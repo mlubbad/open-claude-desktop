@@ -44,7 +44,7 @@ import types
 import asyncio
 
 from . import config, sql_guard, schema_catalog, bigquery, util
-from .llm import get_llm_client
+from .llm import get_llm_client, reasoning_of
 
 TOOLS = [
     {"type": "function", "function": {
@@ -321,7 +321,7 @@ async def _stream_llm(llm, model, messages, tools=None, temperature=0.1,
                 if txt:
                     content.append(txt)
                     yield {"type": "delta", "scope": content_scope, "text": txt}
-                rc = getattr(delta, "reasoning_content", None)
+                rc = reasoning_of(delta)
                 if rc:
                     yield {"type": "delta", "scope": "think", "text": rc}
                 for tcd in (getattr(delta, "tool_calls", None) or []):

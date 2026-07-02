@@ -1,7 +1,5 @@
 """Route tests for Google OAuth login/callback. No real Google: the state store
 is seeded directly and exchange_code/build_auth_url are monkeypatched."""
-import time
-
 import pytest
 from fastapi.testclient import TestClient
 

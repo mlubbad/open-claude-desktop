@@ -5,7 +5,7 @@ Thin shell: assembles the app and registers pages. All UI components live in
 """
 import reflex as rx
 
-from .auth import AuthState, login_page
+from .auth import AuthState, complete_page, login_page
 from .components.artifact_viewer import artifacts_page, code_page, connectors_page
 from .components.conversation import conversation_page
 from .components.home import home_page
@@ -25,6 +25,8 @@ app = rx.App(
 # AuthState.require_login (runs first in each on_load) when not authenticated.
 app.add_page(login_page, route="/login", on_load=AuthState.redirect_if_authed,
              title="Open Claude Desktop · Sign in")
+app.add_page(complete_page, route="/auth/complete", on_load=AuthState.complete_login,
+             title="Open Claude Desktop · Signing in")
 app.add_page(home_page, route="/",
              on_load=[AuthState.require_login, AppState.load_home, AppState.check_backend],
              title="Open Claude Desktop")

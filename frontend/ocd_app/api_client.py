@@ -74,14 +74,6 @@ async def _delete(path: str) -> object:
     return (await _request("DELETE", path)).json()
 
 
-# ----------------------------- auth ----------------------------- #
-async def login(username: str, password: str) -> str:
-    data = await _post("/auth/login", {"username": username, "password": password})
-    token = data["token"]
-    configure(token=token)
-    return token
-
-
 async def health() -> dict:
     return await _get("/healthz")  # type: ignore[return-value]
 

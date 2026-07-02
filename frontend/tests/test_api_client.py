@@ -15,18 +15,15 @@ def _sse(*events: dict) -> bytes:
 
 
 @respx.mock
-async def test_login_returns_token_and_sets_bearer():
-    route = respx.post("http://test/auth/login").mock(
-        return_value=httpx.Response(200, json={"token": "tok-123"}))
-    token = await api_client.login("alice", "pw")
-    assert token == "tok-123"
-    assert json.loads(route.calls.last.request.content) == {"username": "alice", "password": "pw"}
-
-    # Subsequent calls now carry the Bearer header.
-    proj = respx.get("http://test/projects").mock(
-        return_value=httpx.Response(200, json=[]))
-    await api_client.list_projects()
-    assert proj.calls.last.request.headers["authorization"] == "Bearer tok-123"
+async def test_configure_token_sets_bearer_header():
+    api_client.configure(token="tok-123")
+    try:
+        proj = respx.get("http://test/projects").mock(
+            return_value=httpx.Response(200, json=[]))
+        await api_client.list_projects()
+        assert proj.calls.last.request.headers["authorization"] == "Bearer tok-123"
+    finally:
+        api_client.configure(token=None)  # don't leak into other tests
 
 
 @respx.mock

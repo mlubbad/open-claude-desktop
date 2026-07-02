@@ -6,7 +6,7 @@ on:
   pull_request:
 
 jobs:
-  test:
+  backend:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -14,15 +14,34 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-      - name: Install (app extras + dev)
-        run: pip install -e ".[chainlit,reflex,dev]"
-      - name: Run tests
+      - name: Install backend (+ dev)
+        run: |
+          pip install -e ./backend[dev]
+          # Hold the working zhipuai v2 + compatible PyJWT (see backend/constraints.txt).
+          pip install --no-deps -r backend/constraints.txt
+      - name: Run backend tests
+        # Run from the repo root so both `app.main` and `backend.app.main` test
+        # import styles resolve.
+        run: pytest backend/tests
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install frontend deps
+        run: pip install -r frontend/requirements.txt respx pytest pytest-asyncio
+      - name: Run frontend tests
+        working-directory: frontend
         run: pytest
 
   lint:
     runs-on: ubuntu-latest
-    # Advisory until the legacy code is driven to zero lint findings, then
-    # remove continue-on-error to make it blocking.
+    # Advisory while pre-existing lint debt is burned down; then drop
+    # continue-on-error to make it blocking.
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4

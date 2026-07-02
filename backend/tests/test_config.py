@@ -5,7 +5,9 @@ def test_defaults_match_current_values(monkeypatch):
               "QUERY_TIMEOUT_SEC", "RATE_LIMIT_QUERIES", "RATE_LIMIT_WINDOW_SEC"):
         monkeypatch.delenv(k, raising=False)
     cfg = importlib.reload(importlib.import_module("ocd_core.config"))
-    assert cfg.PROJECT_ID == "ajgc-dig-jjc-prod-jawacloud-01"
+    # PROJECT_ID has no hardcoded default: BigQuery is an optional connector the
+    # user configures via GCP_PROJECT_ID (no third-party prod id shipped — C7).
+    assert cfg.PROJECT_ID == ""
     assert cfg.CATALOG_DATASETS == [
         "aj360", "aj360_platform", "aj360_search_analytics",
         "al_jazeera_data_models", "aj360_ds", "aj360_monitoring",

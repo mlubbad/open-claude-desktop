@@ -2,47 +2,45 @@
 
 ## Prerequisites
 
-- **Python 3.12** (the canonical interpreter; `venv312/` on the maintainer's box).
-- Node.js + npm (for the Reflex frontend build).
-- Docker (optional — for Postgres chat history and for the sandboxed
-  `code_execution` tool).
+- **Python 3.12** (the canonical interpreter).
+- Node.js + npm (for the transitional Reflex frontend build).
+- Docker (optional — for Postgres and for the sandboxed `code_execution` tool).
 
 ## Setup
 
 ```bash
-python -m venv venv312
-venv312/Scripts/activate            # Windows  (use source venv312/bin/activate on POSIX)
-pip install -e ".[chainlit,reflex,dev]"
-cp .env.example .env                # then fill in ZHIPU_API_KEY, auth, GCP, etc.
-pre-commit install                  # ruff + gitleaks gates
+python3.12 -m venv .venv && source .venv/bin/activate   # (Windows: .venv\Scripts\activate)
+pip install -e "./backend[dev]"
+pip install --no-deps -r backend/constraints.txt        # hold zhipuai v2 (Phase 1 removes this)
+cp .env.example .env                                    # fill in your model key, auth, etc.
+pre-commit install                                      # ruff + gitleaks gates
 ```
 
-Authenticate BigQuery with Application Default Credentials
+BigQuery (optional connector) authenticates via Application Default Credentials
 (`gcloud auth application-default login`) — do **not** add a service-account key
 file to the repo.
 
 ## Running the apps
 
 ```bash
-# Chainlit chat app  (:8000)
-chainlit run app.py                 # run.py wraps this on Python 3.14+
+# Backend (FastAPI + SSE) — binds 127.0.0.1 by default
+cd backend && uvicorn app.main:app --reload            # :8000
 
-# Reflex projects UI (:3000)  — run from the app dir; npm backend on Windows
-cd aj360_app && REFLEX_USE_NPM=true reflex run
+# Transitional Reflex frontend, in another terminal
+cd frontend && reflex run                              # :3000
 
-# Postgres for chat history (optional)
-docker compose up -d
+# Or the whole backend stack (Postgres + backend) via Docker
+docker compose up -d --build
 ```
-
-`.claude/launch.json` also defines both servers for the editor's preview tooling.
 
 ## Tests, lint, types
 
 ```bash
-pytest                  # or: python tests/test_sql_guard.py  (each test file is self-running)
+pytest backend/tests    # backend (from the repo root)
+cd frontend && pytest   # frontend
 ruff check .            # lint
 ruff format .           # format
-mypy app.py aj360_app   # types
+mypy backend/ocd_core backend/app   # types
 ```
 
 ## Conventions

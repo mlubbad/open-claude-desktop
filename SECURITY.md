@@ -8,19 +8,32 @@ open a public issue for security reports.
 
 ## Security posture
 
-This project runs an LLM agent against **production BigQuery** and (optionally)
-executes model-written code, so several guards are enforced in code:
+This project runs an LLM agent that can (optionally) query BigQuery and execute
+model-written code, so several guards are enforced in code:
 
-- **BigQuery is read-only by default.** `app.py` `run_sql` rejects any non-`SELECT`
-  statement unless `AJ360_ALLOW_WRITES=true`, and enforces dataset scope against
-  BigQuery's parsed `referenced_tables` (not substring matching).
-  See `tests/test_sql_guard.py`.
-- **Code execution fails shut.** The Reflex `code_execution` tool runs only inside
-  a container (`docker --network none`); with no container runtime it refuses
-  rather than running on the host. `python` is not in the bash allowlist.
-- **Authentication.** Both surfaces require login when credentials are configured
-  (`APP_USERNAME` / `APP_PASSWORD` / `CHAINLIT_AUTH_SECRET`). The Reflex app gates
-  every page (`tests/test_auth.py`); its backend binds to loopback by default.
+- **Fail-closed networking.** The backend binds `127.0.0.1` by default and refuses
+  to start on a non-loopback interface with authentication disabled (unless the
+  explicit `OCD_ALLOW_INSECURE_NETWORK=1` dev opt-in is set). See
+  `backend/ocd_core/netguard.py` and `backend/tests/test_netguard.py`.
+- **Secrets in the OS keychain.** Connector credentials (and provider API keys from
+  Phase 1) are stored via `keyring` with an encrypted-file fallback, never plaintext
+  in tracked files. See `backend/ocd_core/secrets.py`.
+- **BigQuery is read-only by default** (optional connector): `execute_sql` rejects any
+  non-`SELECT` statement, enforces a per-project table allowlist on BigQuery's parsed
+  `referenced_tables` (not substring matching), and caps bytes billed.
+  See `backend/tests/test_sql_guard.py` and `test_execute_sql_guard.py`.
+- **Code execution fails shut.** The `code_execution` tool runs only inside a
+  container (`docker --network none`); with no container runtime it refuses rather
+  than running on the host. `bash` is allowlisted and path-jailed to its sandbox
+  (`python` is not allowlisted). See `backend/tests/test_bash_jail.py`.
+- **SSRF-guarded fetches.** `web_fetch` and REST connectors block private/internal
+  hosts and drop custom auth headers on cross-origin redirects.
+  See `backend/tests/test_connector_ssrf.py`.
+- **Authentication.** The backend requires a valid bearer token on every request
+  when credentials are configured (`APP_USERNAME` / `APP_PASSWORD` /
+  `APP_AUTH_SECRET`); login attempts are rate-limited. When unconfigured it runs
+  open for local single-user use — which is why the network guard above keeps that
+  mode loopback-only.
 - **Credentials.** BigQuery auth uses Application Default Credentials (Workload
   Identity / `gcloud auth application-default login`) — **never** a key file in
   the repo. `.gitignore` is deny-by-default for secrets, and a `gitleaks`

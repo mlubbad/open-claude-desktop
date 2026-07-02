@@ -1,53 +1,61 @@
-# Local Postgres for Chainlit chat history.
-#   docker compose up -d
-# On FIRST start (empty volume), schema.sql is loaded automatically. If you change
-# schema.sql later, re-run it manually or recreate the volume:
-#   docker compose down -v && docker compose up -d
+# Open Claude Desktop — local dev stack: Postgres + FastAPI backend.
+#   docker compose up -d --build
 #
-# Set POSTGRES_PASSWORD in your .env and make DATABASE_URL match it, e.g.:
-#   DATABASE_URL=postgresql+asyncpg://chainlit:changeme@localhost:5432/chainlit
+# On first start (empty volume) backend/db_init/01_create_ocd.sql creates the
+# `ocd` role + database that the default DATABASE_URL expects; Alembic then runs
+# `upgrade head` on backend startup. The React/Tauri client (Phase 3) ships
+# separately; run the transitional Reflex frontend locally (see README).
+#
+# The backend port is published on HOST loopback only (127.0.0.1). Inside the
+# container the server binds 0.0.0.0, so OCD_ALLOW_INSECURE_NETWORK=1 is set to
+# satisfy the fail-closed network guard. For a real network/self-hosted
+# deployment, configure auth (APP_USERNAME / APP_PASSWORD / APP_AUTH_SECRET)
+# instead of the insecure opt-in.
 
 services:
   postgres:
     image: postgres:16
-    container_name: aj360-chainlit-pg
+    container_name: ocd-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: chainlit
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
-      POSTGRES_DB: chainlit
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: postgres
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
-      - aj360_pgdata:/var/lib/postgresql/data
-      - ./schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
-      - ./backend/db_init/01_create_ocd.sql:/docker-entrypoint-initdb.d/02_create_ocd.sql:ro
+      - ocd_pgdata:/var/lib/postgresql/data
+      - ./backend/db_init/01_create_ocd.sql:/docker-entrypoint-initdb.d/01_create_ocd.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U chainlit -d chainlit"]
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
       timeout: 3s
       retries: 10
 
-  # Chainlit chat app. Build + run:  docker compose up -d --build
-  app:
+  backend:
     build: .
-    container_name: ocd-chainlit
+    container_name: ocd-backend
     restart: unless-stopped
-    env_file: .env
-    # Reach Postgres over the compose network (overrides .env's localhost).
+    env_file:
+      - path: .env
+        required: false
     environment:
-      DATABASE_URL: postgresql+asyncpg://chainlit:${POSTGRES_PASSWORD:-changeme}@postgres:5432/chainlit
+      # Reach Postgres over the compose network (psycopg driver, `ocd` role/db).
+      DATABASE_URL: postgresql+psycopg://ocd:ocd@postgres:5432/ocd
+      # Dev-only: container binds 0.0.0.0 but the host publishes loopback-only.
+      OCD_ALLOW_INSECURE_NETWORK: "1"
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     depends_on:
       postgres:
         condition: service_healthy
-    # BigQuery uses Application Default Credentials. Provide them via Workload
-    # Identity, or mount a key and set GOOGLE_APPLICATION_CREDENTIALS, e.g.:
+    # BigQuery (optional connector) uses Application Default Credentials. Provide
+    # them via Workload Identity, or mount a key and set
+    # GOOGLE_APPLICATION_CREDENTIALS, e.g.:
     #   volumes:
     #     - /path/to/sa-key.json:/creds.json:ro
     #   environment:
     #     GOOGLE_APPLICATION_CREDENTIALS: /creds.json
 
 volumes:
-  aj360_pgdata:
+  ocd_pgdata:

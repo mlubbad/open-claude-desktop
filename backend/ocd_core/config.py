@@ -15,7 +15,7 @@ SKILLS_DIR = Path(os.getenv("SKILLS_DIR", str(REPO_ROOT / "skills")))
 PLUGINS_DIR = Path(os.getenv("PLUGINS_DIR", str(REPO_ROOT / "plugins")))
 
 # --- BigQuery ---
-PROJECT_ID = os.getenv("GCP_PROJECT_ID", "ajgc-dig-jjc-prod-jawacloud-01")
+PROJECT_ID = os.getenv("GCP_PROJECT_ID", "")
 _GB = 1024 ** 3
 MAX_BYTES_BILLED = int(float(os.getenv("MAX_BYTES_BILLED_GB", "100")) * _GB)
 QUERY_TIMEOUT_SEC = int(os.getenv("QUERY_TIMEOUT_SEC", "300"))

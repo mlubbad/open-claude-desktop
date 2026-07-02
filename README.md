@@ -1,78 +1,82 @@
 # Open Claude Desktop
 
-A GLM-powered, Claude-Desktop-style agent workspace. It pairs a conversational
-**Chainlit** chat app with a **Reflex** projects UI, and drives **Zhipu AI GLM**
-models (`glm-4-plus` and the `glm-4-flash` / `glm-4.5-air` tiers) to plan, write,
-and run analytics over **Google BigQuery** — with a human-in-the-loop, read-only
-safety model by default.
+An open-source, **model-agnostic** desktop assistant in the spirit of Claude Desktop —
+Chat, Projects, Knowledge, MCP connectors, Plugins, Skills, and an agentic tool-using
+reasoning loop. The one deliberate difference from Claude Desktop: **you bring your own
+models and keys** — open/hosted models of your choice, not a single vendor.
 
-> Formerly "AJ360 BigQuery Agent". The BigQuery tool still targets the AJ360
-> (Al Jazeera 360) datasets; that domain wiring is intentional and unchanged.
-
-## What it does
-
-- **ReAct agent over BigQuery** — searches a schema catalog, writes standard SQL,
-  dry-runs it, and (on approval) executes it, returning tables and charts.
-- **Projects workspace** — per-project instructions, knowledge files, and chat
-  history (Reflex UI + Chainlit data layer).
-- **GLM streaming** — token streaming with `reasoning_content` ("thinking")
-  rendered separately from the answer, plus incremental tool-call assembly.
-- **Tools** — schema search, `run_sql`, charting, plus optional MCP servers,
-  REST connectors, and sandboxed `code_execution` / `bash` / `web_fetch`.
+> **Status.** The codebase is mid-transition from its origin as a BigQuery analytics
+> agent ("AJ360") into the general-purpose, model-agnostic clone described in
+> [`docs/superpowers/specs/2026-07-02-claude-desktop-clone-architecture.md`](docs/superpowers/specs/2026-07-02-claude-desktop-clone-architecture.md).
+> See the [full repository review](docs/reviews/2026-07-02-full-repository-review.md)
+> for the current state and the 8-phase roadmap. Today the model backend is Zhipu GLM;
+> a provider abstraction (OpenAI-compatible, local Ollama/vLLM, etc.) lands in Phase 1,
+> and BigQuery becomes an optional connector in Phase 2.
 
 ## Architecture
 
+Two services in one repo, communicating over HTTP + SSE. The backend owns all domain
+logic and data; the frontend is a thin client.
+
 | Path | Role |
 |------|------|
-| `app.py` | Chainlit chat app: agent loop, BigQuery client, SQL safety, charts, projects |
-| `aj360_app/aj360_app/core.py` | UI-agnostic data layer (BigQuery, GLM client, Chroma) with cached singletons |
-| `aj360_app/aj360_app/agent.py` | Streaming agent loop (reasoning + tool-delta handling) |
-| `aj360_app/aj360_app/integrations.py` | Plugins, connectors, MCP client, sandboxed tools |
-| `aj360_app/aj360_app/state.py` / `aj360_app.py` | Reflex state + pages |
-| `plugins/` | Drop-in `*.py` tool modules (e.g. `calculator`) |
+| `backend/ocd_core/` | Framework-agnostic domain layer: agent loop + typed streaming events, LLM client, MCP client, tools, projects/conversations/knowledge, auth, secrets, persistence |
+| `backend/app/` | FastAPI HTTP + SSE surface over `ocd_core` |
+| `frontend/aj360_app/` | Reflex (Python→React) thin client (being rebuilt as a React/TypeScript + Tauri desktop app in Phase 3) |
 | `mcp_servers/` | Bundled demo MCP server |
+| `plugins/`, `skills/` | Drop-in agent tools and skills |
 
-## Security posture
+The invariant: `ocd_core` never imports FastAPI, Reflex, or any UI/transport — the CLI,
+the desktop app, and a self-hosted server are all thin frontends over one engine.
 
-- **Read-only BigQuery by default.** Non-`SELECT` statements are rejected unless
-  `AJ360_ALLOW_WRITES=true`. Dataset scope is enforced on BigQuery's parsed
-  `referenced_tables` (not substring matching). See `tests/test_sql_guard.py`.
-- **Code execution fails shut.** `code_execution` runs only inside a container
-  (`docker --network none`); with no runtime available it refuses rather than
-  running on the host. `python` is not in the bash allowlist.
-- **Secrets** come from Application Default Credentials (BigQuery) and `.env`
-  (never a committed key file). `.gitignore` is deny-by-default for secrets, and
-  runtime data (`projects/`, `.files/`, `knowledge/`, `*.csv`) is not versioned.
+## Security posture (local-first)
+
+- **Fail-closed networking.** The backend binds `127.0.0.1` by default and *refuses to
+  start* on a non-loopback interface unless authentication is configured (or the
+  explicit `OCD_ALLOW_INSECURE_NETWORK=1` dev opt-in is set). See `ocd_core/netguard.py`.
+- **Secrets in the OS keychain.** Connector credentials (and, from Phase 1, provider API
+  keys) are stored via `keyring` with an encrypted-file fallback — never plaintext in
+  tracked files. See `ocd_core/secrets.py`.
+- **Sandboxed tools.** `code_execution` runs only inside a container (`docker --network
+  none`) or refuses; `bash` is allowlisted and path-jailed to a sandbox; `web_fetch` and
+  REST connectors block private/internal hosts (SSRF) and don't leak auth on redirect.
+- **Read-only BigQuery** (optional connector): non-`SELECT` is rejected; per-project
+  table allowlist enforced on parsed `referenced_tables`; hard bytes-billed cost cap.
 
 ## Setup
 
 ```bash
-python -m venv venv312 && ./venv312/Scripts/activate   # Windows
-pip install -r requirements.txt
-cp .env.example .env            # then fill in ZHIPU_API_KEY, auth, etc.
-docker compose up -d            # local Postgres for chat history (optional)
+python3.12 -m venv .venv && source .venv/bin/activate   # POSIX
+pip install -e "./backend[dev]"
+# Hold the working zhipuai v2 (until the Phase 1 provider abstraction removes it):
+pip install --no-deps -r backend/constraints.txt
+cp .env.example .env            # fill in your model key + config
 ```
-
-Authenticate BigQuery via ADC (`gcloud auth application-default login`) or
-Workload Identity — do **not** add a service-account key file to the repo.
 
 ## Run
 
 ```bash
-# Chainlit chat app
-chainlit run app.py            # (run.py wraps this for Python 3.14+)
+# 1) Postgres + backend via Docker (recommended):
+docker compose up -d --build           # backend on http://127.0.0.1:8000
 
-# Reflex projects UI (Windows)
-cd aj360_app && REFLEX_USE_NPM=true reflex run
+# — or — run the backend directly:
+cd backend && uvicorn app.main:app --reload   # binds 127.0.0.1 by default
+
+# 2) The (transitional) Reflex frontend, in another terminal:
+cd frontend && reflex run
 ```
+
+BigQuery (optional) authenticates via Application Default Credentials
+(`gcloud auth application-default login`) or Workload Identity — never a committed key.
 
 ## Tests
 
 ```bash
-./venv312/Scripts/python.exe -m pytest tests/test_sql_guard.py
+pytest backend/tests                 # backend (run from the repo root)
+cd frontend && pytest                # frontend
 ```
 
-## Models
+## Contributing & security
 
-GLM via the `zhipuai` SDK. Configure with `AGENT_MODEL`, `VISION_MODEL`, and
-`GLM_MODELS` in `.env`.
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) and [`SECURITY.md`](SECURITY.md). Licensed under
+the [MIT License](LICENSE).

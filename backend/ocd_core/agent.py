@@ -572,6 +572,10 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
         tools.append(MEMORY_TOOL)
     if extra_tools:
         tools.extend(extra_tools)
+    # H6: enforce tool enablement at DISPATCH, not just by which schemas we send.
+    # Only names present in this turn's assembled tool set may execute, so a
+    # hallucinated or injected tool call cannot reach the dispatcher.
+    allowed_tool_names = {t["function"]["name"] for t in tools}
     llm = get_llm_client()
 
     try:
@@ -643,12 +647,26 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
         # Show a "running" card for every tool call up-front (parallel calls all
         # appear at once), then execute — concurrently when independent.
         calls = []
+        blocked_outcomes = []
         for tc in tool_calls:
             try:
                 args = json.loads(tc.function.arguments or "{}")
             except Exception:
                 args = {}
             name = tc.function.name
+            # H6: refuse any tool not enabled for this turn (hallucinated/injected
+            # names). Still emit a card + a tool result so the loop stays consistent.
+            if name not in allowed_tool_names:
+                run_lbl, done_lbl, icon = _tool_labels(name)
+                yield {"type": "tool", "id": tc.id, "name": name,
+                       "input": _tool_input(name, args), "label_running": run_lbl,
+                       "label_done": done_lbl, "icon": icon}
+                yield {"type": "tool_error", "id": tc.id, "name": name,
+                       "text": f"Tool '{name}' is not enabled for this turn."}
+                blocked_outcomes.append({"id": tc.id, "name": name, "ok": False,
+                    "result": (f"ERROR: tool '{name}' is not enabled and was not run. "
+                               "Use only the tools provided.")})
+                continue
             run_lbl, done_lbl, icon = _tool_labels(name)
             yield {"type": "tool", "id": tc.id, "name": name,
                    "input": _tool_input(name, args), "label_running": run_lbl,
@@ -673,11 +691,13 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
                 for ev in _completion_events(out):
                     yield ev
 
-        # Feed every tool result back to the model, one message per tool_call_id.
-        by_id = {o["id"]: o for o in outcomes}
-        for (i, n, a) in calls:
-            messages.append({"role": "tool", "tool_call_id": i,
-                             "content": by_id[i]["result"]})
+        # Feed every tool result back to the model, one message per tool_call_id
+        # (executed + any blocked-by-enablement calls, preserving the model's order).
+        by_id = {o["id"]: o for o in (outcomes + blocked_outcomes)}
+        for tc in tool_calls:
+            if tc.id in by_id:
+                messages.append({"role": "tool", "tool_call_id": tc.id,
+                                 "content": by_id[tc.id]["result"]})
 
     if final_text is None:
         final_text = ("Stopped after the step limit without a final answer. "

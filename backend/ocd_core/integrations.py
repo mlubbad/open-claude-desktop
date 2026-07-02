@@ -121,24 +121,51 @@ def _slug(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "_", (text or "").lower()).strip("_") or "rest"
 
 
+def _connector_secret_key(cid: str) -> str:
+    return f"connector:{cid}:auth"
+
+
+def _connector_header_value(u: dict) -> str:
+    """Resolve a connector's auth header value.
+
+    Prefers the secret store (C3). Falls back to any legacy inline ``header_value``
+    for back-compat with connectors saved before secrets were externalized.
+    """
+    if u.get("has_secret"):
+        from . import secrets
+        return secrets.get_secret_store().get(_connector_secret_key(u["id"])) or ""
+    return u.get("header_value", "")
+
+
 def add_connector(name: str, base_url: str, header_key: str = "",
                   header_value: str = "") -> dict:
     items = _load_user_connectors()
     cid = _slug(name)
-    n, base = cid, cid
+    base = cid
     i = 2
     while any(it["id"] == cid for it in items):
         cid = f"{base}_{i}"
         i += 1
     item = {"id": cid, "name": name.strip() or cid, "type": "rest",
             "base_url": base_url.strip().rstrip("/"),
-            "header_key": header_key.strip(), "header_value": header_value.strip()}
+            "header_key": header_key.strip(), "has_secret": False}
+    # C3: the secret value goes to the OS keychain / encrypted store, never to the
+    # git-ignored-but-plaintext connectors.json.
+    secret = (header_value or "").strip()
+    if secret:
+        from . import secrets
+        secrets.get_secret_store().set(_connector_secret_key(cid), secret)
+        item["has_secret"] = True
     items.append(item)
     _save_user_connectors(items)
     return item
 
 
 def remove_connector(cid: str):
+    for it in _load_user_connectors():
+        if it["id"] == cid and it.get("has_secret"):
+            from . import secrets
+            secrets.get_secret_store().delete(_connector_secret_key(cid))
     _save_user_connectors([i for i in _load_user_connectors() if i["id"] != cid])
 
 
@@ -191,7 +218,7 @@ def test_connector(cid: str) -> str:
         return "Connector not found."
     headers = {"User-Agent": _UA}
     if u.get("header_key"):
-        headers[u["header_key"]] = u.get("header_value", "")
+        headers[u["header_key"]] = _connector_header_value(u)
     try:
         r = _safe_outbound_get(u["base_url"], headers, auth_header=u.get("header_key", ""))
         return f"OK — HTTP {r.status_code} from {u['base_url']}"
@@ -260,7 +287,7 @@ def call_connector(cid: str, path: str) -> str:
     url = u["base_url"] + path
     headers = {"User-Agent": _UA, "Accept": "application/json, text/*"}
     if u.get("header_key"):
-        headers[u["header_key"]] = u.get("header_value", "")
+        headers[u["header_key"]] = _connector_header_value(u)
     try:
         r = _safe_outbound_get(url, headers, auth_header=u.get("header_key", ""), timeout=20)
         return f"HTTP {r.status_code} {url}\n{r.text[:3000]}"

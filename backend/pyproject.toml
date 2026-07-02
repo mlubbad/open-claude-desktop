@@ -6,6 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "ocd-backend"
 version = "0.3.0"
 requires-python = ">=3.12"
+license = "MIT"
 dependencies = [
   # zhipuai MUST be the v2 SDK (>=2.x exposes the `ZhipuAI` class that
   # ocd_core/llm.py imports). zhipuai 2.x pins pyjwt<2.9, which conflicts with
@@ -30,6 +31,10 @@ dependencies = [
   "sse-starlette",
   "httpx",
   "python-multipart",
+  # C3: secrets go to the OS keychain (keyring) with an encrypted-file fallback
+  # (cryptography/Fernet) for headless installs. Never plaintext in tracked files.
+  "keyring",
+  "cryptography",
 ]
 
 [project.optional-dependencies]

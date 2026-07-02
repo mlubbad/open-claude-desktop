@@ -247,10 +247,6 @@ async def add_mcp_server(name: str, command: str, args: list[str]) -> dict:
     return await _post("/mcp-servers", {"name": name, "command": command, "args": args})  # type: ignore[return-value]
 
 
-async def add_demo_mcp_server() -> dict:
-    return await _post("/mcp-servers/demo")  # type: ignore[return-value]
-
-
 async def remove_mcp_server(sid: str) -> None:
     await _delete(f"/mcp-servers/{sid}")
 

@@ -165,7 +165,7 @@ class AppState(rx.State):
     bash_on: bool = False
     text_editor_on: bool = False
     memory_on: bool = False
-    bigquery_on: bool = False             # optional BigQuery (AJ360) capability, default OFF
+    bigquery_on: bool = False             # optional BigQuery capability, default OFF
     active_skill: str = ""               # name of the applied skill ("" = none)
     skills: list[dict] = []
     plugins: list[dict] = []
@@ -279,20 +279,6 @@ class AppState(rx.State):
 
     def set_mcp_args(self, v: str):
         self.mcp_args = v
-
-    async def add_demo_mcp(self):
-        """Register the bundled, secret-free demo MCP server (one click)."""
-        self.mcp_status = "Connecting to demo MCP server…"
-        yield
-        item = await api_client.add_demo_mcp_server()
-        await self.load_mcp_servers()
-        if item.get("status") == "connected":
-            self.enabled_mcp = [*[x for x in self.enabled_mcp if x != item["id"]],
-                                item["id"]]
-            self.mcp_status = f"Connected · {item.get('detail', '')}"
-        else:
-            self.mcp_status = f"Failed: {item.get('detail', 'unknown error')}"
-        yield
 
     async def save_mcp_server(self):
         cmd = self.mcp_command.strip()

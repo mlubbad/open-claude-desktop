@@ -110,8 +110,6 @@ def plus_menu() -> rx.Component:
                     rx.menu.separator(),
                     rx.menu.item("MCP servers", disabled=True),
                     rx.foreach(AppState.mcp_servers, _mcp_item),
-                    rx.menu.item(rx.icon("plug", size=14), "Add demo MCP server",
-                                 on_click=AppState.add_demo_mcp),
                     rx.menu.item(rx.icon("plus", size=14), "Add MCP server…",
                                  on_click=AppState.open_add_mcp),
                     rx.menu.separator(),
@@ -126,7 +124,7 @@ def plus_menu() -> rx.Component:
             rx.menu.sub(
                 rx.menu.sub_trigger(rx.icon("wrench", size=15), "Tools"),
                 rx.menu.sub_content(
-                    _builtin_tool_item("database", "BigQuery (AJ360)",
+                    _builtin_tool_item("database", "BigQuery",
                                        AppState.bigquery_on, AppState.toggle_bigquery),
                     _builtin_tool_item("link", "Web fetch", AppState.web_fetch_on,
                                        AppState.toggle_web_fetch),

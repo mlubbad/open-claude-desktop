@@ -305,13 +305,6 @@ def add_mcp_server(name: str, command: str, args: list[str] | None = None) -> di
     return item
 
 
-def add_demo_mcp_server() -> dict:
-    """Register the bundled demo MCP server (mcp_servers/demo_server.py) using the
-    current Python interpreter — no node, no network, no secrets."""
-    return add_mcp_server("AJ360 Demo", "${PYTHON}",
-                          ["${REPO_ROOT}/mcp_servers/demo_server.py"])
-
-
 def remove_mcp_server(sid: str):
     items = _load_mcp_servers()
     for s in items:

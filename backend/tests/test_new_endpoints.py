@@ -64,12 +64,12 @@ def test_sql_execute():
     m.assert_called_once_with("SELECT 1", "p1")
 
 
-def test_add_demo_mcp_server():
-    with patch("app.routes.integrations.integrations.add_demo_mcp_server",
-               return_value={"id": "m1", "name": "AJ360 Demo"}) as m:
-        r = client.post("/mcp-servers/demo")
-    assert r.json()["name"] == "AJ360 Demo"
-    m.assert_called_once_with()
+def test_demo_mcp_route_removed():
+    # The "AJ360 Demo" one-click registration route (POST /mcp-servers/demo) has
+    # been removed. With the POST handler gone, that path only matches the generic
+    # DELETE /mcp-servers/{sid} route, so a POST now yields 405 (Method Not Allowed)
+    # rather than being served — either 404 or 405 confirms the endpoint is gone.
+    assert client.post("/mcp-servers/demo").status_code in (404, 405)
 
 
 def test_import_github_repo():

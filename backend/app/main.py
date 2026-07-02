@@ -10,8 +10,11 @@ from dotenv import load_dotenv
 # exported vars), so this is a no-op in containers and only fills gaps locally.
 load_dotenv()
 
+from contextlib import asynccontextmanager  # noqa: E402
+
 from fastapi import FastAPI  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
+from ocd_core import netguard  # noqa: E402
 
 from .routes import (  # noqa: E402
     agent,
@@ -27,7 +30,16 @@ from .routes import (  # noqa: E402
     sql,
 )
 
-app = FastAPI(title="ocd backend", version="0.4.0")
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    # C1: fail closed on network exposure. A non-loopback bind with auth disabled
+    # (the historical default) is an unauthenticated-RCE surface — refuse to start.
+    netguard.assert_safe_binding()
+    yield
+
+
+app = FastAPI(title="ocd backend", version="0.4.0", lifespan=lifespan)
 _origins = os.environ.get("OCD_CORS_ORIGINS",
                           "http://localhost:3000,http://localhost:5173").split(",")
 app.add_middleware(

@@ -147,6 +147,44 @@ def _http_get(url: str, headers: dict, timeout: int = 15):
     return httpx.get(url, headers=headers, timeout=timeout, follow_redirects=True)
 
 
+class ConnectorBlocked(Exception):
+    """Raised when a connector URL targets a blocked host or unsupported scheme."""
+
+
+def _safe_outbound_get(url: str, headers: dict, auth_header: str = "",
+                       timeout: int = 15, max_redirects: int = 4):
+    """SSRF-guarded GET for user-configured connectors (review finding H2).
+
+    Unlike ``_http_get`` this: (1) rejects non-http(s) schemes and private/internal
+    hosts via ``_blocked_host`` BEFORE connecting, (2) follows redirects MANUALLY so
+    each hop is re-validated against ``_blocked_host`` (closing the redirect-to-
+    internal SSRF), and (3) DROPS the connector's custom auth header on any
+    cross-origin redirect so a hostile endpoint can't harvest the user's API key by
+    bouncing the request elsewhere.
+    """
+    from urllib.parse import urljoin, urlparse
+
+    import httpx
+    cur = (url or "").strip()
+    hdrs = dict(headers)
+    with httpx.Client(timeout=timeout, follow_redirects=False) as client:
+        for _ in range(max_redirects + 1):
+            p = urlparse(cur)
+            if p.scheme not in ("http", "https") or not p.netloc:
+                raise ConnectorBlocked("unsupported URL scheme (http/https only)")
+            if _blocked_host(p.hostname or ""):
+                raise ConnectorBlocked("target host is private/internal and blocked")
+            r = client.get(cur, headers=hdrs)
+            if r.status_code in (301, 302, 303, 307, 308) and r.headers.get("location"):
+                nxt = urljoin(cur, r.headers["location"])
+                if auth_header and urlparse(nxt).hostname != (p.hostname or ""):
+                    hdrs.pop(auth_header, None)  # never leak the key cross-origin
+                cur = nxt
+                continue
+            return r
+    raise ConnectorBlocked("too many redirects")
+
+
 def test_connector(cid: str) -> str:
     u = next((x for x in _load_user_connectors() if x["id"] == cid), None)
     if not u:
@@ -155,8 +193,10 @@ def test_connector(cid: str) -> str:
     if u.get("header_key"):
         headers[u["header_key"]] = u.get("header_value", "")
     try:
-        r = _http_get(u["base_url"], headers)
+        r = _safe_outbound_get(u["base_url"], headers, auth_header=u.get("header_key", ""))
         return f"OK — HTTP {r.status_code} from {u['base_url']}"
+    except ConnectorBlocked as e:
+        return f"Blocked: {e}"
     except Exception as e:
         return f"Failed: {str(e)[:120]}"
 
@@ -222,8 +262,10 @@ def call_connector(cid: str, path: str) -> str:
     if u.get("header_key"):
         headers[u["header_key"]] = u.get("header_value", "")
     try:
-        r = _http_get(url, headers, timeout=20)
+        r = _safe_outbound_get(url, headers, auth_header=u.get("header_key", ""), timeout=20)
         return f"HTTP {r.status_code} {url}\n{r.text[:3000]}"
+    except ConnectorBlocked as e:
+        return f"Connector '{cid}' blocked: {e}"
     except Exception as e:
         return f"Connector '{cid}' request failed: {str(e)[:160]}"
 
@@ -550,6 +592,32 @@ _BASH_ALLOW = {"ls", "cat", "echo", "pwd", "grep", "find", "wc", "head", "tail",
                "type", "dir", "date", "whoami", "sort", "uniq", "cut"}
 
 
+def _bash_arg_escapes_jail(tok: str) -> bool:
+    """C2: reject a bash argument that reaches outside the sandbox.
+
+    The command loop already sets cwd to SANDBOX_ROOT and blocks '..' and shell
+    metacharacters, but ABSOLUTE-path arguments still escaped the jail (e.g.
+    ``cat /etc/passwd`` or ``cat /home/user/app/.env``). Flags (leading '-') are
+    fine. Anything that looks like an absolute POSIX path, a home-relative path,
+    a Windows drive/UNC path, or that resolves outside SANDBOX_ROOT is rejected.
+    """
+    t = (tok or "").strip()
+    if not t or t.startswith("-"):
+        return False  # empty or a flag — not a path escape
+    # Absolute / home / Windows-absolute / UNC paths never allowed.
+    if t.startswith(("/", "~", "\\")):
+        return True
+    if len(t) >= 2 and t[1] == ":" and t[0].isalpha():  # C:\ or C:/
+        return True
+    # Relative token: it must resolve to somewhere inside the sandbox root.
+    try:
+        target = (SANDBOX_ROOT / t).resolve()
+        target.relative_to(SANDBOX_ROOT.resolve())
+        return False
+    except Exception:
+        return True
+
+
 def _ensure_dir(p: Path):
     try:
         p.mkdir(parents=True, exist_ok=True)
@@ -704,6 +772,12 @@ def run_bash(command: str, restart: bool = False) -> str:
     if not parts or parts[0] not in _BASH_ALLOW:
         return (f"Rejected: '{parts[0] if parts else ''}' is not allowlisted. Allowed: "
                 + ", ".join(sorted(_BASH_ALLOW)))
+    # C2: no argument may point outside the sandbox (blocks absolute-path reads
+    # like `cat /etc/passwd` that the metacharacter/`..` filter did not catch).
+    escaping = next((a for a in parts[1:] if _bash_arg_escapes_jail(a)), None)
+    if escaping is not None:
+        return ("Rejected: argument outside the sandbox is not allowed "
+                f"('{escaping}'). Only paths inside the session workspace are permitted.")
     try:
         proc = subprocess.run(parts, cwd=str(SANDBOX_ROOT), capture_output=True,
                               text=True, timeout=30, shell=False)

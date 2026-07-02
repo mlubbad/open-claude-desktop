@@ -107,6 +107,9 @@ class RateLimiter:
 # --------------------------------------------------------------------------- #
 audit_log = Audit()
 rate_limiter = RateLimiter()
+# H1: a separate, stricter limiter for authentication attempts, keyed by client.
+login_limiter = RateLimiter(limit=config.LOGIN_RATE_LIMIT,
+                            window_sec=config.LOGIN_RATE_WINDOW_SEC)
 
 
 def audit(event: dict):
@@ -117,3 +120,8 @@ def audit(event: dict):
 def check_rate_limit(user_id: str) -> bool:
     """Sliding-window rate check against the default limiter."""
     return rate_limiter.check(user_id)
+
+
+def check_login_rate_limit(client_key: str) -> bool:
+    """Sliding-window rate check for login attempts. True if allowed."""
+    return login_limiter.check(client_key or "unknown")

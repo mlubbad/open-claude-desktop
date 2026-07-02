@@ -66,6 +66,9 @@ GENERAL_NAME = "General"
 # --- rate limiting (salvaged from app.py) ---
 RATE_LIMIT_QUERIES = int(os.getenv("RATE_LIMIT_QUERIES", "20"))
 RATE_LIMIT_WINDOW_SEC = int(os.getenv("RATE_LIMIT_WINDOW_SEC", "60"))
+# H1: throttle login attempts (per client) to stop unlimited password brute force.
+LOGIN_RATE_LIMIT = int(os.getenv("LOGIN_RATE_LIMIT", "8"))
+LOGIN_RATE_WINDOW_SEC = int(os.getenv("LOGIN_RATE_WINDOW_SEC", "300"))
 
 # --- audit log (salvaged from app.py) ---
 AUDIT_LOG = os.getenv("AUDIT_LOG", "./logs/agent_audit.jsonl")

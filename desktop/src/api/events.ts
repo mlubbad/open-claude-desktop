@@ -30,6 +30,9 @@ export type AgentEvent =
       bytes: number;
     }
   | { type: "sources"; id: string; items: Source[] }
+  | { type: "artifact_open"; id: string; title: string; kind: ArtifactKind; language: string }
+  | { type: "artifact_delta"; id: string; text: string }
+  | { type: "artifact_close"; id: string; version: number }
   | { type: "approval_required"; turn_id: string; id: string; name: string; input: string }
   | { type: "error"; text: string }
   | { type: "done" };
@@ -41,3 +44,5 @@ export interface Source {
   domain?: string;
   favicon?: string;
 }
+
+export type ArtifactKind = "html" | "react" | "svg" | "mermaid" | "code" | "markdown";

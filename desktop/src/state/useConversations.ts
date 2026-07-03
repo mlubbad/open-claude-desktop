@@ -92,6 +92,8 @@ export function useConversations(config: TurnConfig) {
     stop: chat.stop,
     resolveApproval: chat.resolveApproval,
     retryLast: chat.retryLast,
+    openArtifact: chat.openArtifact,
+    closeArtifact: chat.closeArtifact,
     send,
     list,
     current,

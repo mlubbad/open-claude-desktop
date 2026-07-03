@@ -4,7 +4,22 @@
 // semantics: thinking-block coalescing with elapsed labels, answer streaming,
 // per-call tool cards upserted by id, sources, and HITL approval prompts.
 
-import type { AgentEvent, Source } from "../api/events";
+import type { AgentEvent, ArtifactKind, Source } from "../api/events";
+
+export interface ArtifactDoc {
+  id: string;
+  title: string;
+  kind: ArtifactKind;
+  language: string;
+  content: string;
+  version: number;
+  streaming: boolean;
+}
+
+export interface ArtifactBlock {
+  kind: "artifact";
+  doc: ArtifactDoc;
+}
 
 export type ToolStatus = "running" | "done" | "error" | "awaiting_approval";
 
@@ -37,7 +52,7 @@ export interface AnswerBlock {
   streaming: boolean;
 }
 
-export type Block = ThinkingBlock | AnswerBlock | ToolCard;
+export type Block = ThinkingBlock | AnswerBlock | ToolCard | ArtifactBlock;
 
 export interface AssistantMessage {
   role: "assistant";
@@ -57,11 +72,32 @@ export interface TranscriptState {
   running: boolean;
   // A pending HITL approval the UI should surface (null when none).
   pendingApproval: { turnId: string; toolCallId: string; name: string; input: string } | null;
+  // The artifact id currently shown in the side panel (null = panel closed).
+  openArtifactId: string | null;
   error: string | null;
 }
 
 export function initialState(): TranscriptState {
-  return { messages: [], turnId: null, running: false, pendingApproval: null, error: null };
+  return {
+    messages: [],
+    turnId: null,
+    running: false,
+    pendingApproval: null,
+    openArtifactId: null,
+    error: null,
+  };
+}
+
+// Find the artifact document for a given id anywhere in the transcript.
+export function findArtifact(state: TranscriptState, id: string | null): ArtifactDoc | null {
+  if (!id) return null;
+  for (const m of state.messages) {
+    if (m.role !== "assistant") continue;
+    for (const b of m.blocks) {
+      if (b.kind === "artifact" && b.doc.id === id) return b.doc;
+    }
+  }
+  return null;
 }
 
 // Replace the whole transcript (loading a saved conversation).
@@ -249,6 +285,40 @@ export function applyEvent(prev: TranscriptState, ev: AgentEvent): TranscriptSta
     case "sources":
       return updateTool(state, assistant, ev.id, (t) => ({ ...t, sources: ev.items }));
 
+    case "artifact_open": {
+      if (findArtifact(state, ev.id)) {
+        // An update: reset content for the incoming new version.
+        const s2 = mutateArtifact(state, ev.id, (d) => ({
+          ...d,
+          title: ev.title,
+          kind: ev.kind,
+          language: ev.language,
+          content: "",
+          streaming: true,
+        }));
+        return { ...s2, openArtifactId: ev.id };
+      }
+      assistant.blocks.push({
+        kind: "artifact",
+        doc: {
+          id: ev.id,
+          title: ev.title,
+          kind: ev.kind,
+          language: ev.language,
+          content: "",
+          version: 0,
+          streaming: true,
+        },
+      });
+      return { ...state, openArtifactId: ev.id };
+    }
+
+    case "artifact_delta":
+      return mutateArtifact(state, ev.id, (d) => ({ ...d, content: d.content + ev.text }));
+
+    case "artifact_close":
+      return mutateArtifact(state, ev.id, (d) => ({ ...d, streaming: false, version: ev.version }));
+
     case "approval_required": {
       updateTool(state, assistant, ev.id, (t) => ({ ...t, status: "awaiting_approval" }));
       return {
@@ -292,4 +362,25 @@ function updateTool(
     }
   }
   return state;
+}
+
+// Immutably update the artifact doc with the given id wherever it lives.
+function mutateArtifact(
+  state: TranscriptState,
+  id: string,
+  fn: (d: ArtifactDoc) => ArtifactDoc,
+): TranscriptState {
+  const messages = state.messages.map((m) => {
+    if (m.role !== "assistant") return m;
+    let changed = false;
+    const blocks = m.blocks.map((b) => {
+      if (b.kind === "artifact" && b.doc.id === id) {
+        changed = true;
+        return { ...b, doc: fn(b.doc) };
+      }
+      return b;
+    });
+    return changed ? { role: "assistant" as const, blocks } : m;
+  });
+  return { ...state, messages };
 }

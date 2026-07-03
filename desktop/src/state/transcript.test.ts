@@ -6,6 +6,7 @@ import {
   applyEvent,
   type AssistantMessage,
   buildHistory,
+  findArtifact,
   initialState,
   lastUserIndex,
   type Message,
@@ -131,6 +132,39 @@ describe("transcript reducer", () => {
       { role: "user", content: "q1", kind: "user" },
       { role: "assistant", content: "a1", kind: "final" },
     ]);
+  });
+
+  it("streams an artifact open/delta/close and opens the panel", () => {
+    const s = drive([
+      { type: "artifact_open", id: "art1", title: "Page", kind: "html", language: "" },
+      { type: "artifact_delta", id: "art1", text: "<h1>" },
+      { type: "artifact_delta", id: "art1", text: "hi</h1>" },
+      { type: "artifact_close", id: "art1", version: 1 },
+    ]);
+    expect(s.openArtifactId).toBe("art1");
+    const doc = findArtifact(s, "art1")!;
+    expect(doc.content).toBe("<h1>hi</h1>");
+    expect(doc.version).toBe(1);
+    expect(doc.streaming).toBe(false);
+    // The assistant message carries an artifact block referencing it.
+    const a = assistant(s);
+    expect(a.blocks.some((b) => b.kind === "artifact")).toBe(true);
+  });
+
+  it("update_artifact (same id) replaces content and bumps version without duplicating", () => {
+    const s = drive([
+      { type: "artifact_open", id: "art1", title: "Doc", kind: "markdown", language: "" },
+      { type: "artifact_delta", id: "art1", text: "v1 body" },
+      { type: "artifact_close", id: "art1", version: 1 },
+      { type: "artifact_open", id: "art1", title: "Doc", kind: "markdown", language: "" },
+      { type: "artifact_delta", id: "art1", text: "v2 body" },
+      { type: "artifact_close", id: "art1", version: 2 },
+    ]);
+    const doc = findArtifact(s, "art1")!;
+    expect(doc.content).toBe("v2 body");
+    expect(doc.version).toBe(2);
+    const artifactBlocks = assistant(s).blocks.filter((b) => b.kind === "artifact");
+    expect(artifactBlocks).toHaveLength(1); // upsert, not duplicate
   });
 
   it("lastUserIndex + retryFrom truncate to the last user for regeneration", () => {

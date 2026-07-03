@@ -1,10 +1,12 @@
 import { useMemo, useState } from "react";
 
 import { ApprovalPrompt } from "./components/ApprovalPrompt";
+import { ArtifactPanel } from "./components/ArtifactPanel";
 import { Composer } from "./components/Composer";
 import { AssistantBubble, UserBubble } from "./components/Message";
 import { Settings } from "./components/Settings";
 import { Sidebar } from "./components/Sidebar";
+import { findArtifact } from "./state/transcript";
 import { useConversations } from "./state/useConversations";
 import { useKeyboard } from "./state/useKeyboard";
 
@@ -17,15 +19,29 @@ export default function App() {
     () => ({ provider, model, effort: "High", permissionMode: "ask" as const }),
     [provider, model],
   );
-  const { state, busy, send, retryLast, stop, resolveApproval, list, current, openConversation, newChat, remove } =
-    useConversations(config);
+  const {
+    state,
+    busy,
+    send,
+    retryLast,
+    stop,
+    resolveApproval,
+    openArtifact,
+    closeArtifact,
+    list,
+    current,
+    openConversation,
+    newChat,
+    remove,
+  } = useConversations(config);
 
-  useKeyboard({ onEscape: () => busy && stop(), onNewChat: newChat });
+  useKeyboard({ onEscape: () => (busy ? stop() : closeArtifact()), onNewChat: newChat });
 
   const lastAssistantIdx = state.messages.reduce(
     (acc, m, i) => (m.role === "assistant" ? i : acc),
     -1,
   );
+  const openDoc = findArtifact(state, state.openArtifactId);
 
   return (
     <div className="app-shell">
@@ -62,6 +78,7 @@ export default function App() {
                 isLast={i === lastAssistantIdx}
                 busy={busy}
                 onRetry={retryLast}
+                onOpenArtifact={openArtifact}
               />
             ),
           )}
@@ -75,6 +92,8 @@ export default function App() {
           <Composer busy={busy} onSend={send} onStop={stop} />
         </footer>
       </div>
+
+      {openDoc && <ArtifactPanel doc={openDoc} onClose={closeArtifact} />}
 
       {showSettings && (
         <Settings

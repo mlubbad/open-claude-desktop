@@ -411,6 +411,16 @@ adjust the roadmap ordering above:
   per-code-block copy button, and app keyboard shortcuts (Esc stops a running turn,
   Cmd/Ctrl+Shift+O new chat). Pure helpers `answerText`/`buildHistory`/`lastUserIndex`/
   `retryFrom` unit-tested. Verified: 16 vitest, tsc clean, build 99.6 KB gz.
-- **Next (Phase 3 cont.):** projects/knowledge, artifacts side-panel (needs backend
-  artifact events + tool), message edit/branch, command palette, and the Tauri shell
-  features (tray, global hotkey, updater, keychain, backend sidecar).
+- **2026-07-03 — Phase 3 · Artifacts (complete):** the side-panel artifact system, end
+  to end. Backend: `artifact_tools.py` (create_artifact/update_artifact specs + prompt
+  section + per-turn store), `artifact_open/delta/close` SSE events derived from the tool
+  outcome, `artifacts` AgentOptions flag (default on via the route, off for direct callers).
+  Frontend: ArtifactDoc transcript handling (open upserts/updates, delta appends, close
+  finalizes; `findArtifact`), inline artifact cards, and an `ArtifactPanel` with Preview/Code
+  toggle rendering HTML/SVG/Mermaid/React in a **sandboxed iframe** (`sandbox="allow-scripts"`,
+  no same-origin, scoped CSP) + copy/download. Verified: backend 202 + 5 artifact tests,
+  frontend 18 vitest (open/delta/close + update-upsert + persist round-trip), tsc clean,
+  build 101 KB gz.
+- **Next (Phase 3 cont.):** projects/knowledge UI, artifact version history + true
+  token-streaming, message edit/branch, command palette, and the Tauri shell features
+  (tray, global hotkey, updater, keychain, backend sidecar).

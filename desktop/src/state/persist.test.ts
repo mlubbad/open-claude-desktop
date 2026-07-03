@@ -22,6 +22,18 @@ const sample: Message[] = [
         table: { columns: ["n"], rows: [{ n: 1 }], total: 1, bytes: 8 },
       },
       { kind: "answer", text: "There is **1** row.", streaming: false },
+      {
+        kind: "artifact",
+        doc: {
+          id: "art1",
+          title: "Chart",
+          kind: "html",
+          language: "",
+          content: "<h1>1</h1>",
+          version: 1,
+          streaming: false,
+        },
+      },
     ],
   },
 ];

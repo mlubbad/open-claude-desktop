@@ -3,6 +3,7 @@ import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import {
+  type ArtifactBlock,
   answerText,
   type AssistantMessage,
   type Block,
@@ -24,18 +25,20 @@ export function AssistantBubble({
   isLast,
   busy,
   onRetry,
+  onOpenArtifact,
 }: {
   msg: AssistantMessage;
   isLast: boolean;
   busy: boolean;
   onRetry?: () => void;
+  onOpenArtifact?: (id: string) => void;
 }) {
   const answer = answerText(msg);
   const streaming = msg.blocks.some((b) => (b.kind === "answer" || b.kind === "thinking") && b.streaming);
   return (
     <div className="msg assistant">
       {msg.blocks.map((b, i) => (
-        <BlockView key={i} block={b} />
+        <BlockView key={i} block={b} onOpenArtifact={onOpenArtifact} />
       ))}
       {!streaming && answer && (
         <div className="msg-actions">
@@ -90,15 +93,33 @@ function CodeBlock({ children }: { children?: ReactNode }) {
   );
 }
 
-function BlockView({ block }: { block: Block }) {
+function BlockView({ block, onOpenArtifact }: { block: Block; onOpenArtifact?: (id: string) => void }) {
   if (block.kind === "thinking") return <Thinking block={block} />;
   if (block.kind === "tool") return <Tool block={block} />;
+  if (block.kind === "artifact") return <ArtifactCard block={block} onOpen={onOpenArtifact} />;
   return (
     <div className="answer">
       <Markdown remarkPlugins={[remarkGfm]} components={mdComponents}>
         {block.text}
       </Markdown>
     </div>
+  );
+}
+
+function ArtifactCard({ block, onOpen }: { block: ArtifactBlock; onOpen?: (id: string) => void }) {
+  const { doc } = block;
+  return (
+    <button className="artifact-card" onClick={() => onOpen?.(doc.id)}>
+      <span className="artifact-card-icon">▧</span>
+      <span className="artifact-card-meta">
+        <span className="artifact-card-title">{doc.title}</span>
+        <span className="artifact-card-kind">
+          {doc.kind}
+          {doc.version > 1 ? ` · v${doc.version}` : ""}
+        </span>
+      </span>
+      <span className="artifact-card-open">Open ›</span>
+    </button>
   );
 }
 

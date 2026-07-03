@@ -23,6 +23,7 @@ type Action =
   | { kind: "start"; goal: string }
   | { kind: "retry"; userIdx: number }
   | { kind: "load"; messages: Message[] }
+  | { kind: "panel"; artifactId: string | null }
   | { kind: "reset" };
 
 function reducer(state: TranscriptState, action: Action): TranscriptState {
@@ -35,6 +36,8 @@ function reducer(state: TranscriptState, action: Action): TranscriptState {
       return retryFrom(state, action.userIdx);
     case "load":
       return loadMessages(action.messages);
+    case "panel":
+      return { ...state, openArtifactId: action.artifactId };
     case "reset":
       return initialState();
   }
@@ -118,6 +121,8 @@ export function useTranscript(config: TurnConfig) {
 
   const reset = useCallback(() => dispatch({ kind: "reset" }), []);
   const load = useCallback((messages: Message[]) => dispatch({ kind: "load", messages }), []);
+  const openArtifact = useCallback((id: string) => dispatch({ kind: "panel", artifactId: id }), []);
+  const closeArtifact = useCallback(() => dispatch({ kind: "panel", artifactId: null }), []);
 
-  return { state, busy, send, retryLast, stop, resolveApproval, reset, load };
+  return { state, busy, send, retryLast, stop, resolveApproval, reset, load, openArtifact, closeArtifact };
 }

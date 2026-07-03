@@ -26,6 +26,7 @@ class AgentOptions(BaseModel):
     bash: bool = False
     text_editor: bool = False
     memory: bool = False
+    artifacts: bool = True
 
 
 class AgentTurnRequest(BaseModel):

@@ -28,6 +28,11 @@ yields; the API layer appends a terminal {"type": "done"} after the stream ends.
                           "total": int, "bytes": int}
   {"type": "sources",     "id": str, "items": list}          # web/research citations
 
+  Artifacts (renderable side-panel documents; derived from an artifact tool call):
+  {"type": "artifact_open",  "id": str, "title": str, "kind": str, "language": str}
+  {"type": "artifact_delta", "id": str, "text": str}
+  {"type": "artifact_close", "id": str, "version": int}
+
   Interactive permission (HITL — only when a turn_id + non-auto permission mode):
   {"type": "approval_required", "turn_id": str, "id": str,   # awaiting a decision;
                           "name": str, "input": str}         #   reply via the API
@@ -48,7 +53,16 @@ import re
 import time
 import types
 
-from . import bigquery, bigquery_tools, config, permissions, prompts, schema_catalog, util
+from . import (
+    artifact_tools,
+    bigquery,
+    bigquery_tools,
+    config,
+    permissions,
+    prompts,
+    schema_catalog,
+    util,
+)
 from .llm import LLMConfigError, reasoning_of, resolve_turn_client
 
 WEB_SEARCH_TOOL = {"type": "function", "function": {
@@ -314,6 +328,8 @@ TOOL_LABELS = {
     "bash":          ("Running command",   "Ran command",      "terminal"),
     "text_editor":   ("Editing file",      "Edited file",      "file-pen"),
     "memory":        ("Updating memory",   "Updated memory",   "brain"),
+    "create_artifact": ("Creating artifact", "Created artifact", "file-code"),
+    "update_artifact": ("Updating artifact", "Updated artifact", "file-code"),
 }
 
 
@@ -350,14 +366,33 @@ def _tool_input(name: str, args: dict) -> str:
     if name == "memory":
         return (f"{args.get('command', '')} "
                 f"{args.get('path') or args.get('old_path', '')}").strip()[:300]
+    if name in ("create_artifact", "update_artifact"):
+        return (args.get("title") or args.get("id") or "").strip()[:300]
     return json.dumps(args, default=str)[:300]
 
 
-async def _run_one_tool(name, args, tc_id, active_project, goal, top_k) -> dict:
+async def _run_one_tool(name, args, tc_id, active_project, goal, top_k,
+                        artifact_store=None) -> dict:
     """Execute ONE tool to completion and return a structured outcome (no UI events).
     Never raises — failures become {ok: False, ...} so the loop survives and the model
     can retry (Claude's is_error protocol, expressed in the tool-result string)."""
     try:
+        if name == "create_artifact":
+            a = artifact_tools.create(args, artifact_store if artifact_store is not None else {})
+            return {"id": tc_id, "name": name, "ok": True, "artifact": a,
+                    "result": f"Created artifact '{a['title']}' (id {a['id']}). It is shown "
+                              "in the side panel; describe it briefly in your reply.",
+                    "summary": f"{a['title']} · {a['kind']}"}
+
+        if name == "update_artifact":
+            a, err = artifact_tools.update(args, artifact_store if artifact_store is not None else {})
+            if err:
+                return {"id": tc_id, "name": name, "ok": False, "error": err,
+                        "result": f"ERROR: {err}"}
+            return {"id": tc_id, "name": name, "ok": True, "artifact": a,
+                    "result": f"Updated artifact '{a['title']}' (id {a['id']}, v{a['version']}).",
+                    "summary": f"{a['title']} · v{a['version']}"}
+
         if name == "search_schema":
             q = args.get("question", goal)
             result = await asyncio.to_thread(schema_catalog.search_schema, q, active_project, top_k)
@@ -478,6 +513,12 @@ def _completion_events(out: dict):
                     "rows": t["rows"], "total": t["total"], "bytes": t["bytes"]})
     if out.get("sources"):
         evs.append({"type": "sources", "id": out["id"], "items": out["sources"]})
+    if out.get("artifact"):
+        a = out["artifact"]
+        evs.append({"type": "artifact_open", "id": a["id"], "title": a["title"],
+                    "kind": a["kind"], "language": a.get("language", "")})
+        evs.append({"type": "artifact_delta", "id": a["id"], "text": a["content"]})
+        evs.append({"type": "artifact_close", "id": a["id"], "version": a["version"]})
     return evs
 
 
@@ -490,7 +531,7 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
                    web_fetch: bool = False, code_exec: bool = False, bash: bool = False,
                    text_editor: bool = False, memory: bool = False,
                    provider: str | None = None, turn_id: str | None = None,
-                   permission_mode: str | None = None):
+                   permission_mode: str | None = None, artifacts: bool = False):
     """Drive one agent turn, yielding events. `history` is prior (role/content) turns.
 
     `turn_id` + `permission_mode` enable the interactive HITL gate: when set (and the
@@ -510,14 +551,21 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
     gate_on = bool(turn_id) and perm_mode != "auto"
 
     bq_on = bigquery_tools.enabled()
-    extra_sections = [bigquery_tools.system_prompt_section()] if bq_on else None
+    extra_sections = []
+    if bq_on:
+        extra_sections.append(bigquery_tools.system_prompt_section())
+    if artifacts:
+        extra_sections.append(artifact_tools.system_prompt_section())
     messages = [{"role": "system",
                  "content": prompts.build_system_prompt(
-                     extra_sections=extra_sections, memory=memory,
+                     extra_sections=extra_sections or None, memory=memory,
                      project_instructions=project_instructions,
                      skill_instructions=skill_instructions, research=research)},
                 *history, {"role": "user", "content": goal}]
     tools = list(bigquery_tools.TOOL_SPECS) if bq_on else []
+    if artifacts:
+        tools.extend(artifact_tools.TOOL_SPECS)
+    artifact_store: dict = {}
     if web_search or research:
         tools.append(WEB_SEARCH_TOOL)
     if research:
@@ -655,7 +703,7 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
 
         if parallel and len(calls) > 1:
             tasks = [asyncio.create_task(
-                _run_one_tool(n, a, i, active_project, goal, top_k))
+                _run_one_tool(n, a, i, active_project, goal, top_k, artifact_store))
                 for (i, n, a) in calls]
             outcomes = []
             for fut in asyncio.as_completed(tasks):
@@ -666,7 +714,7 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
         else:
             outcomes = []
             for (i, n, a) in calls:
-                out = await _run_one_tool(n, a, i, active_project, goal, top_k)
+                out = await _run_one_tool(n, a, i, active_project, goal, top_k, artifact_store)
                 outcomes.append(out)
                 for ev in _completion_events(out):
                     yield ev

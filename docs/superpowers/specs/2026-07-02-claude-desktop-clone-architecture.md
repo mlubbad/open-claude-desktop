@@ -453,6 +453,15 @@ adjust the roadmap ordering above:
   ~4-chars/token heuristic — tiktoken was rejected: it fetches its BPE vocab over the
   network, wrong for a packaged offline app) with a best-effort per-model price table.
   Verified: backend 208 (5 new), frontend 24 (1 new), tsc clean, build 103 KB gz.
-- **Next (Phase 3 cont.):** artifact version history + true token-streaming, message
-  edit/branch, command palette; MCP remote transports + OAuth (extensions parity); then
-  the remaining shell items (tray, icons, signed updater, commit externalBin/sidecar spawn).
+- **2026-07-03 — MCP remote transports + per-server config (complete, verified E2E):**
+  the MCP client now speaks **Streamable HTTP** and **legacy SSE** (not just stdio),
+  with per-server **env** vars (merged onto the SDK's safe default env) and remote **auth**
+  headers whose bearer token lives in the OS keychain (never mcp_servers.json). Registry
+  `_transport_of`/`_server_key`/`_stdio_env` route by transport; `add_mcp_server`,
+  `McpBody`, and the route accept url/transport/env/headers/auth_token. Verified with a
+  **real in-process FastMCP Streamable-HTTP server**: the registry connects, discovers the
+  `echo` tool, and calls it end to end. Backend: 212 (7 new MCP tests).
+- **Next (Phase 3 cont.):** MCP OAuth 2.1 (PKCE + DCR) + resources/prompts + `.mcpb`
+  one-click installs + a connectors UI in the new client; artifact version history + true
+  token-streaming; message edit/branch; command palette; finish the Tauri shell on a
+  build host (tray, icons, signed updater, commit externalBin/sidecar spawn).

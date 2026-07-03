@@ -19,8 +19,13 @@ class ConnectorBody(BaseModel):
 
 class McpBody(BaseModel):
     name: str
-    command: str
+    command: str = ""                       # stdio: the command to launch
     args: list[str] = []
+    url: str = ""                           # remote: Streamable-HTTP / SSE endpoint
+    transport: str = ""                     # "http" (default for url) | "sse" | "stdio"
+    env: dict[str, str] = {}                # per-server env (stdio) — merged safely
+    headers: dict[str, str] = {}            # extra headers (remote)
+    auth_token: str = ""                    # remote bearer token — stored in the keychain
 
 
 @router.get("/plugins")
@@ -62,7 +67,9 @@ def list_mcp(user: str = Depends(current_user)) -> list[dict]:
 
 @router.post("/mcp-servers")
 def add_mcp(body: McpBody, user: str = Depends(current_user)) -> dict:
-    return integrations.add_mcp_server(body.name, body.command, body.args)
+    return integrations.add_mcp_server(
+        body.name, body.command, body.args, url=body.url, transport=body.transport,
+        env=body.env, headers=body.headers, auth_token=body.auth_token)
 
 
 @router.delete("/mcp-servers/{sid}")

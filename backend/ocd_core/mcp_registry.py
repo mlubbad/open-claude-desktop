@@ -24,10 +24,34 @@ import threading
 _DEFAULT_TIMEOUT = float(__import__("os").getenv("MCP_CALL_TIMEOUT_SEC", "60"))
 
 
+def _transport_of(cfg: dict) -> str:
+    """Which transport this server uses: 'stdio' (a local command), 'sse' (legacy
+    remote SSE), or 'http' (remote Streamable HTTP — the default for a url)."""
+    if cfg.get("url"):
+        t = (cfg.get("transport") or "http").strip().lower()
+        return "sse" if t in ("sse", "sse-legacy") else "http"
+    return "stdio"
+
+
 def _server_key(cfg: dict) -> tuple:
-    """Identity of a server: its id plus the exact command+args it launches."""
-    return (cfg.get("id") or cfg.get("command"),
-            cfg.get("command"), tuple(cfg.get("args", [])))
+    """Identity of a server: its id plus the connection details it opens."""
+    ident = cfg.get("id") or cfg.get("url") or cfg.get("command")
+    if cfg.get("url"):
+        return (ident, cfg.get("url"), _transport_of(cfg))
+    return (ident, cfg.get("command"), tuple(cfg.get("args", [])))
+
+
+def _stdio_env(env: dict | None) -> dict | None:
+    """Merge explicit env vars onto the MCP SDK's safe default environment (so a
+    server sees PATH etc. plus its configured keys); None -> inherit the default."""
+    if not env:
+        return None
+    base: dict = {}
+    with contextlib.suppress(Exception):
+        from mcp.client.stdio import get_default_environment
+        base = dict(get_default_environment())
+    base.update({k: str(v) for k, v in env.items()})
+    return base
 
 
 def _render(res) -> str:
@@ -98,14 +122,28 @@ class MCPRegistry:
         return lock
 
     async def _open_session(self, cfg: dict) -> _Session:
-        from mcp import ClientSession, StdioServerParameters
-        from mcp.client.stdio import stdio_client
+        from mcp import ClientSession
 
+        transport = _transport_of(cfg)
         stack = contextlib.AsyncExitStack()
         try:
-            params = StdioServerParameters(
-                command=cfg["command"], args=list(cfg.get("args", [])), env=None)
-            read, write = await stack.enter_async_context(stdio_client(params))
+            if transport == "http":
+                # streamablehttp_client accepts headers= directly (the newer
+                # streamable_http_client takes a pre-built httpx client instead).
+                from mcp.client.streamable_http import streamablehttp_client
+                read, write, _ = await stack.enter_async_context(
+                    streamablehttp_client(cfg["url"], headers=cfg.get("headers") or None))
+            elif transport == "sse":
+                from mcp.client.sse import sse_client
+                read, write = await stack.enter_async_context(
+                    sse_client(cfg["url"], headers=cfg.get("headers") or None))
+            else:
+                from mcp import StdioServerParameters
+                from mcp.client.stdio import stdio_client
+                params = StdioServerParameters(
+                    command=cfg["command"], args=list(cfg.get("args", [])),
+                    env=_stdio_env(cfg.get("env")))
+                read, write = await stack.enter_async_context(stdio_client(params))
             session = await stack.enter_async_context(ClientSession(read, write))
             await session.initialize()
             return _Session(session, stack)

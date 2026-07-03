@@ -6,6 +6,7 @@ asyncio.to_thread). Keeps the composer's "+" menu features out of core.py.
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
@@ -324,9 +325,14 @@ def _save_mcp_servers(items: list[dict]):
 # server (reused across calls) with per-call timeouts and clean shutdown.
 
 
+def _mcp_auth_key(sid: str) -> str:
+    return f"mcp:{sid}:auth_token"
+
+
 def _resolve_cfg(cfg: dict) -> dict:
-    """Resolve portable placeholders (${PYTHON}, ${REPO_ROOT}) in an MCP server
-    cfg at call time, so mcp_servers.json never stores machine-absolute paths."""
+    """Resolve a stored MCP server cfg for connection: expand portable placeholders
+    (${PYTHON}, ${REPO_ROOT}) for stdio, and inject the auth Bearer header (from the
+    keychain, never mcp_servers.json) for remote servers."""
     import sys
     repl = {"${PYTHON}": sys.executable, "${REPO_ROOT}": str(config.REPO_ROOT)}
 
@@ -337,19 +343,40 @@ def _resolve_cfg(cfg: dict) -> dict:
         return s
 
     out = dict(cfg)
-    out["command"] = _sub(cfg.get("command", ""))
-    out["args"] = [_sub(a) for a in cfg.get("args", [])]
+    out["env"] = cfg.get("env") or None
+    if cfg.get("url"):
+        headers = dict(cfg.get("headers") or {})
+        if cfg.get("auth"):
+            from . import secrets
+            token = secrets.get_secret_store().get(_mcp_auth_key(cfg["id"]))
+            if token:
+                headers["Authorization"] = f"Bearer {token}"
+        out["headers"] = headers or None
+    else:
+        out["command"] = _sub(cfg.get("command", ""))
+        out["args"] = [_sub(a) for a in cfg.get("args", [])]
     return out
 
 
-def add_mcp_server(name: str, command: str, args: list[str] | None = None) -> dict:
-    """Register an MCP (stdio) server and cache its tool specs. Discovery happens
-    now so the agent tool list can be assembled synchronously later."""
-    args = args or []
+def add_mcp_server(name: str, command: str = "", args: list[str] | None = None, *,
+                   url: str = "", transport: str = "", env: dict | None = None,
+                   headers: dict | None = None, auth_token: str = "") -> dict:
+    """Register an MCP server (stdio command OR a remote Streamable-HTTP/SSE url) and
+    cache its tool specs. A remote auth token is stored in the OS keychain, never in
+    mcp_servers.json. Discovery happens now so the tool list assembles synchronously."""
     sid = _slug(name)
     items = [s for s in _load_mcp_servers() if s["id"] != sid]
-    item = {"id": sid, "name": name.strip() or sid, "transport": "stdio",
-            "command": command.strip(), "args": args}
+    if url.strip():
+        item = {"id": sid, "name": name.strip() or sid,
+                "transport": (transport.strip().lower() or "http"),
+                "url": url.strip(), "env": env or {},
+                "headers": headers or {}, "auth": bool(auth_token)}
+    else:
+        item = {"id": sid, "name": name.strip() or sid, "transport": "stdio",
+                "command": command.strip(), "args": args or [], "env": env or {}}
+    if auth_token:
+        from . import secrets
+        secrets.get_secret_store().set(_mcp_auth_key(sid), auth_token)
     try:
         item["tools"] = mcp_registry.registry.discover(_resolve_cfg(item))
         item["status"] = "connected"
@@ -374,7 +401,11 @@ def remove_mcp_server(sid: str):
     items = _load_mcp_servers()
     for s in items:
         if s["id"] == sid:
-            mcp_registry.registry.drop(_resolve_cfg(s))  # terminate the persistent subprocess
+            mcp_registry.registry.drop(_resolve_cfg(s))  # terminate the persistent session
+            if s.get("auth"):
+                from . import secrets
+                with contextlib.suppress(Exception):
+                    secrets.get_secret_store().delete(_mcp_auth_key(sid))
     _save_mcp_servers([s for s in items if s["id"] != sid])
 
 
@@ -399,6 +430,7 @@ def list_mcp_servers() -> list[dict]:
     """Registered MCP servers (without the verbose cached tool schemas)."""
     return [{"id": s["id"], "name": s["name"], "transport": s.get("transport", "stdio"),
              "command": s.get("command", ""), "args": s.get("args", []),
+             "url": s.get("url", ""), "auth": bool(s.get("auth")),
              "status": s.get("status", "unknown"), "detail": s.get("detail", ""),
              "tool_count": len(s.get("tools", []))}
             for s in _load_mcp_servers()]

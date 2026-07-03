@@ -12,6 +12,7 @@ import { ProjectPanel } from "./components/ProjectPanel";
 import { Settings } from "./components/Settings";
 import { Sidebar } from "./components/Sidebar";
 import { UsageMeter } from "./components/UsageMeter";
+import { exportSlug, toMarkdown } from "./state/exportConversation";
 import { conversationsForProject } from "./state/projectFilter";
 import { findArtifact } from "./state/transcript";
 import { useConnectors } from "./state/useConnectors";
@@ -103,6 +104,18 @@ export default function App() {
   const scopedList = conversationsForProject(list, proj.active);
   const activeProjectName = proj.list.find((p) => p.id === proj.active)?.name ?? "";
 
+  function exportChat() {
+    const title = list.find((c) => c.id === current?.cid)?.title || "Conversation";
+    const md = toMarkdown(state.messages, title);
+    const blob = new Blob([md], { type: "text/markdown" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${exportSlug(title)}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   async function newProject() {
     const name = window.prompt("New project name");
     if (name?.trim()) {
@@ -137,6 +150,11 @@ export default function App() {
           </div>
           <div className="topbar-right">
             {state.usage && <UsageMeter usage={state.usage} />}
+            {state.messages.length > 0 && (
+              <button className="icon-btn" title="Export chat as Markdown" onClick={exportChat}>
+                ⬇
+              </button>
+            )}
             <button className="icon-btn" title="Connectors (MCP)" onClick={() => setShowConnectors(true)}>
               🔌{connectors.enabled.length > 0 && <span className="badge">{connectors.enabled.length}</span>}
             </button>

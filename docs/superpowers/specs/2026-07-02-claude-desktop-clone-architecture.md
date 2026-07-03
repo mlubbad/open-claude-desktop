@@ -567,6 +567,14 @@ adjust the roadmap ordering above:
   search round-trip** asserting citations, plus pure chunker tests (short/empty, size+
   overlap, giant-paragraph hard-split, paragraph-boundary preference). Backend: 274 (5 new),
   ruff clean.
+- **2026-07-03 — Conversation export (Markdown + JSON) (complete):** any chat can be
+  saved out. Pure serializers in `exportConversation.ts`: `toMarkdown` renders `## You` /
+  `## Assistant` turns with thinking collapsed in `<details>`, tool calls noted as
+  blockquotes, and artifacts embedded as fenced code with their version; `toJSON` emits a
+  versioned structural envelope; `exportSlug` makes a safe filename. A header ⬇ button (shown
+  only when the chat is non-empty) downloads the current conversation as Markdown. Verified:
+  8 vitest (headings, content, thinking/tool rendering, artifact fences, empty-turn skip,
+  trailing-newline hygiene, JSON envelope, slug). Frontend: 42 vitest, tsc clean, build 108 KB gz.
 - **Next (Phase 3 cont.):** interactive OAuth authorize on the Tauri host;
   true artifact token-streaming; finish the Tauri shell on a build host (tray, icons,
   signed updater, commit externalBin/sidecar spawn).

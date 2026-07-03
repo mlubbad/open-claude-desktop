@@ -62,3 +62,6 @@ dist/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
+
+# Stray root node_modules (created if a tool runs from repo root)
+node_modules/

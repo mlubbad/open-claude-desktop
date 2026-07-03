@@ -1,5 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
+import { notify, registerSummonHotkey, unregisterSummonHotkey } from "./platform";
 import { ApprovalPrompt } from "./components/ApprovalPrompt";
 import { ArtifactPanel } from "./components/ArtifactPanel";
 import { Composer } from "./components/Composer";
@@ -42,6 +43,25 @@ export default function App() {
   } = useConversations(config);
 
   useKeyboard({ onEscape: () => (busy ? stop() : closeArtifact()), onNewChat: newChat });
+
+  // Global summon hotkey (desktop only; no-op on web). Fired from the OS even when the
+  // app is unfocused; brings it forward and starts a fresh chat.
+  const newChatRef = useRef(newChat);
+  newChatRef.current = newChat;
+  useEffect(() => {
+    const accel = "CmdOrControl+Shift+Space";
+    void registerSummonHotkey(accel, () => newChatRef.current());
+    return () => void unregisterSummonHotkey(accel);
+  }, []);
+
+  // Notify when a response finishes while the window is in the background.
+  const prevBusy = useRef(false);
+  useEffect(() => {
+    if (prevBusy.current && !busy && typeof document !== "undefined" && document.hidden) {
+      void notify("Open Claude Desktop", "Your response is ready.");
+    }
+    prevBusy.current = busy;
+  }, [busy]);
 
   const lastAssistantIdx = state.messages.reduce((acc, m, i) => (m.role === "assistant" ? i : acc), -1);
   const openDoc = findArtifact(state, state.openArtifactId);

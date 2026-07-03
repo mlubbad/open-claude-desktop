@@ -44,9 +44,20 @@ npm run tauri build   # signed installers (macOS/Windows/Linux)
 ```
 
 Building the shell needs the [Tauri v2 prerequisites](https://v2.tauri.app/start/prerequisites/)
-(Rust + platform WebView libs) and app icons (`npm run tauri icon <png>`). Later
-phases wire the system tray, a global summon hotkey, the auto-updater, deep links,
-OS-keychain secret storage, and the FastAPI backend as a bundled sidecar.
+(Rust + platform WebView libs — `webkit2gtk-4.1`/`libsoup-3.0`/`gtk3` on Linux) and app
+icons (`npm run tauri icon <png>`). The Rust dependency graph is validated (`cargo fetch`);
+a full build must run on a machine with those WebView libraries installed.
+
+**Wired now** (`src-tauri/` + `src/platform.ts`): single-instance focus, a global
+**summon hotkey** (`CmdOrControl+Shift+Space`), native **notifications** on
+background completion, the **auto-updater** (GitHub Releases `latest.json` feed), the
+`opener` and `os` plugins, and a CSP scoped to the local backend. `platform.ts`
+detects the Tauri global and falls back to web behavior in a plain browser, so the
+client runs identically either way.
+
+**Remaining shell work:** the system tray, deep links, sign the updater feed
+(`tauri signer generate` → set `plugins.updater.pubkey`), app icons, and packaging the
+FastAPI backend as a bundled sidecar (PyInstaller → `externalBin`).
 
 ## Status (foundation slice)
 

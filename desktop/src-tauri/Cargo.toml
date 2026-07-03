@@ -16,3 +16,15 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = [] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# Desktop-shell plugins. The Rust wiring is intentionally the minimal, high-confidence
+# subset (plugin init + single-instance); the tray is a documented follow-up. The
+# global-shortcut and notification surfaces are driven from the frontend (platform.ts)
+# via the plugins' JS APIs.
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-notification = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-os = "2"
+tauri-plugin-updater = "2"
+
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-single-instance = "2"

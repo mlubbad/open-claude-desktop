@@ -427,6 +427,15 @@ adjust the roadmap ordering above:
   (project_id → per-project instructions + KB), a ProjectPanel with an instructions
   editor, knowledge-file upload/list, and a capacity meter. Pure `conversationsForProject`
   filter unit-tested. Verified: 20 vitest, tsc clean, build 102.6 KB gz.
+- **2026-07-03 — Phase 3 · Tauri shell integration (partial — env-gated):** the desktop
+  shell is wired: single-instance focus + plugins (global-shortcut, notification, updater,
+  opener, os) in `src-tauri/`, updater config (GitHub `latest.json`), capabilities, and a
+  `platform.ts` app-side layer (global summon hotkey `CmdOrControl+Shift+Space`, native
+  completion notifications) with web fallbacks so the client runs identically in a browser.
+  This environment lacks the WebKit system libs, so the Rust cannot be COMPILED here — but
+  the full Tauri + 5-plugin dependency graph is validated (`cargo fetch` OK) and the app
+  side is fully verified: 23 vitest (3 platform-fallback tests), tsc clean, build 103 KB gz.
+- **Remaining Tauri work:** system tray, deep links, sign + publish the updater feed, app
+  icons, and the FastAPI backend as a PyInstaller sidecar (`externalBin`).
 - **Next (Phase 3 cont.):** artifact version history + true token-streaming, message
-  edit/branch, command palette, and the Tauri shell features (tray, global hotkey,
-  updater, keychain, backend sidecar).
+  edit/branch, command palette, usage/cost meter; then the remaining shell items above.

@@ -555,6 +555,18 @@ adjust the roadmap ordering above:
   code+state recovered). Backend: 269 (11 new). *Remaining:* the interactive browser
   authorize + connect-retry loop is wired but only E2E-verifiable on the Tauri build host
   against a live OAuth MCP server.
+- **2026-07-03 — RAG upgrade: smart chunking + citations (complete):** knowledge
+  retrieval quality is materially better. Ingestion now uses `chunk_text` — paragraph→
+  sentence→hard-wrap, boundary-aware with carried overlap so a chunk rarely cuts a
+  sentence and a fact spanning a boundary stays findable (every chunk ≤ size, guaranteed)
+  — replacing the old fixed 2000-char windows with no overlap. Retrieval gains attribution:
+  `search_project_kb_sources` returns `[{source, chunk, text, score}]` (score = 1−cosine
+  distance) and `search_project_kb` heads each passage with `[source · chunk N]`, so the
+  cited context flows into the agent's retrieval block; a new operating principle tells the
+  model to attribute facts to their named source. Verified with a **real Chroma ingest→
+  search round-trip** asserting citations, plus pure chunker tests (short/empty, size+
+  overlap, giant-paragraph hard-split, paragraph-boundary preference). Backend: 274 (5 new),
+  ruff clean.
 - **Next (Phase 3 cont.):** interactive OAuth authorize on the Tauri host;
   true artifact token-streaming; finish the Tauri shell on a build host (tray, icons,
   signed updater, commit externalBin/sidecar spawn).

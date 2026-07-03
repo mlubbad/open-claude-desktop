@@ -43,6 +43,7 @@ export default function App() {
     busy,
     send,
     retryLast,
+    editAndResend,
     stop,
     resolveApproval,
     openArtifact,
@@ -132,7 +133,7 @@ export default function App() {
           )}
           {state.messages.map((m, i) =>
             m.role === "user" ? (
-              <UserBubble key={i} msg={m} />
+              <UserBubble key={i} msg={m} onEdit={busy ? undefined : (text) => editAndResend(i, text)} />
             ) : (
               <AssistantBubble
                 key={i}

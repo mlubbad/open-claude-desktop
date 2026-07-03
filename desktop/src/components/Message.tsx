@@ -12,10 +12,42 @@ import {
   type UserMessage,
 } from "../state/transcript";
 
-export function UserBubble({ msg }: { msg: UserMessage }) {
+export function UserBubble({
+  msg,
+  onEdit,
+}: {
+  msg: UserMessage;
+  onEdit?: (text: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(msg.text);
+
+  if (editing) {
+    return (
+      <div className="msg user">
+        <div className="bubble editing">
+          <textarea value={draft} autoFocus rows={Math.min(8, draft.split("\n").length + 1)}
+                    onChange={(e) => setDraft(e.target.value)} />
+          <div className="edit-actions">
+            <button onClick={() => { setDraft(msg.text); setEditing(false); }}>Cancel</button>
+            <button className="primary"
+                    onClick={() => { setEditing(false); if (draft.trim() && draft !== msg.text) onEdit?.(draft); }}>
+              Save &amp; submit
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="msg user">
       <div className="bubble">{msg.text}</div>
+      {onEdit && (
+        <button className="msg-action user-edit" title="Edit" onClick={() => { setDraft(msg.text); setEditing(true); }}>
+          Edit
+        </button>
+      )}
     </div>
   );
 }

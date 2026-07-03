@@ -153,6 +153,19 @@ export function retryFrom(state: TranscriptState, userIdx: number): TranscriptSt
   };
 }
 
+// Replace a user message at `index` with edited text, drop everything after it, and
+// open a fresh assistant slot (edit-and-resend / branch).
+export function editFrom(state: TranscriptState, index: number, text: string): TranscriptState {
+  const kept = state.messages.slice(0, index);
+  return {
+    ...state,
+    running: true,
+    error: null,
+    pendingApproval: null,
+    messages: [...kept, { role: "user", text }, { role: "assistant", blocks: [] }],
+  };
+}
+
 // Begin a new user turn: append the user message + a fresh assistant message.
 export function startTurn(state: TranscriptState, goal: string): TranscriptState {
   return {

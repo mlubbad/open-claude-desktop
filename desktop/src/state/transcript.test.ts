@@ -6,6 +6,7 @@ import {
   applyEvent,
   type AssistantMessage,
   buildHistory,
+  editFrom,
   findArtifact,
   initialState,
   lastUserIndex,
@@ -189,6 +190,21 @@ describe("transcript reducer", () => {
     expect(doc.version).toBe(2);
     const artifactBlocks = assistant(s).blocks.filter((b) => b.kind === "artifact");
     expect(artifactBlocks).toHaveLength(1); // upsert, not duplicate
+  });
+
+  it("editFrom replaces a user message and drops everything after it", () => {
+    const msgs: Message[] = [
+      { role: "user", text: "q1" },
+      { role: "assistant", blocks: [{ kind: "answer", text: "a1", streaming: false }] },
+      { role: "user", text: "q2" },
+      { role: "assistant", blocks: [{ kind: "answer", text: "a2", streaming: false }] },
+    ];
+    const s = editFrom({ ...initialState(), messages: msgs }, 2, "q2-edited");
+    // Keeps q1/a1, replaces q2, drops a2, opens a fresh assistant.
+    expect(s.messages).toHaveLength(4);
+    expect(s.messages[2]).toEqual({ role: "user", text: "q2-edited" });
+    expect(s.messages[3]).toEqual({ role: "assistant", blocks: [] });
+    expect(s.running).toBe(true);
   });
 
   it("lastUserIndex + retryFrom truncate to the last user for regeneration", () => {

@@ -8,6 +8,7 @@ import type { AgentEvent } from "../api/events";
 import {
   applyEvent,
   buildHistory,
+  editFrom,
   initialState,
   lastUserIndex,
   loadMessages,
@@ -22,6 +23,7 @@ type Action =
   | { kind: "event"; ev: AgentEvent }
   | { kind: "start"; goal: string }
   | { kind: "retry"; userIdx: number }
+  | { kind: "edit"; index: number; text: string }
   | { kind: "load"; messages: Message[] }
   | { kind: "panel"; artifactId: string | null }
   | { kind: "reset" };
@@ -34,6 +36,8 @@ function reducer(state: TranscriptState, action: Action): TranscriptState {
       return startTurn(state, action.goal);
     case "retry":
       return retryFrom(state, action.userIdx);
+    case "edit":
+      return editFrom(state, action.index, action.text);
     case "load":
       return loadMessages(action.messages);
     case "panel":
@@ -106,6 +110,17 @@ export function useTranscript(config: TurnConfig) {
     launch(goal, history);
   }, [busy, launch, state.messages]);
 
+  // Edit a prior user message and re-run from there (drops later messages).
+  const editAndResend = useCallback(
+    (index: number, text: string) => {
+      if (busy || !text.trim()) return;
+      const history = buildHistory(state.messages.slice(0, index));
+      dispatch({ kind: "edit", index, text });
+      launch(text, history);
+    },
+    [busy, launch, state.messages],
+  );
+
   const stop = useCallback(() => {
     ctrlRef.current?.abort();
     setBusy(false);
@@ -126,5 +141,5 @@ export function useTranscript(config: TurnConfig) {
   const openArtifact = useCallback((id: string) => dispatch({ kind: "panel", artifactId: id }), []);
   const closeArtifact = useCallback(() => dispatch({ kind: "panel", artifactId: null }), []);
 
-  return { state, busy, send, retryLast, stop, resolveApproval, reset, load, openArtifact, closeArtifact };
+  return { state, busy, send, retryLast, editAndResend, stop, resolveApproval, reset, load, openArtifact, closeArtifact };
 }

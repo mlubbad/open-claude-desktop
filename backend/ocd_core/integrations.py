@@ -10,6 +10,8 @@ import contextlib
 import json
 import os
 import re
+import shutil
+import zipfile
 from pathlib import Path
 
 from . import bigquery, chroma, config, knowledge, llm, mcp_registry
@@ -299,6 +301,9 @@ def call_connector(cid: str, path: str) -> str:
 #  reused across calls, with per-call timeouts + clean shutdown).
 # --------------------------------------------------------------------------- #
 MCP_FILE = config.REPO_ROOT / "mcp_servers.json"
+# One-click desktop-extension bundles (.mcpb / legacy .dxt) unpack here, one dir
+# per installed extension. Kept out of the repo tree via .gitignore.
+EXTENSIONS_DIR = config.REPO_ROOT / "extensions"
 
 
 def _load_mcp_servers() -> list[dict]:
@@ -397,6 +402,169 @@ def add_demo_mcp_server() -> dict:
                           ["${REPO_ROOT}/mcp_servers/demo_server.py"])
 
 
+# --------------------------------------------------------------------------- #
+#  Desktop extension bundles (.mcpb / legacy .dxt)
+#
+#  A bundle is a plain zip with a manifest.json at its root describing a bundled
+#  MCP server (Claude Desktop's one-click-install format). We validate + unpack it
+#  and register the server through the normal MCP path so its tools join the
+#  agent's toolset. The manifest schema is an open, documented convention — this is
+#  an original parser, not vendored code.
+# --------------------------------------------------------------------------- #
+class McpbError(Exception):
+    """Raised when a .mcpb/.dxt bundle is malformed, unsafe, or missing config."""
+
+
+_MCPB_VAR = re.compile(r"\$\{([^}]+)\}")
+
+
+def _mcpb_read_manifest(zf: zipfile.ZipFile) -> dict:
+    try:
+        raw = zf.read("manifest.json")
+    except KeyError:
+        raise McpbError("bundle has no manifest.json at its root") from None
+    try:
+        m = json.loads(raw.decode("utf-8"))
+    except Exception as e:  # noqa: BLE001 - report any parse failure as a clean error
+        raise McpbError(f"manifest.json is not valid JSON: {e}") from e
+    if not isinstance(m, dict):
+        raise McpbError("manifest.json must be a JSON object")
+    return m
+
+
+def _mcpb_resolve_user_config(manifest: dict, provided: dict) -> dict:
+    """Merge caller-provided user_config over manifest defaults and enforce that
+    every `required` field ends up with a value. Returns the effective mapping."""
+    spec = manifest.get("user_config")
+    if not isinstance(spec, dict):
+        return dict(provided)
+    final = dict(provided)
+    for key, s in spec.items():
+        if key not in final and isinstance(s, dict) and "default" in s:
+            final[key] = s["default"]
+    missing = [k for k, s in spec.items()
+               if isinstance(s, dict) and s.get("required") and final.get(k) in (None, "")]
+    if missing:
+        raise McpbError("missing required user_config: " + ", ".join(sorted(missing)))
+    return final
+
+
+def _mcpb_subst(value, dirname: str, user_values: dict):
+    """Expand ${__dirname}, ${user_config.<key>}, and ${HOME} in a string / list of
+    strings / string-valued dict. Unknown placeholders are left intact."""
+    def one(s: str) -> str:
+        def repl(m: re.Match) -> str:
+            key = m.group(1).strip()
+            if key == "__dirname":
+                return dirname
+            if key.startswith("user_config."):
+                return str(user_values.get(key[len("user_config."):], ""))
+            if key == "HOME":
+                return os.path.expanduser("~")
+            return m.group(0)
+        return _MCPB_VAR.sub(repl, s)
+
+    if isinstance(value, str):
+        return one(value)
+    if isinstance(value, list):
+        return [one(x) if isinstance(x, str) else x for x in value]
+    if isinstance(value, dict):
+        return {k: (one(v) if isinstance(v, str) else v) for k, v in value.items()}
+    return value
+
+
+def _mcpb_safe_extract(zf: zipfile.ZipFile, dest: Path) -> None:
+    """Extract every member under ``dest``, rejecting path-traversal ("zip slip")
+    entries (absolute paths or ``..`` escapes) BEFORE writing anything to disk."""
+    root = dest.resolve()
+    for info in zf.infolist():
+        name = info.filename
+        if not name or name.endswith("/"):
+            continue  # directory entries are created implicitly on member extract
+        target = (dest / name).resolve()
+        if target != root and root not in target.parents:
+            raise McpbError(f"unsafe path in bundle: {name}")
+    zf.extractall(dest)  # safe: every member validated against dest above
+
+
+def mcpb_manifest_info(path: str | Path) -> dict:
+    """Read a bundle's manifest without installing — lets a UI collect user_config
+    up front. Returns name/version/description/author and the raw user_config spec."""
+    src = Path(path)
+    if not src.is_file():
+        raise McpbError(f"bundle not found: {src}")
+    try:
+        with zipfile.ZipFile(src) as zf:
+            m = _mcpb_read_manifest(zf)
+    except zipfile.BadZipFile:
+        raise McpbError("not a valid .mcpb/.dxt archive (bad zip)") from None
+    return {"name": str(m.get("name") or ""), "version": str(m.get("version") or ""),
+            "description": str(m.get("description") or "")[:400],
+            "author": m.get("author") or {}, "user_config": m.get("user_config") or {}}
+
+
+def install_mcpb(path: str | Path, user_values: dict | None = None) -> dict:
+    """Install a Claude-Desktop-style extension bundle (.mcpb / legacy .dxt).
+
+    Validates the manifest and required user_config, unpacks the (path-traversal-
+    checked) archive under extensions/<name>/, resolves the server launch config
+    (${__dirname}, ${user_config.*}), then registers it via ``add_mcp_server`` so
+    its tools become available to the agent. Returns the persisted server record.
+    """
+    src = Path(path)
+    if not src.is_file():
+        raise McpbError(f"bundle not found: {src}")
+    try:
+        zf = zipfile.ZipFile(src)
+    except zipfile.BadZipFile:
+        raise McpbError("not a valid .mcpb/.dxt archive (bad zip)") from None
+
+    with zf:
+        manifest = _mcpb_read_manifest(zf)
+        name = str(manifest.get("name") or "").strip()
+        if not name:
+            raise McpbError("manifest.json is missing 'name'")
+        server = manifest.get("server")
+        if not isinstance(server, dict):
+            raise McpbError("manifest.json is missing a 'server' object")
+        mcp_config = server.get("mcp_config")
+        if not isinstance(mcp_config, dict) or not mcp_config.get("command"):
+            raise McpbError("manifest server.mcp_config.command is required")
+        # Fail fast on missing config BEFORE we touch the filesystem.
+        resolved_uc = _mcpb_resolve_user_config(manifest, user_values or {})
+
+        dest = EXTENSIONS_DIR / _slug(name)
+        if dest.exists():
+            shutil.rmtree(dest, ignore_errors=True)
+        dest.mkdir(parents=True, exist_ok=True)
+        _mcpb_safe_extract(zf, dest)
+
+    dirname = str(dest.resolve())
+    command = _mcpb_subst(mcp_config["command"], dirname, resolved_uc)
+    args = _mcpb_subst(mcp_config.get("args") or [], dirname, resolved_uc)
+    env = _mcpb_subst(mcp_config.get("env") or {}, dirname, resolved_uc)
+    # Prefer the app's bundled/frozen interpreter over whatever "python" resolves to
+    # on PATH — the packaged desktop app ships without a system Python.
+    if command in ("python", "python3"):
+        command = "${PYTHON}"
+
+    item = add_mcp_server(name, command, list(args), env=env or None)
+
+    # Tag the persisted record so uninstall can reclaim the unpacked files and the
+    # UI can show manifest metadata / an update path.
+    items = _load_mcp_servers()
+    for s in items:
+        if s["id"] == item["id"]:
+            s["source"] = "mcpb"
+            s["dir"] = dirname
+            s["version"] = str(manifest.get("version") or "")
+            s["description"] = str(manifest.get("description") or "")[:200]
+            item = s
+            break
+    _save_mcp_servers(items)
+    return item
+
+
 def remove_mcp_server(sid: str):
     items = _load_mcp_servers()
     for s in items:
@@ -406,6 +574,12 @@ def remove_mcp_server(sid: str):
                 from . import secrets
                 with contextlib.suppress(Exception):
                     secrets.get_secret_store().delete(_mcp_auth_key(sid))
+            # Reclaim a .mcpb extension's unpacked files, but only if the recorded
+            # dir really lives under EXTENSIONS_DIR (never rmtree an arbitrary path).
+            if s.get("source") == "mcpb" and s.get("dir"):
+                d = Path(s["dir"]).resolve()
+                if EXTENSIONS_DIR.resolve() in d.parents:
+                    shutil.rmtree(d, ignore_errors=True)
     _save_mcp_servers([s for s in items if s["id"] != sid])
 
 
@@ -472,6 +646,7 @@ def list_mcp_servers() -> list[dict]:
     return [{"id": s["id"], "name": s["name"], "transport": s.get("transport", "stdio"),
              "command": s.get("command", ""), "args": s.get("args", []),
              "url": s.get("url", ""), "auth": bool(s.get("auth")),
+             "source": s.get("source", ""), "version": s.get("version", ""),
              "status": s.get("status", "unknown"), "detail": s.get("detail", ""),
              "tool_count": len(s.get("tools", []))}
             for s in _load_mcp_servers()]

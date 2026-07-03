@@ -473,7 +473,22 @@ adjust the roadmap ordering above:
   none); routes `GET /mcp-servers/{sid}/resources`, `.../resources/read?uri=`, `.../prompts`,
   `POST .../prompts/{name}`. Verified against the FastMCP server: list resources → read
   `greeting://hello` → list prompts → get `summarize`. Backend: 213.
-- **Next (Phase 3 cont.):** MCP OAuth 2.1 (PKCE + DCR) + `.mcpb` one-click installs;
-  artifact version history + true token-streaming; message edit/branch; command palette;
-  finish the Tauri shell on a build host (tray, icons, signed updater, commit
-  externalBin/sidecar spawn).
+- **2026-07-03 — `.mcpb`/`.dxt` one-click extension installer (complete, verified E2E):**
+  the app now installs Claude-Desktop-style extension bundles — a zip with a
+  `manifest.json` describing a bundled MCP server. `integrations.install_mcpb` validates
+  the manifest + required `user_config`, **rejects zip-slip** path-traversal entries
+  before writing anything, unpacks under `extensions/<name>/`, resolves the launch config
+  (`${__dirname}`, `${user_config.*}`, `python`→bundled `${PYTHON}`), and registers it via
+  the normal `add_mcp_server` path so its tools join the agent's toolset; `remove_mcp_server`
+  reclaims the unpacked files (guarded to stay under `extensions/`). `mcpb_manifest_info`
+  reads a bundle without installing so the UI can collect `user_config` up front. Routes:
+  `POST /mcp-servers/inspect` and `POST /mcp-servers/install` (multipart upload, McpbError→400).
+  Frontend: `mcp.inspect`/`mcp.install` (FormData), `useConnectors.install` (prompts for
+  required fields), ConnectorsPanel **⬇ Install extension** picker + `extension vX` badge.
+  Verified with a **real fixture .mcpb** carrying a stdio FastMCP server: install → unpack →
+  connect → discover its `whoami` tool; plus zip-slip/bad-zip/missing-config/uninstall
+  safety tests and 5 route tests. Backend: 228 (13 new), frontend: 31 (2 new), tsc clean,
+  build 106 KB gz.
+- **Next (Phase 3 cont.):** MCP OAuth 2.1 (PKCE + DCR) for remote connectors;
+  artifact version history + true token-streaming; finish the Tauri shell on a build host
+  (tray, icons, signed updater, commit externalBin/sidecar spawn).

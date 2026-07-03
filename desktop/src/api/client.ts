@@ -194,6 +194,8 @@ export interface McpServer {
   args: string[];
   url: string;
   auth: boolean;
+  source: string; // "mcpb" for one-click-installed extensions, else ""
+  version: string;
   status: string;
   detail: string;
   tool_count: number;
@@ -210,11 +212,57 @@ export interface AddMcpBody {
   auth_token?: string;
 }
 
+// A field the user must fill in before an extension can launch (API keys, paths…).
+export interface UserConfigField {
+  type?: string;
+  title?: string;
+  description?: string;
+  required?: boolean;
+  sensitive?: boolean;
+  default?: string;
+}
+
+export interface McpbManifestInfo {
+  name: string;
+  version: string;
+  description: string;
+  author: unknown;
+  user_config: Record<string, UserConfigField>;
+}
+
+// Multipart POST for file uploads (no JSON Content-Type — the browser sets the
+// multipart boundary). Shares auth + error handling with request().
+async function postForm<T>(path: string, form: FormData): Promise<T> {
+  const resp = await fetch(BASE + path, { method: "POST", headers: authHeaders(), body: form });
+  if (!resp.ok) {
+    let detail = resp.statusText;
+    try {
+      detail = (await resp.json())?.detail ?? detail;
+    } catch {
+      /* keep statusText */
+    }
+    throw new ApiError(resp.status, detail);
+  }
+  return (await resp.json()) as T;
+}
+
 export const mcp = {
   list: () => api.get<McpServer[]>("/mcp-servers"),
   add: (body: AddMcpBody) => api.post<McpServer>("/mcp-servers", body),
   addDemo: () => api.post<McpServer>("/mcp-servers/demo"),
   remove: (sid: string) => api.del<{ ok: boolean }>(`/mcp-servers/${sid}`),
+  // One-click desktop-extension bundles (.mcpb / legacy .dxt).
+  inspect: (file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return postForm<McpbManifestInfo>("/mcp-servers/inspect", form);
+  },
+  install: (file: File, userConfig: Record<string, string> = {}) => {
+    const form = new FormData();
+    form.append("file", file);
+    form.append("user_config", JSON.stringify(userConfig));
+    return postForm<McpServer>("/mcp-servers/install", form);
+  },
 };
 
 // Stream an agent turn. Invokes onEvent for each typed event; resolves on `done`.

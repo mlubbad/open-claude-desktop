@@ -81,6 +81,11 @@ body { margin: 0; background: var(--bg); color: var(--text); }
 .conn-name { font-weight: 500; }
 .conn-sub { font-size: 12px; color: var(--muted); display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
 .conn-badge { border: 1px solid var(--border); border-radius: 4px; padding: 0 5px; text-transform: uppercase; font-size: 10px; }
+.conn-badge.conn-ext { border-color: var(--accent); color: var(--accent); text-transform: none; }
+.conn-head-actions { display: flex; gap: 8px; align-items: center; }
+.conn-install { border: 1px solid var(--accent); background: var(--surface-2); color: var(--accent);
+  border-radius: 8px; padding: 4px 10px; cursor: pointer; font-size: 13px; }
+.conn-install:hover { background: var(--accent); color: var(--accent-fg); }
 .conn-status.connected { color: var(--ok); }
 .conn-status.error { color: var(--danger); }
 .conn-del { border: none; background: none; color: var(--muted); cursor: pointer; }

@@ -199,6 +199,7 @@ export default function App() {
           err={connectors.err}
           onAdd={(body) => void connectors.add(body)}
           onAddDemo={() => void connectors.addDemo()}
+          onInstall={(file) => void connectors.install(file)}
           onRemove={(sid) => void connectors.remove(sid)}
           onToggle={connectors.toggle}
           onClose={() => setShowConnectors(false)}

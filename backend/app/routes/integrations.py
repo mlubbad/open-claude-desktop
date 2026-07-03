@@ -1,7 +1,12 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Body, Depends
+import json
+import tempfile
+from pathlib import Path
+
+from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, UploadFile
 from ocd_core import integrations, skills
+from ocd_core.integrations import McpbError
 from pydantic import BaseModel
 
 from ..deps import current_user
@@ -107,6 +112,51 @@ def mcp_get_prompt(sid: str, name: str, args: dict = Body(default={}),
 @router.post("/mcp-servers/demo")
 def add_demo_mcp(user: str = Depends(current_user)) -> dict:
     return integrations.add_demo_mcp_server()
+
+
+def _spool_upload(file: UploadFile) -> Path:
+    """Persist an uploaded bundle to a temp file so the installer can open it as a
+    real zip. Caller is responsible for unlinking it."""
+    suffix = Path(file.filename or "bundle.mcpb").suffix or ".mcpb"
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+    try:
+        tmp.write(file.file.read())
+    finally:
+        tmp.close()
+    return Path(tmp.name)
+
+
+@router.post("/mcp-servers/inspect")
+def inspect_mcpb(file: UploadFile = File(...), user: str = Depends(current_user)) -> dict:
+    """Read a .mcpb/.dxt bundle's manifest (name, version, description, user_config)
+    WITHOUT installing it — lets the UI collect required user_config up front."""
+    path = _spool_upload(file)
+    try:
+        return integrations.mcpb_manifest_info(path)
+    except McpbError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    finally:
+        path.unlink(missing_ok=True)
+
+
+@router.post("/mcp-servers/install")
+def install_mcpb(file: UploadFile = File(...), user_config: str = Form("{}"),
+                 user: str = Depends(current_user)) -> dict:
+    """One-click install: unpack a .mcpb/.dxt bundle and register its MCP server.
+    ``user_config`` is a JSON object of values for the manifest's user_config."""
+    try:
+        values = json.loads(user_config or "{}")
+        if not isinstance(values, dict):
+            raise ValueError("user_config must be a JSON object")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"bad user_config: {e}") from e
+    path = _spool_upload(file)
+    try:
+        return integrations.install_mcpb(path, values)
+    except McpbError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    finally:
+        path.unlink(missing_ok=True)
 
 
 @router.post("/connectors/github")

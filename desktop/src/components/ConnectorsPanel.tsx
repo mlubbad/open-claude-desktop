@@ -1,16 +1,18 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import type { AddMcpBody, McpServer } from "../api/client";
 
 // Manage MCP connectors: list servers with status + tool count, enable them for the
-// session, add a stdio (local command) or remote (Streamable-HTTP/SSE url) server, or
-// add the bundled demo. Remote auth tokens go to the backend keychain, never stored here.
+// session, add a stdio (local command) or remote (Streamable-HTTP/SSE url) server,
+// one-click-install a .mcpb/.dxt extension bundle, or add the bundled demo. Remote
+// auth tokens go to the backend keychain, never stored here.
 export function ConnectorsPanel({
   servers,
   enabled,
   err,
   onAdd,
   onAddDemo,
+  onInstall,
   onRemove,
   onToggle,
   onClose,
@@ -20,10 +22,12 @@ export function ConnectorsPanel({
   err: string | null;
   onAdd: (body: AddMcpBody) => void;
   onAddDemo: () => void;
+  onInstall: (file: File) => void;
   onRemove: (sid: string) => void;
   onToggle: (sid: string) => void;
   onClose: () => void;
 }) {
+  const fileRef = useRef<HTMLInputElement>(null);
   const [mode, setMode] = useState<"stdio" | "remote">("remote");
   const [name, setName] = useState("");
   const [command, setCommand] = useState("");
@@ -53,8 +57,28 @@ export function ConnectorsPanel({
       <div className="settings" onClick={(e) => e.stopPropagation()}>
         <div className="settings-head">
           <h2>Connectors (MCP)</h2>
-          <button onClick={onClose}>✕</button>
+          <div className="conn-head-actions">
+            <button
+              className="conn-install"
+              title="Install a .mcpb / .dxt extension bundle"
+              onClick={() => fileRef.current?.click()}
+            >
+              ⬇ Install extension
+            </button>
+            <button onClick={onClose}>✕</button>
+          </div>
         </div>
+        <input
+          ref={fileRef}
+          type="file"
+          accept=".mcpb,.dxt,application/zip"
+          style={{ display: "none" }}
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) onInstall(f);
+            e.target.value = ""; // allow re-selecting the same file
+          }}
+        />
         {err && <div className="settings-err">{err}</div>}
 
         <ul className="conn-list">
@@ -72,6 +96,9 @@ export function ConnectorsPanel({
                 <span className="conn-name">{s.name}</span>
                 <span className="conn-sub">
                   <span className="conn-badge">{s.transport}</span>
+                  {s.source === "mcpb" && (
+                    <span className="conn-badge conn-ext">extension{s.version ? ` v${s.version}` : ""}</span>
+                  )}
                   <span className={`conn-status ${s.status}`}>{s.status}</span>
                   {s.status === "connected" && <> · {s.tool_count} tools</>}
                   {s.url && <> · {s.url}</>}

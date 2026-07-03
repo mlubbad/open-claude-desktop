@@ -3,11 +3,22 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-import { type AddMcpBody, type McpServer, mcp } from "../api/client";
+import { type AddMcpBody, type McpServer, type McpbManifestInfo, mcp, type UserConfigField } from "../api/client";
 
 // Pure toggle of an id in a string array (kept pure for testing).
 export function toggleId(ids: string[], id: string): string[] {
   return ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id];
+}
+
+// The user_config fields an extension REQUIRES the user to supply before it can
+// launch. Fields with a default are pre-filled by the backend, so only
+// required-and-defaultless ones need prompting. Kept pure for testing.
+export function requiredFields(
+  userConfig: Record<string, UserConfigField> | undefined,
+): { key: string; field: UserConfigField }[] {
+  return Object.entries(userConfig ?? {})
+    .filter(([, f]) => f.required && f.default === undefined)
+    .map(([key, field]) => ({ key, field }));
 }
 
 export function useConnectors() {
@@ -65,7 +76,36 @@ export function useConnectors() {
     [refresh],
   );
 
+  // One-click install of a .mcpb/.dxt extension bundle. Inspects the manifest,
+  // prompts for any required user_config (API keys, paths…), installs, and enables
+  // the server if it connected.
+  const install = useCallback(
+    async (file: File): Promise<McpServer | null> => {
+      setErr(null);
+      try {
+        const info: McpbManifestInfo = await mcp.inspect(file);
+        const values: Record<string, string> = {};
+        for (const { key, field } of requiredFields(info.user_config)) {
+          const label = field.title || key;
+          const suffix = field.description ? ` — ${field.description}` : "";
+          const v = window.prompt(`${info.name}: ${label}${suffix}`);
+          if (v === null) return null; // user cancelled the install
+          values[key] = v;
+        }
+        const s = await mcp.install(file, values);
+        await refresh();
+        if (s.status === "connected") setEnabled((ids) => (ids.includes(s.id) ? ids : [...ids, s.id]));
+        else setErr(`${s.name}: ${s.detail || "failed to connect"}`);
+        return s;
+      } catch (e) {
+        setErr(String(e));
+        return null;
+      }
+    },
+    [refresh],
+  );
+
   const toggle = useCallback((sid: string) => setEnabled((ids) => toggleId(ids, sid)), []);
 
-  return { servers, enabled, err, add, addDemo, remove, toggle, refresh };
+  return { servers, enabled, err, add, addDemo, remove, toggle, install, refresh };
 }

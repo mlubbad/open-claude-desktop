@@ -35,10 +35,16 @@ class AgentTurnRequest(BaseModel):
     model: str
     provider: str | None = None      # explicit provider; else inferred from model/default
     effort: str = "High"
+    permission_mode: str | None = None   # auto | ask | strict (HITL); None -> server default
     options: AgentOptions = AgentOptions()
     enabled_plugins: list[str] = []
     enabled_connectors: list[str] = []
     enabled_mcp: list[str] = []
+
+
+class PermissionReply(BaseModel):
+    tool_call_id: str
+    decision: str                    # "approve" | "decline"
 
 
 class ProjectCreate(BaseModel):

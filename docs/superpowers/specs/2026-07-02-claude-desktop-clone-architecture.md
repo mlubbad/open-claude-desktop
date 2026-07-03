@@ -383,9 +383,15 @@ adjust the roadmap ordering above:
   (`bigquery_tools.py`: tool specs + prompt section + `BIGQUERY_ENABLED` flag, auto-on
   when a GCP project is set). The always-on `search_schema`/`run_sql` tools and the
   AJ360 persona are gone from the core. Backend: 187 passed.
-- **Deferred/refined by §9:** HITL permission loop pulled earlier; ContextManager before
-  Code/Cowork; AgentEngine port + native coding floor; Anthropic-native adapter.
-  BigQuery-connector repackaging as a true stdio MCP server (vs the current opt-in
-  built-in tool group) is a tracked follow-up — the capability is preserved, not orphaned.
-- **Next:** the early HITL permission loop (approval_required SSE + reply endpoint), then
-  Phase 3 (TS/React + Tauri client) with the Reflex app kept behind a flag as the spec.
+- **2026-07-03 — HITL permission loop (complete):** interactive tool-permission gate
+  landed *before* remote MCP/Cowork (security-before-surface, §9.1). `permissions.py`
+  (modes auto/ask/strict, in-process suspend/resume registry, sensitive-tool policy),
+  `approval_required` + `turn_start` SSE events, `POST /agent/turn/{id}/permission` reply
+  endpoint, `PERMISSION_MODE`/`PERMISSION_TIMEOUT_SEC` config. Backend: 197 passed.
+- **Deferred/refined by §9:** ContextManager before Code/Cowork; AgentEngine port +
+  native coding floor; Anthropic-native adapter. BigQuery-connector repackaging as a true
+  stdio MCP server (vs the current opt-in built-in tool group) is a tracked follow-up —
+  the capability is preserved, not orphaned. HITL registry is in-process (correct for
+  local-first); server mode needs a shared channel (Redis) — documented.
+- **Next:** Phase 3 — the TS/React + Tauri desktop client, consuming the frozen event
+  vocabulary (now incl. `turn_start`/`approval_required`), with Reflex kept behind a flag.

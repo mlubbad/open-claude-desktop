@@ -28,6 +28,10 @@ yields; the API layer appends a terminal {"type": "done"} after the stream ends.
                           "total": int, "bytes": int}
   {"type": "sources",     "id": str, "items": list}          # web/research citations
 
+  Interactive permission (HITL — only when a turn_id + non-auto permission mode):
+  {"type": "approval_required", "turn_id": str, "id": str,   # awaiting a decision;
+                          "name": str, "input": str}         #   reply via the API
+
   Failure:
   {"type": "error", "text": str}                             # the turn could not proceed
 
@@ -44,7 +48,7 @@ import re
 import time
 import types
 
-from . import bigquery, bigquery_tools, config, prompts, schema_catalog, util
+from . import bigquery, bigquery_tools, config, permissions, prompts, schema_catalog, util
 from .llm import LLMConfigError, reasoning_of, resolve_turn_client
 
 WEB_SEARCH_TOOL = {"type": "function", "function": {
@@ -485,8 +489,14 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
                    effort: str = "High", parallel: bool = True,
                    web_fetch: bool = False, code_exec: bool = False, bash: bool = False,
                    text_editor: bool = False, memory: bool = False,
-                   provider: str | None = None):
+                   provider: str | None = None, turn_id: str | None = None,
+                   permission_mode: str | None = None):
     """Drive one agent turn, yielding events. `history` is prior (role/content) turns.
+
+    `turn_id` + `permission_mode` enable the interactive HITL gate: when set (and the
+    mode is not "auto"), a sensitive tool call yields `approval_required` and the turn
+    suspends until the reply endpoint resolves it (declined on timeout). With no
+    turn_id or in "auto" mode, tools run without prompting (prior behavior).
 
     `provider` (optional) selects the model provider; otherwise it is inferred from a
     ``provider/model`` prefix on `model` or the configured default. BYOK: a missing
@@ -495,6 +505,9 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
     cfg = EFFORT.get(effort, EFFORT["High"])
     temperature = cfg["temp"]
     steps = max(cfg["steps"], 14 if research else 0)
+    # HITL gate is active only with a turn_id (a reply channel) and a non-auto mode.
+    perm_mode = (permission_mode or config.PERMISSION_MODE)
+    gate_on = bool(turn_id) and perm_mode != "auto"
 
     bq_on = bigquery_tools.enabled()
     extra_sections = [bigquery_tools.system_prompt_section()] if bq_on else None
@@ -625,6 +638,19 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
             yield {"type": "tool", "id": tc.id, "name": name,
                    "input": _tool_input(name, args), "label_running": run_lbl,
                    "label_done": done_lbl, "icon": icon}
+            # HITL: suspend for a user decision before running a sensitive tool.
+            if gate_on and permissions.requires_approval(name, perm_mode):
+                yield {"type": "approval_required", "turn_id": turn_id, "id": tc.id,
+                       "name": name, "input": _tool_input(name, args)}
+                approved = await permissions.registry.wait(
+                    turn_id, tc.id, config.PERMISSION_TIMEOUT_SEC)
+                if not approved:
+                    yield {"type": "tool_error", "id": tc.id, "name": name,
+                           "text": "Declined by the user."}
+                    blocked_outcomes.append({"id": tc.id, "name": name, "ok": False,
+                        "result": (f"The user DECLINED to run '{name}'. Do not retry it; "
+                                   "continue without it or ask how to proceed.")})
+                    continue
             calls.append((tc.id, name, args))
 
         if parallel and len(calls) > 1:

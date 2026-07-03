@@ -84,3 +84,8 @@ AUDIT_LOG_BACKUPS = int(os.getenv("AUDIT_LOG_BACKUPS", "5"))
 
 # --- write posture (kept; intentionally aj360-prefixed per project memory) ---
 ALLOW_WRITES = os.getenv("AJ360_ALLOW_WRITES", "false").strip().lower() in ("1", "true", "yes")
+
+# --- interactive tool permissions (HITL) ---
+# auto = no prompts (default), ask = prompt for sensitive tools, strict = prompt for all.
+PERMISSION_MODE = os.getenv("PERMISSION_MODE", "auto").strip().lower()
+PERMISSION_TIMEOUT_SEC = int(os.getenv("PERMISSION_TIMEOUT_SEC", "300"))

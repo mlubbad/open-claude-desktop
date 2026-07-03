@@ -45,7 +45,8 @@ def test_agent_turn_streams_events(client, db):
     assert r.status_code == 200
     evs = _read_sse(r)
     types = [e["event"] for e in evs]
-    assert types[:4] == ["think_open", "delta", "think_close", "answer_open"]
+    assert types[0] == "turn_start"
+    assert types[1:5] == ["think_open", "delta", "think_close", "answer_open"]
     assert "table" in types and types[-1] == "done"
     delta = next(e for e in evs if e["event"] == "delta")
     assert delta["data"]["text"] in ("planning…", "Hello")

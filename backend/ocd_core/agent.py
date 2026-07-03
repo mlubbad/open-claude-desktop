@@ -62,6 +62,7 @@ from . import (
     bigquery,
     bigquery_tools,
     config,
+    context,
     permissions,
     prompts,
     schema_catalog,
@@ -562,6 +563,9 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
         extra_sections.append(bigquery_tools.system_prompt_section())
     if artifacts:
         extra_sections.append(artifact_tools.system_prompt_section())
+    # Long-horizon context management: compact older turns so a long conversation
+    # never overflows the model's context window (catalog handles a provider/ prefix).
+    history, _ = context.compact_for_model(list(history or []), model)
     messages = [{"role": "system",
                  "content": prompts.build_system_prompt(
                      extra_sections=extra_sections or None, memory=memory,

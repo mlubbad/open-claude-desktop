@@ -523,6 +523,18 @@ adjust the roadmap ordering above:
   `AppSettings`/`SettingsBody` gain the two fields. Verified: 11 web-search tests (parsers,
   dispatch, fallback, non-http rejection, empty query) + settings round-trip — all offline;
   frontend 34 vitest, tsc clean, build 107 KB gz. Backend: 250 (13 new).
+- **2026-07-03 — Context compaction for long conversations (complete):** long chats no
+  longer risk overflowing the model's context window (which would hard-error at the
+  provider). New `ocd_core.context` computes a per-model history budget from
+  `catalog.context_window` (50% of the window, floored at 1k tokens; the catalog already
+  strips a `provider/` prefix) and `compact_history` keeps as many recent turns as fit,
+  drops older ones, and prepends a single deterministic extractive summary note (favoring
+  the user's earlier words) recording what was omitted — no extra LLM round-trip on the
+  hot path. `run_turn` compacts `history` before assembling messages. History is plain
+  role/content turns, so whole-message drops never orphan a tool-call/result pair.
+  Verified: 8 tests (unchanged-when-fits, fits-budget-after-compaction, newest-turn-always-
+  kept, recap content, window scaling, giant-single-message guard). Backend: 258 (8 new),
+  ruff clean.
 - **Next (Phase 3 cont.):** MCP OAuth 2.1 (PKCE + DCR) for remote connectors;
   true artifact token-streaming; finish the Tauri shell on a build host (tray, icons,
   signed updater, commit externalBin/sidecar spawn).

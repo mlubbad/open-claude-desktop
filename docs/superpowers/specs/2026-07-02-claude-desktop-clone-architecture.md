@@ -406,6 +406,11 @@ adjust the roadmap ordering above:
   backend's {role,content,kind} store (vitest 5/5); `useConversations` adds the sidebar list,
   create-on-first-send, auto-save on turn-end, open/restore, and delete — all degrading
   gracefully offline. History sidebar UI. Verified: 13 vitest, tsc clean, build 99 KB gz.
-- **Next (Phase 3 cont.):** projects/knowledge, artifacts side-panel, message edit/retry/
-  branch, keyboard shortcuts/command palette, and the Tauri shell features (tray, global
-  hotkey, updater, keychain, backend sidecar).
+- **2026-07-03 — Phase 3 · message actions + shortcuts (complete):** copy-message,
+  regenerate/retry-last (truncate-to-last-user + restream, provider-scoped history),
+  per-code-block copy button, and app keyboard shortcuts (Esc stops a running turn,
+  Cmd/Ctrl+Shift+O new chat). Pure helpers `answerText`/`buildHistory`/`lastUserIndex`/
+  `retryFrom` unit-tested. Verified: 16 vitest, tsc clean, build 99.6 KB gz.
+- **Next (Phase 3 cont.):** projects/knowledge, artifacts side-panel (needs backend
+  artifact events + tool), message edit/branch, command palette, and the Tauri shell
+  features (tray, global hotkey, updater, keychain, backend sidecar).

@@ -69,6 +69,51 @@ export function loadMessages(messages: Message[]): TranscriptState {
   return { ...initialState(), messages };
 }
 
+// The concatenated answer text of an assistant message (for copy + history).
+export function answerText(m: AssistantMessage): string {
+  return m.blocks
+    .filter((b): b is AnswerBlock => b.kind === "answer")
+    .map((b) => b.text)
+    .join("\n")
+    .trim();
+}
+
+// Index of the most recent user message, or -1.
+export function lastUserIndex(messages: Message[]): number {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === "user") return i;
+  }
+  return -1;
+}
+
+export interface HistoryTurn {
+  role: string;
+  content: string;
+  kind: string;
+}
+
+// Reconstruct the (role, content) history the backend expects from prior messages.
+export function buildHistory(messages: Message[]): HistoryTurn[] {
+  return messages.map((m) =>
+    m.role === "user"
+      ? { role: "user", content: m.text, kind: "user" }
+      : { role: "assistant", content: answerText(m), kind: "final" },
+  );
+}
+
+// Truncate to just after the last user message and append a fresh assistant slot
+// (used to regenerate the last response).
+export function retryFrom(state: TranscriptState, userIdx: number): TranscriptState {
+  const kept = state.messages.slice(0, userIdx + 1);
+  return {
+    ...state,
+    running: true,
+    error: null,
+    pendingApproval: null,
+    messages: [...kept, { role: "assistant", blocks: [] }],
+  };
+}
+
 // Begin a new user turn: append the user message + a fresh assistant message.
 export function startTurn(state: TranscriptState, goal: string): TranscriptState {
   return {

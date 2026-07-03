@@ -7,16 +7,21 @@ import { type AgentTurnRequest, replyPermission, streamTurn } from "../api/clien
 import type { AgentEvent } from "../api/events";
 import {
   applyEvent,
+  buildHistory,
   initialState,
+  lastUserIndex,
   loadMessages,
   type Message,
+  retryFrom,
   startTurn,
   type TranscriptState,
+  type UserMessage,
 } from "./transcript";
 
 type Action =
   | { kind: "event"; ev: AgentEvent }
   | { kind: "start"; goal: string }
+  | { kind: "retry"; userIdx: number }
   | { kind: "load"; messages: Message[] }
   | { kind: "reset" };
 
@@ -26,6 +31,8 @@ function reducer(state: TranscriptState, action: Action): TranscriptState {
       return applyEvent(state, action.ev);
     case "start":
       return startTurn(state, action.goal);
+    case "retry":
+      return retryFrom(state, action.userIdx);
     case "load":
       return loadMessages(action.messages);
     case "reset":
@@ -47,26 +54,9 @@ export function useTranscript(config: TurnConfig) {
   const [busy, setBusy] = useState(false);
   const ctrlRef = useRef<AbortController | null>(null);
 
-  const send = useCallback(
-    (goal: string) => {
-      if (busy || !goal.trim()) return;
-      setBusy(true);
-      dispatch({ kind: "start", goal });
-
-      // Reconstruct chat history for the backend from prior finalized messages.
-      const history = state.messages.map((m) =>
-        m.role === "user"
-          ? { role: "user", content: m.text, kind: "user" }
-          : {
-              role: "assistant",
-              content: m.blocks
-                .filter((b) => b.kind === "answer")
-                .map((b) => (b.kind === "answer" ? b.text : ""))
-                .join("\n"),
-              kind: "final",
-            },
-      );
-
+  // Launch a turn: `history` is the prior context (already excludes the new goal).
+  const launch = useCallback(
+    (goal: string, history: ReturnType<typeof buildHistory>) => {
       const req: AgentTurnRequest = {
         goal,
         history,
@@ -77,7 +67,7 @@ export function useTranscript(config: TurnConfig) {
         project_id: config.projectId ?? null,
         options: config.options ?? {},
       };
-
+      setBusy(true);
       ctrlRef.current = streamTurn(
         req,
         (ev) => {
@@ -87,8 +77,29 @@ export function useTranscript(config: TurnConfig) {
         () => setBusy(false),
       );
     },
-    [busy, config, state.messages],
+    [config],
   );
+
+  const send = useCallback(
+    (goal: string) => {
+      if (busy || !goal.trim()) return;
+      const history = buildHistory(state.messages);
+      dispatch({ kind: "start", goal });
+      launch(goal, history);
+    },
+    [busy, launch, state.messages],
+  );
+
+  // Regenerate the most recent assistant response for the last user message.
+  const retryLast = useCallback(() => {
+    if (busy) return;
+    const idx = lastUserIndex(state.messages);
+    if (idx < 0) return;
+    const goal = (state.messages[idx] as UserMessage).text;
+    const history = buildHistory(state.messages.slice(0, idx));
+    dispatch({ kind: "retry", userIdx: idx });
+    launch(goal, history);
+  }, [busy, launch, state.messages]);
 
   const stop = useCallback(() => {
     ctrlRef.current?.abort();
@@ -108,5 +119,5 @@ export function useTranscript(config: TurnConfig) {
   const reset = useCallback(() => dispatch({ kind: "reset" }), []);
   const load = useCallback((messages: Message[]) => dispatch({ kind: "load", messages }), []);
 
-  return { state, busy, send, stop, resolveApproval, reset, load };
+  return { state, busy, send, retryLast, stop, resolveApproval, reset, load };
 }

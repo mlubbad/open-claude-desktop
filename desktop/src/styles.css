@@ -80,6 +80,19 @@ body { margin: 0; background: var(--bg); color: var(--text); }
 .answer table { border-collapse: collapse; }
 .answer th, .answer td { border: 1px solid var(--border); padding: 4px 8px; }
 
+.msg-actions { display: flex; gap: 4px; margin-top: 6px; opacity: 0; transition: opacity 0.12s; }
+.msg.assistant:hover .msg-actions { opacity: 1; }
+.msg-action { border: 1px solid var(--border); background: var(--surface); color: var(--muted);
+  border-radius: 6px; padding: 3px 10px; font-size: 12px; cursor: pointer; }
+.msg-action:hover { color: var(--text); border-color: var(--accent); }
+.msg-action:disabled { opacity: 0.4; cursor: default; }
+
+.codeblock { position: relative; }
+.code-copy { position: absolute; top: 6px; right: 6px; border: 1px solid var(--border);
+  background: var(--surface); color: var(--muted); border-radius: 6px; padding: 2px 8px;
+  font-size: 11px; cursor: pointer; opacity: 0; transition: opacity 0.12s; }
+.codeblock:hover .code-copy { opacity: 1; }
+
 .thinking { margin: 8px 0; }
 .thinking-toggle {
   background: none; border: none; color: var(--muted); cursor: pointer;

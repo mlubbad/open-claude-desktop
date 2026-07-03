@@ -6,6 +6,7 @@ import { AssistantBubble, UserBubble } from "./components/Message";
 import { Settings } from "./components/Settings";
 import { Sidebar } from "./components/Sidebar";
 import { useConversations } from "./state/useConversations";
+import { useKeyboard } from "./state/useKeyboard";
 
 export default function App() {
   const [provider, setProvider] = useState<string>("zhipu");
@@ -16,8 +17,15 @@ export default function App() {
     () => ({ provider, model, effort: "High", permissionMode: "ask" as const }),
     [provider, model],
   );
-  const { state, busy, send, stop, resolveApproval, list, current, openConversation, newChat, remove } =
+  const { state, busy, send, retryLast, stop, resolveApproval, list, current, openConversation, newChat, remove } =
     useConversations(config);
+
+  useKeyboard({ onEscape: () => busy && stop(), onNewChat: newChat });
+
+  const lastAssistantIdx = state.messages.reduce(
+    (acc, m, i) => (m.role === "assistant" ? i : acc),
+    -1,
+  );
 
   return (
     <div className="app-shell">
@@ -45,7 +53,17 @@ export default function App() {
             </div>
           )}
           {state.messages.map((m, i) =>
-            m.role === "user" ? <UserBubble key={i} msg={m} /> : <AssistantBubble key={i} msg={m} />,
+            m.role === "user" ? (
+              <UserBubble key={i} msg={m} />
+            ) : (
+              <AssistantBubble
+                key={i}
+                msg={m}
+                isLast={i === lastAssistantIdx}
+                busy={busy}
+                onRetry={retryLast}
+              />
+            ),
           )}
           {state.error && <div className="turn-error">{state.error}</div>}
           {state.pendingApproval && (

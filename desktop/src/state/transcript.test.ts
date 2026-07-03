@@ -2,9 +2,14 @@ import { describe, expect, it } from "vitest";
 
 import type { AgentEvent } from "../api/events";
 import {
+  answerText,
   applyEvent,
   type AssistantMessage,
+  buildHistory,
   initialState,
+  lastUserIndex,
+  type Message,
+  retryFrom,
   startTurn,
   type ToolCard,
   type TranscriptState,
@@ -103,6 +108,44 @@ describe("transcript reducer", () => {
     const s = drive([{ type: "error", text: "no API key for OpenAI" }]);
     expect(s.error).toBe("no API key for OpenAI");
     expect(s.running).toBe(false);
+  });
+
+  it("answerText joins only answer blocks", () => {
+    const a: AssistantMessage = {
+      role: "assistant",
+      blocks: [
+        { kind: "thinking", phase: "", text: "hmm", streaming: false },
+        { kind: "answer", text: "line 1", streaming: false },
+        { kind: "answer", text: "line 2", streaming: false },
+      ],
+    };
+    expect(answerText(a)).toBe("line 1\nline 2");
+  });
+
+  it("buildHistory maps user + assistant to role/content", () => {
+    const msgs: Message[] = [
+      { role: "user", text: "q1" },
+      { role: "assistant", blocks: [{ kind: "answer", text: "a1", streaming: false }] },
+    ];
+    expect(buildHistory(msgs)).toEqual([
+      { role: "user", content: "q1", kind: "user" },
+      { role: "assistant", content: "a1", kind: "final" },
+    ]);
+  });
+
+  it("lastUserIndex + retryFrom truncate to the last user for regeneration", () => {
+    const msgs: Message[] = [
+      { role: "user", text: "q1" },
+      { role: "assistant", blocks: [{ kind: "answer", text: "old", streaming: false }] },
+    ];
+    const idx = lastUserIndex(msgs);
+    expect(idx).toBe(0);
+    const s = retryFrom({ ...initialState(), messages: msgs }, idx);
+    // Keeps the user message, drops the old answer, opens a fresh assistant slot.
+    expect(s.messages).toHaveLength(2);
+    expect(s.messages[0]).toEqual({ role: "user", text: "q1" });
+    expect(s.messages[1]).toEqual({ role: "assistant", blocks: [] });
+    expect(s.running).toBe(true);
   });
 
   it("keeps prior messages immutable across turns", () => {

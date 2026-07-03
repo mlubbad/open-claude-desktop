@@ -1,8 +1,15 @@
-import { useState } from "react";
-import Markdown from "react-markdown";
+import { type ReactNode, useRef, useState } from "react";
+import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-import type { AssistantMessage, Block, ThinkingBlock, ToolCard, UserMessage } from "../state/transcript";
+import {
+  answerText,
+  type AssistantMessage,
+  type Block,
+  type ThinkingBlock,
+  type ToolCard,
+  type UserMessage,
+} from "../state/transcript";
 
 export function UserBubble({ msg }: { msg: UserMessage }) {
   return (
@@ -12,12 +19,73 @@ export function UserBubble({ msg }: { msg: UserMessage }) {
   );
 }
 
-export function AssistantBubble({ msg }: { msg: AssistantMessage }) {
+export function AssistantBubble({
+  msg,
+  isLast,
+  busy,
+  onRetry,
+}: {
+  msg: AssistantMessage;
+  isLast: boolean;
+  busy: boolean;
+  onRetry?: () => void;
+}) {
+  const answer = answerText(msg);
+  const streaming = msg.blocks.some((b) => (b.kind === "answer" || b.kind === "thinking") && b.streaming);
   return (
     <div className="msg assistant">
       {msg.blocks.map((b, i) => (
         <BlockView key={i} block={b} />
       ))}
+      {!streaming && answer && (
+        <div className="msg-actions">
+          <CopyButton getText={() => answer} label="Copy" />
+          {isLast && onRetry && (
+            <button className="msg-action" onClick={onRetry} disabled={busy} title="Regenerate">
+              ↻ Retry
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CopyButton({ getText, label }: { getText: () => string; label: string }) {
+  const [copied, setCopied] = useState(false);
+  function copy() {
+    void navigator.clipboard?.writeText(getText());
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1200);
+  }
+  return (
+    <button className="msg-action" onClick={copy} title={label}>
+      {copied ? "Copied" : label}
+    </button>
+  );
+}
+
+const mdComponents: Components = {
+  pre({ children }) {
+    return <CodeBlock>{children}</CodeBlock>;
+  },
+};
+
+function CodeBlock({ children }: { children?: ReactNode }) {
+  const ref = useRef<HTMLPreElement>(null);
+  const [copied, setCopied] = useState(false);
+  function copy() {
+    const text = ref.current?.innerText ?? "";
+    void navigator.clipboard?.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1200);
+  }
+  return (
+    <div className="codeblock">
+      <button className="code-copy" onClick={copy}>
+        {copied ? "Copied" : "Copy"}
+      </button>
+      <pre ref={ref}>{children}</pre>
     </div>
   );
 }
@@ -27,16 +95,16 @@ function BlockView({ block }: { block: Block }) {
   if (block.kind === "tool") return <Tool block={block} />;
   return (
     <div className="answer">
-      <Markdown remarkPlugins={[remarkGfm]}>{block.text}</Markdown>
+      <Markdown remarkPlugins={[remarkGfm]} components={mdComponents}>
+        {block.text}
+      </Markdown>
     </div>
   );
 }
 
 function Thinking({ block }: { block: ThinkingBlock }) {
   const [open, setOpen] = useState(block.streaming);
-  const label = block.streaming
-    ? "Thinking…"
-    : `Thought${block.elapsed ? ` for ${block.elapsed}s` : ""}`;
+  const label = block.streaming ? "Thinking…" : `Thought${block.elapsed ? ` for ${block.elapsed}s` : ""}`;
   return (
     <div className={`thinking ${block.streaming ? "streaming" : ""}`}>
       <button className="thinking-toggle" onClick={() => setOpen((o) => !o)}>
@@ -53,9 +121,7 @@ function Tool({ block }: { block: ToolCard }) {
       ? block.labelRunning
       : block.status === "awaiting_approval"
         ? `${block.labelRunning} — awaiting approval`
-        : block.status === "error"
-          ? block.labelDone
-          : block.labelDone;
+        : block.labelDone;
   return (
     <div className={`tool ${block.status}`}>
       <div className="tool-head">

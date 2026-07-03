@@ -91,6 +91,7 @@ export function useConversations(config: TurnConfig) {
     busy: chat.busy,
     stop: chat.stop,
     resolveApproval: chat.resolveApproval,
+    retryLast: chat.retryLast,
     send,
     list,
     current,

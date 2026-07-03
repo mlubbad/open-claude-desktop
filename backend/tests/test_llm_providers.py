@@ -98,3 +98,27 @@ def test_reasoning_of_normalizes_shapes():
     class D3:
         content = "answer"
     assert llm.reasoning_of(D3()) is None
+
+
+def test_resolve_turn_client_explicit_provider():
+    client, model, fallback = llm.resolve_turn_client("llama3.1", provider="ollama")
+    assert "localhost:11434" in str(client.base_url)
+    assert model == "llama3.1"
+    # ollama's default_model is llama3.1 (== requested) -> no self-fallback
+    assert fallback is None
+
+
+def test_resolve_turn_client_prefix_and_fallback(monkeypatch):
+    llm_keys.set_api_key("deepseek", "sk-x")
+    client, model, fallback = llm.resolve_turn_client("deepseek/deepseek-reasoner")
+    assert "api.deepseek.com" in str(client.base_url)
+    assert model == "deepseek-reasoner"
+    # provider default (deepseek-chat) differs from requested -> it's the fallback
+    assert fallback == "deepseek-chat"
+
+
+def test_resolve_turn_client_missing_key_raises(monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("LLM_API_KEY", raising=False)
+    with pytest.raises(llm.LLMConfigError):
+        llm.resolve_turn_client("gpt-4o", provider="openai")

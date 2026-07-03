@@ -54,7 +54,9 @@ EFFORT_DESCRIPTIONS = {
     "High": "Plans before answering",
     "Max": "Plans, then self-verifies",
 }
-DEFAULT_SETTINGS = {"model": AGENT_MODEL, "effort": "High", "theme": "light"}
+DEFAULT_SETTINGS = {"model": AGENT_MODEL,
+                    "provider": os.getenv("LLM_PROVIDER", "zhipu"),
+                    "effort": "High", "theme": "light"}
 SETTINGS_FILE = REPO_ROOT / "settings.json"
 
 # --- projects / conversations ---

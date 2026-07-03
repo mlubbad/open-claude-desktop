@@ -27,7 +27,8 @@ def _drive(gen):
 
 
 def test_disallowed_tool_is_not_dispatched(monkeypatch):
-    monkeypatch.setattr(agent, "get_llm_client", lambda: object())
+    monkeypatch.setattr(agent, "resolve_turn_client",
+                        lambda model, provider=None: (object(), model, None))
     monkeypatch.setattr(agent.schema_catalog, "ensure_catalog", lambda: None)
 
     executed = []
@@ -41,7 +42,7 @@ def test_disallowed_tool_is_not_dispatched(monkeypatch):
     state = {"n": 0}
 
     async def _fake_stream(llm, model, messages, tools, temperature, max_tokens,
-                           content_scope="answer"):
+                           content_scope="answer", fallback_model=None):
         state["n"] += 1
         if state["n"] == 1:
             # The model "calls" a tool that was never offered this turn.
@@ -65,7 +66,8 @@ def test_disallowed_tool_is_not_dispatched(monkeypatch):
 
 
 def test_allowed_builtin_tool_still_dispatches(monkeypatch):
-    monkeypatch.setattr(agent, "get_llm_client", lambda: object())
+    monkeypatch.setattr(agent, "resolve_turn_client",
+                        lambda model, provider=None: (object(), model, None))
     monkeypatch.setattr(agent.schema_catalog, "ensure_catalog", lambda: None)
 
     executed = []
@@ -80,7 +82,7 @@ def test_allowed_builtin_tool_still_dispatches(monkeypatch):
     state = {"n": 0}
 
     async def _fake_stream(llm, model, messages, tools, temperature, max_tokens,
-                           content_scope="answer"):
+                           content_scope="answer", fallback_model=None):
         state["n"] += 1
         if state["n"] == 1:
             # search_schema is a built-in always in the tool set -> must dispatch.

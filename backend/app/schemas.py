@@ -33,6 +33,7 @@ class AgentTurnRequest(BaseModel):
     goal: str
     history: list[Message] = []
     model: str
+    provider: str | None = None      # explicit provider; else inferred from model/default
     effort: str = "High"
     options: AgentOptions = AgentOptions()
     enabled_plugins: list[str] = []
@@ -72,6 +73,7 @@ class MoveBody(BaseModel):
 
 class SettingsBody(BaseModel):
     model: str | None = None
+    provider: str | None = None
     effort: str | None = None
     theme: str | None = None
 

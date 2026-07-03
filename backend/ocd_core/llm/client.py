@@ -72,6 +72,24 @@ def get_client_for_model(model: str | None):
     return get_client(pid), bare
 
 
+def resolve_turn_client(model: str | None, provider: str | None = None):
+    """Resolve (client, bare_model, fallback_model) for one agent turn.
+
+    Precedence for the provider: an explicit ``provider`` argument, else a
+    ``provider/model`` prefix on ``model``, else the configured default provider.
+    The fallback model is the resolved provider's own default model (so a failed
+    turn retries within the SAME provider/client, never on an unrelated one).
+    """
+    if provider:
+        pid, bare = provider, split_model(model)[1]
+    else:
+        pid, bare = split_model(model)
+    client = get_client(pid)
+    prov = get_provider(pid)
+    fallback = prov.default_model if (prov.default_model and prov.default_model != bare) else None
+    return client, bare, fallback
+
+
 def get_llm_client():
     """Back-compat accessor: the default provider's client.
 

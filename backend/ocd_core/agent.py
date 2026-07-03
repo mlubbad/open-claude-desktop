@@ -38,13 +38,14 @@ Effort levels (Low/Medium/High/Max) control the depth of multi-turn thinking:
 """
 from __future__ import annotations
 
+import asyncio
 import json
+import re
 import time
 import types
-import asyncio
 
-from . import config, sql_guard, schema_catalog, bigquery, util
-from .llm import get_llm_client, reasoning_of
+from . import bigquery, config, schema_catalog, sql_guard, util
+from .llm import LLMConfigError, reasoning_of, resolve_turn_client
 
 TOOLS = [
     {"type": "function", "function": {
@@ -215,12 +216,10 @@ def _system_prompt(project_instructions: str = "", skill_instructions: str = "",
     return sp
 
 
-import re as _re
-
-_LABEL_RE = _re.compile(
+_LABEL_RE = re.compile(
     r"^\s*(?:#{1,6}\s*)?(?:\*\*)?\s*"
     r"(?:corrected|final|verified|revised|improved)\s+answer\s*(?:\*\*)?\s*:?\s*\n+",
-    _re.IGNORECASE)
+    re.IGNORECASE)
 
 
 def _strip_answer_label(text: str) -> str:
@@ -229,11 +228,13 @@ def _strip_answer_label(text: str) -> str:
     return _LABEL_RE.sub("", text, count=1).lstrip()
 
 
-async def _llm_create(llm, model, messages, tools=None, temperature=0.1, max_tokens=4096):
-    """LLM create with a single fallback to AGENT_MODEL if `model` errors.
+async def _llm_create(llm, model, messages, tools=None, temperature=0.1,
+                      max_tokens=4096, fallback_model=None):
+    """LLM create with a single fallback to `fallback_model` if `model` errors.
 
-    Returns (response, note). note is a non-empty string when a fallback happened
-    or (response None) when both calls failed.
+    `fallback_model` is the active provider's default model (resolved per-turn), so
+    the fallback stays within the user's chosen provider/client. Returns
+    (response, note); note is non-empty on fallback, response is None if both fail.
     """
     kw = dict(messages=messages, temperature=temperature, max_tokens=max_tokens)
     if tools:
@@ -242,12 +243,12 @@ async def _llm_create(llm, model, messages, tools=None, temperature=0.1, max_tok
     try:
         return await asyncio.to_thread(llm.chat.completions.create, model=model, **kw), None
     except Exception as e:
-        if model != config.AGENT_MODEL:
+        if fallback_model and model != fallback_model:
             try:
                 r = await asyncio.to_thread(
-                    llm.chat.completions.create, model=config.AGENT_MODEL, **kw)
+                    llm.chat.completions.create, model=fallback_model, **kw)
                 return r, (f"Model '{model}' is unavailable — fell back to "
-                           f"{config.AGENT_MODEL}.")
+                           f"{fallback_model}.")
             except Exception as e2:
                 return None, str(e2)
         return None, str(e)
@@ -302,12 +303,13 @@ async def _stream_chunks(llm, model, messages, tools, temperature, max_tokens):
 
 
 async def _stream_llm(llm, model, messages, tools=None, temperature=0.1,
-                      max_tokens=4096, content_scope="answer"):
+                      max_tokens=4096, content_scope="answer", fallback_model=None):
     """Stream one LLM call. Yields {"type":"delta","scope":...,"text":...} for content
     (scope=content_scope) and reasoning (scope="think"), then a terminal
-    {"__done__": {content, tool_calls, note, error?}}. Falls back to AGENT_MODEL on a
-    model error and to a non-streamed call if streaming itself is unavailable."""
-    attempts = [model] if model == config.AGENT_MODEL else [model, config.AGENT_MODEL]
+    {"__done__": {content, tool_calls, note, error?}}. Falls back to `fallback_model`
+    (the provider's default) on a model error and to a non-streamed call if streaming
+    itself is unavailable."""
+    attempts = [model] if not fallback_model or model == fallback_model else [model, fallback_model]
     for ai, m in enumerate(attempts):
         content, tool_acc, started = [], {}, False
         try:
@@ -337,7 +339,7 @@ async def _stream_llm(llm, model, messages, tools=None, temperature=0.1,
                             acc["arguments"] += fn.arguments
             tool_calls = [_ToolCallObj(a["id"] or f"call_{i}", a["name"], a["arguments"])
                           for i, a in sorted(tool_acc.items())]
-            note = (f"Model '{model}' is unavailable — fell back to {config.AGENT_MODEL}."
+            note = (f"Model '{model}' is unavailable — fell back to {fallback_model}."
                     if m != model else None)
             yield {"__done__": {"content": "".join(content), "tool_calls": tool_calls,
                                 "note": note}}
@@ -347,15 +349,26 @@ async def _stream_llm(llm, model, messages, tools=None, temperature=0.1,
                 continue  # try the fallback model
             # Streaming unavailable → one non-streamed call (still yields a delta).
             resp, note = await _llm_create(llm, model, messages, tools=tools,
-                                           temperature=temperature, max_tokens=max_tokens)
+                                           temperature=temperature, max_tokens=max_tokens,
+                                           fallback_model=fallback_model)
             if resp is None:
                 yield {"__done__": {"content": "", "tool_calls": [],
                                     "note": f"LLM call failed: {note}", "error": True}}
                 return
             msg = resp.choices[0].message
-            if msg.content:
-                yield {"type": "delta", "scope": content_scope, "text": msg.content}
-            yield {"__done__": {"content": msg.content or "",
+            full = msg.content or ""
+            # If streaming already emitted a prefix before failing, emit ONLY the tail
+            # so partial text is never duplicated (emit nothing if the retry diverged).
+            emitted = "".join(content)
+            if not emitted:
+                new_text = full
+            elif full.startswith(emitted):
+                new_text = full[len(emitted):]
+            else:
+                new_text = ""
+            if new_text:
+                yield {"type": "delta", "scope": content_scope, "text": new_text}
+            yield {"__done__": {"content": full or emitted,
                                 "tool_calls": list(msg.tool_calls or []), "note": note}}
             return
 
@@ -545,8 +558,14 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
                    research: bool = False, extra_tools: list | None = None,
                    effort: str = "High", parallel: bool = True,
                    web_fetch: bool = False, code_exec: bool = False, bash: bool = False,
-                   text_editor: bool = False, memory: bool = False):
-    """Drive one agent turn, yielding events. `history` is prior (role/content) turns."""
+                   text_editor: bool = False, memory: bool = False,
+                   provider: str | None = None):
+    """Drive one agent turn, yielding events. `history` is prior (role/content) turns.
+
+    `provider` (optional) selects the model provider; otherwise it is inferred from a
+    ``provider/model`` prefix on `model` or the configured default. BYOK: a missing
+    key surfaces as a clean error event rather than crashing the stream.
+    """
     cfg = EFFORT.get(effort, EFFORT["High"])
     temperature = cfg["temp"]
     steps = max(cfg["steps"], 14 if research else 0)
@@ -576,7 +595,11 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
     # Only names present in this turn's assembled tool set may execute, so a
     # hallucinated or injected tool call cannot reach the dispatcher.
     allowed_tool_names = {t["function"]["name"] for t in tools}
-    llm = get_llm_client()
+    try:
+        llm, model, fallback_model = resolve_turn_client(model, provider)
+    except LLMConfigError as e:
+        yield {"type": "error", "text": str(e)}
+        return
 
     try:
         await asyncio.to_thread(schema_catalog.ensure_catalog)
@@ -592,7 +615,7 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
         yield {"type": "think_open", "phase": "plan"}
         done = {}
         async for ev in _stream_llm(llm, model, plan_msgs, None, temperature, 400,
-                                    content_scope="think"):
+                                    content_scope="think", fallback_model=fallback_model):
             if "__done__" in ev:
                 done = ev["__done__"]
             else:
@@ -609,7 +632,7 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
         yield {"type": "answer_open"}
         done = {}
         async for ev in _stream_llm(llm, model, messages, tools, temperature, 4096,
-                                    content_scope="answer"):
+                                    content_scope="answer", fallback_model=fallback_model):
             if "__done__" in ev:
                 done = ev["__done__"]
             else:
@@ -724,7 +747,7 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
         yield {"type": "answer_open"}
         done = {}
         async for ev in _stream_llm(llm, model, v_msgs, None, temperature, 4096,
-                                    content_scope="answer"):
+                                    content_scope="answer", fallback_model=fallback_model):
             if "__done__" in ev:
                 done = ev["__done__"]
             else:

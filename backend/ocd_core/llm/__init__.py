@@ -17,6 +17,7 @@ from .client import (
     get_llm_client,
     reasoning_of,
     reset_clients,
+    resolve_turn_client,
     split_model,
 )
 from .providers import Provider, default_provider_id, get_provider, list_providers
@@ -35,5 +36,6 @@ __all__ = [
     "providers",
     "reasoning_of",
     "reset_clients",
+    "resolve_turn_client",
     "split_model",
 ]

@@ -14,8 +14,13 @@ CHROMA_PATH = os.getenv("CHROMA_PATH", str(REPO_ROOT / "chroma_db"))
 SKILLS_DIR = Path(os.getenv("SKILLS_DIR", str(REPO_ROOT / "skills")))
 PLUGINS_DIR = Path(os.getenv("PLUGINS_DIR", str(REPO_ROOT / "plugins")))
 
-# --- BigQuery ---
+# --- BigQuery (optional connector, Phase 2) ---
 PROJECT_ID = os.getenv("GCP_PROJECT_ID", "")
+# Explicit BIGQUERY_ENABLED wins; otherwise auto-on when a GCP project is set, so
+# existing analytics deployments keep working and a fresh install is a pure assistant.
+_bq_env = os.getenv("BIGQUERY_ENABLED")
+BIGQUERY_ENABLED = (_bq_env.strip().lower() in ("1", "true", "yes")
+                    if _bq_env is not None else bool(PROJECT_ID))
 _GB = 1024 ** 3
 MAX_BYTES_BILLED = int(float(os.getenv("MAX_BYTES_BILLED_GB", "100")) * _GB)
 QUERY_TIMEOUT_SEC = int(os.getenv("QUERY_TIMEOUT_SEC", "300"))

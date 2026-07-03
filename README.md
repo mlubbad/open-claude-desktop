@@ -5,13 +5,16 @@ Chat, Projects, Knowledge, MCP connectors, Plugins, Skills, and an agentic tool-
 reasoning loop. The one deliberate difference from Claude Desktop: **you bring your own
 models and keys** — open/hosted models of your choice, not a single vendor.
 
-> **Status.** The codebase is mid-transition from its origin as a BigQuery analytics
+> **Status.** The codebase is transitioning from its origin as a BigQuery analytics
 > agent ("AJ360") into the general-purpose, model-agnostic clone described in
 > [`docs/superpowers/specs/2026-07-02-claude-desktop-clone-architecture.md`](docs/superpowers/specs/2026-07-02-claude-desktop-clone-architecture.md).
 > See the [full repository review](docs/reviews/2026-07-02-full-repository-review.md)
-> for the current state and the 8-phase roadmap. Today the model backend is Zhipu GLM;
-> a provider abstraction (OpenAI-compatible, local Ollama/vLLM, etc.) lands in Phase 1,
-> and BigQuery becomes an optional connector in Phase 2.
+> for the current state and the 8-phase roadmap. **Done:** Phase 1 — any
+> OpenAI-compatible provider via BYOK (OpenAI, Zhipu/GLM, DeepSeek, Qwen, OpenRouter,
+> local Ollama/vLLM/LM Studio, …), keys in the OS keychain; Phase 2 — a general
+> assistant by default, with BigQuery demoted to an **optional connector** (auto-on
+> when `GCP_PROJECT_ID` is set). **Next:** the TS/React + Tauri desktop client,
+> artifacts, and the CLI.
 
 ## Architecture
 

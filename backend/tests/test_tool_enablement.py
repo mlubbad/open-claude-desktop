@@ -69,6 +69,8 @@ def test_allowed_builtin_tool_still_dispatches(monkeypatch):
     monkeypatch.setattr(agent, "resolve_turn_client",
                         lambda model, provider=None: (object(), model, None))
     monkeypatch.setattr(agent.schema_catalog, "ensure_catalog", lambda: None)
+    # search_schema is contributed by the BigQuery connector — enable it for this turn.
+    monkeypatch.setattr(agent.bigquery_tools, "enabled", lambda: True)
 
     executed = []
 
@@ -85,7 +87,7 @@ def test_allowed_builtin_tool_still_dispatches(monkeypatch):
                            content_scope="answer", fallback_model=None):
         state["n"] += 1
         if state["n"] == 1:
-            # search_schema is a built-in always in the tool set -> must dispatch.
+            # With the connector enabled, search_schema is in the tool set -> dispatches.
             yield {"__done__": {"content": "", "note": None,
                                 "tool_calls": [_FakeToolCall("c1", "search_schema",
                                                              '{"question": "x"}')]}}

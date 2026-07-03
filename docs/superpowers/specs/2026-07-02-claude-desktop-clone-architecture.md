@@ -377,7 +377,15 @@ adjust the roadmap ordering above:
   bug fixed, `owner_id`/`workspace_id` multi-user seams (+migration). Backend: 180 passed.
 - **2026-07-03 — Ops:** ruff lint debt burned down repo-wide; CI lint gate flipped to
   blocking. Backend 180 + frontend 32 green; `ruff check .` clean.
+- **2026-07-03 — Phase 2 (complete):** agent core de-BigQuery'd. New `prompts.py`
+  composes a neutral, original general-assistant system prompt from opt-in sections
+  (fixes the IP concern + injects today's date); BigQuery demoted to an opt-in connector
+  (`bigquery_tools.py`: tool specs + prompt section + `BIGQUERY_ENABLED` flag, auto-on
+  when a GCP project is set). The always-on `search_schema`/`run_sql` tools and the
+  AJ360 persona are gone from the core. Backend: 187 passed.
 - **Deferred/refined by §9:** HITL permission loop pulled earlier; ContextManager before
   Code/Cowork; AgentEngine port + native coding floor; Anthropic-native adapter.
-- **Next:** Phase 2 — de-BigQuery the agent core (composable system prompt, tool registry,
-  BigQuery→MCP connector shipped in the same slice), then the early HITL permission loop.
+  BigQuery-connector repackaging as a true stdio MCP server (vs the current opt-in
+  built-in tool group) is a tracked follow-up — the capability is preserved, not orphaned.
+- **Next:** the early HITL permission loop (approval_required SSE + reply endpoint), then
+  Phase 3 (TS/React + Tauri client) with the Reflex app kept behind a flag as the spec.

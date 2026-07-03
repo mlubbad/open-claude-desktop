@@ -44,26 +44,8 @@ import re
 import time
 import types
 
-from . import bigquery, config, schema_catalog, sql_guard, util
+from . import bigquery, bigquery_tools, config, prompts, schema_catalog, util
 from .llm import LLMConfigError, reasoning_of, resolve_turn_client
-
-TOOLS = [
-    {"type": "function", "function": {
-        "name": "search_schema",
-        "description": "Retrieve exact table names, columns, types, candidate join keys, "
-                       "AND any relevant wiki / project-KB findings. ALWAYS call before "
-                       "writing SQL.",
-        "parameters": {"type": "object", "properties": {
-            "question": {"type": "string", "description": "What you need schema for."}},
-            "required": ["question"]}}},
-    {"type": "function", "function": {
-        "name": "run_sql",
-        "description": "Validate (dry-run) and run a complete BigQuery standard-SQL SELECT. "
-                       "Read-only: non-SELECT statements are rejected.",
-        "parameters": {"type": "object", "properties": {
-            "sql": {"type": "string", "description": "Full BigQuery standard-SQL query."}},
-            "required": ["sql"]}}},
-]
 
 WEB_SEARCH_TOOL = {"type": "function", "function": {
     "name": "web_search",
@@ -155,65 +137,9 @@ EFFORT = {
     "Max":    {"steps": 16, "plan": True,  "verify": True,  "temp": 0.3},
 }
 
-SYSTEM_PROMPT = f"""You are a BigQuery analytics agent for the AJ360 (Al Jazeera 360) OTT platform.
-Project: `{config.PROJECT_ID}`  Region: EU. Dialect: BigQuery standard SQL.
-
-You write and run SQL yourself. Operating loop:
-1. Call `search_schema` to get EXACT table and column names AND check the knowledge wiki.
-2. Write fully-qualified SQL using the EXACT table names from search_schema.
-3. Call `run_sql`. If it returns an error, fix the SQL and retry.
-4. When you have data, write the final answer with exact numbers in a Markdown table.
-
-This chat is READ-ONLY: only SELECT runs. Do not attempt INSERT/UPDATE/DELETE/DDL.
-
-Hard rules (AJ360-specific):
-- Profile suspicious columns before trusting them.
-- DATE vs TIMESTAMP: confirm from schema before comparing.
-- Banned aliases: {', '.join(sorted(sql_guard.BANNED_ALIASES))}.
-- Device: always `devicetype`, NEVER `device_category`.
-- video_completion_rate is broken -> SAFE_DIVIDE workaround.
-- Aggregate on series_id, NOT series_title.
-- Default window: CURRENT_DATE() - 2.
-- GA4 tables are huge: filter by stream_id + short window for UNNEST.
-- Search funnels are separate per platform.
-
-How to work (shown to the user as your reasoning):
-- Before calling tools, say in ONE short sentence what you're about to do and why.
-- After seeing tool results, note in ONE short sentence what you learned before the
-  next step. Keep this running narration concise — it is your visible thinking.
-- When you need several INDEPENDENT pieces of information, request those tools TOGETHER
-  in one step so they run in parallel. Only sequence tools when one genuinely depends
-  on another's output (e.g. search_schema before run_sql).
-- If a tool returns an error, read it, correct your input, and retry — or explain why
-  you can't proceed. Never give up silently.
-
-Be terse, evidence-first, American English. Exact numbers.
-"""
-
-
-def _system_prompt(project_instructions: str = "", skill_instructions: str = "",
-                   research: bool = False, memory: bool = False) -> str:
-    sp = SYSTEM_PROMPT
-    if memory:
-        sp += ("\n\n# MEMORY PROTOCOL\n"
-               "You have a persistent `memory` tool backed by /memories. At the START of a "
-               "task, ALWAYS call `memory` with command=view, path=/memories to recover "
-               "relevant prior context. Record durable facts, decisions, and task state "
-               "with memory create / str_replace so they survive across conversations.\n")
-    if project_instructions.strip():
-        sp += ("\n\n# PROJECT-SPECIFIC INSTRUCTIONS\n"
-               "You are operating inside a project. Adhere strictly to:\n"
-               f"{project_instructions.strip()}\n")
-    if skill_instructions.strip():
-        sp += ("\n\n# ACTIVE SKILL\n"
-               "Follow this skill's guidance for this turn:\n"
-               f"{skill_instructions.strip()}\n")
-    if research:
-        sp += ("\n\n# RESEARCH MODE\n"
-               "Use `deep_research` ONCE to gather parallel multi-source findings, then "
-               "cross-check the sources and synthesize a structured answer that CITES the "
-               "sources you used.\n")
-    return sp
+# The system prompt is composed by ocd_core.prompts (domain-agnostic base + opt-in
+# sections). The BigQuery/AJ360 guidance is contributed by bigquery_tools only when
+# that connector is enabled — the agent core no longer hard-codes any domain.
 
 
 _LABEL_RE = re.compile(
@@ -570,11 +496,15 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
     temperature = cfg["temp"]
     steps = max(cfg["steps"], 14 if research else 0)
 
+    bq_on = bigquery_tools.enabled()
+    extra_sections = [bigquery_tools.system_prompt_section()] if bq_on else None
     messages = [{"role": "system",
-                 "content": _system_prompt(project_instructions, skill_instructions,
-                                           research, memory=memory)},
+                 "content": prompts.build_system_prompt(
+                     extra_sections=extra_sections, memory=memory,
+                     project_instructions=project_instructions,
+                     skill_instructions=skill_instructions, research=research)},
                 *history, {"role": "user", "content": goal}]
-    tools = list(TOOLS)
+    tools = list(bigquery_tools.TOOL_SPECS) if bq_on else []
     if web_search or research:
         tools.append(WEB_SEARCH_TOOL)
     if research:
@@ -601,10 +531,11 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
         yield {"type": "error", "text": str(e)}
         return
 
-    try:
-        await asyncio.to_thread(schema_catalog.ensure_catalog)
-    except Exception:
-        pass
+    if bq_on:
+        try:
+            await asyncio.to_thread(schema_catalog.ensure_catalog)
+        except Exception:
+            pass
 
     # ---- Planning pass (High/Max): explicit thinking before acting, streamed ----
     if cfg["plan"]:

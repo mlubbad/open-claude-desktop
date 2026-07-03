@@ -575,6 +575,14 @@ adjust the roadmap ordering above:
   only when the chat is non-empty) downloads the current conversation as Markdown. Verified:
   8 vitest (headings, content, thinking/tool rendering, artifact fences, empty-turn skip,
   trailing-newline hygiene, JSON envelope, slug). Frontend: 42 vitest, tsc clean, build 108 KB gz.
+- **2026-07-03 — Composer slash-command skill autocomplete (complete):** Agent Skills are
+  now discoverable + invocable from the UI (they already auto-activate server-side via
+  `resolve_skill`→`matching_skill`; this closes the discovery gap). Typing `/` opens a
+  keyboard-navigable dropdown of matching skills; selecting one prefills `/name `. Pure
+  `slashSuggestions(skills, text)` (subsequence match on name/description; suppresses once a
+  space commits the command) + `applySlash`; new `skills` API + `useSkills` hook feed the
+  Composer. Verified: 6 vitest for the filter (not-a-slash, bare-slash lists all, name/desc
+  match, committed-command suppression). Frontend: 48 vitest, tsc clean, build 108 KB gz.
 - **Next (Phase 3 cont.):** interactive OAuth authorize on the Tauri host;
   true artifact token-streaming; finish the Tauri shell on a build host (tray, icons,
   signed updater, commit externalBin/sidecar spawn).

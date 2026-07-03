@@ -19,6 +19,7 @@ import { useConnectors } from "./state/useConnectors";
 import { useConversations } from "./state/useConversations";
 import { useKeyboard } from "./state/useKeyboard";
 import { useProjects } from "./state/useProjects";
+import { useSkills } from "./state/useSkills";
 
 export default function App() {
   const [provider, setProvider] = useState<string>("zhipu");
@@ -30,6 +31,7 @@ export default function App() {
 
   const proj = useProjects();
   const connectors = useConnectors();
+  const skills = useSkills();
 
   const config = useMemo(
     () => ({
@@ -192,7 +194,7 @@ export default function App() {
         </main>
 
         <footer className="footer">
-          <Composer busy={busy} onSend={send} onStop={stop} />
+          <Composer busy={busy} onSend={send} onStop={stop} skills={skills} />
         </footer>
       </div>
 

@@ -258,6 +258,17 @@ async function postForm<T>(path: string, form: FormData): Promise<T> {
   return (await resp.json()) as T;
 }
 
+export interface SkillSummary {
+  name: string;
+  description?: string;
+  auto?: boolean;
+  triggers?: string[];
+}
+
+export const skills = {
+  list: () => api.get<SkillSummary[]>("/skills"),
+};
+
 export const mcp = {
   list: () => api.get<McpServer[]>("/mcp-servers"),
   add: (body: AddMcpBody) => api.post<McpServer>("/mcp-servers", body),

@@ -467,7 +467,13 @@ adjust the roadmap ordering above:
   keychain), add the bundled demo, remove, and toggle per-session enablement; the enabled
   set threads into each turn as `enabled_mcp`. This activates the remote-MCP backend end
   user-side. Verified: 26 vitest (toggle helper), tsc clean, build 104.5 KB gz.
-- **Next (Phase 3 cont.):** MCP OAuth 2.1 (PKCE + DCR) + resources/prompts + `.mcpb`
-  one-click installs; artifact version history + true token-streaming; message edit/branch;
-  command palette; finish the Tauri shell on a build host (tray, icons, signed updater,
-  commit externalBin/sidecar spawn).
+- **2026-07-03 — MCP resources + prompts (complete, verified E2E):** the client now uses
+  the full MCP surface, not just tools. Registry `list_resources`/`read_resource`/
+  `list_prompts`/`get_prompt`; integrations helpers (graceful [] when a server declares
+  none); routes `GET /mcp-servers/{sid}/resources`, `.../resources/read?uri=`, `.../prompts`,
+  `POST .../prompts/{name}`. Verified against the FastMCP server: list resources → read
+  `greeting://hello` → list prompts → get `summarize`. Backend: 213.
+- **Next (Phase 3 cont.):** MCP OAuth 2.1 (PKCE + DCR) + `.mcpb` one-click installs;
+  artifact version history + true token-streaming; message edit/branch; command palette;
+  finish the Tauri shell on a build host (tray, icons, signed updater, commit
+  externalBin/sidecar spawn).

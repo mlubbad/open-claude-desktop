@@ -1,10 +1,10 @@
 """MCP transport routing (stdio/http/sse), per-server env, and a real Streamable-HTTP
 end-to-end against an in-process FastMCP server."""
+import contextlib
 import socket
 import threading
 import time
 
-import pytest
 from ocd_core import mcp_registry
 from ocd_core.mcp_registry import _server_key, _stdio_env, _transport_of
 
@@ -37,47 +37,72 @@ def _free_port() -> int:
     return port
 
 
-def test_streamable_http_end_to_end():
-    """Start a FastMCP server over Streamable HTTP and drive it through the registry."""
-    import uvicorn
+def _build_server():
+    """A FastMCP server exposing a tool, a resource, and a prompt."""
     from mcp.server.fastmcp import FastMCP
 
-    port = _free_port()
-    mcp = FastMCP("test-remote", host="127.0.0.1", port=port)
+    mcp = FastMCP("test-remote")
 
     @mcp.tool()
     def echo(text: str) -> str:
         return text
 
-    app = mcp.streamable_http_app()
-    config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning",
-                            lifespan="on")
-    server = uvicorn.Server(config)
-    server.install_signal_handlers = lambda: None  # off the main thread
+    @mcp.resource("greeting://hello")
+    def greeting() -> str:
+        return "hello resource"
 
-    thread = threading.Thread(target=server.run, daemon=True)
-    thread.start()
+    @mcp.prompt()
+    def summarize(text: str) -> str:
+        return f"Please summarize: {text}"
+
+    return mcp
+
+
+@contextlib.contextmanager
+def _serve():
+    """Serve _build_server() over Streamable HTTP and yield a ready registry cfg."""
+    import uvicorn
+
+    port = _free_port()
+    app = _build_server().streamable_http_app()
+    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port,
+                                           log_level="warning", lifespan="on"))
+    server.install_signal_handlers = lambda: None  # off the main thread
+    threading.Thread(target=server.run, daemon=True).start()
 
     cfg = {"id": "remote-test", "url": f"http://127.0.0.1:{port}/mcp", "transport": "http"}
     try:
-        # Wait for the server to accept a real MCP session.
-        tools = None
         for _ in range(50):
             try:
-                tools = mcp_registry.registry.discover(cfg, timeout=5)
+                mcp_registry.registry.discover(cfg, timeout=5)
                 break
             except Exception:
                 time.sleep(0.2)
-        assert tools is not None, "remote MCP server never became ready"
-        assert any(t["name"] == "echo" for t in tools)
-
-        result = mcp_registry.registry.call(cfg, "echo", {"text": "hello remote"}, timeout=5)
-        assert "hello remote" in result
+        else:
+            raise AssertionError("remote MCP server never became ready")
+        yield cfg
     finally:
         mcp_registry.registry.drop(cfg)
         server.should_exit = True
 
 
-@pytest.fixture(autouse=True)
-def _reset_registry():
-    yield
+def test_streamable_http_tools_end_to_end():
+    with _serve() as cfg:
+        tools = mcp_registry.registry.discover(cfg, timeout=5)
+        assert any(t["name"] == "echo" for t in tools)
+        result = mcp_registry.registry.call(cfg, "echo", {"text": "hello remote"}, timeout=5)
+        assert "hello remote" in result
+
+
+def test_streamable_http_resources_and_prompts():
+    with _serve() as cfg:
+        resources = mcp_registry.registry.list_resources(cfg, timeout=5)
+        assert any(r["uri"].startswith("greeting://") for r in resources)
+        content = mcp_registry.registry.read_resource(cfg, "greeting://hello", timeout=5)
+        assert "hello resource" in content
+
+        prompts = mcp_registry.registry.list_prompts(cfg, timeout=5)
+        assert any(p["name"] == "summarize" for p in prompts)
+        got = mcp_registry.registry.get_prompt(cfg, "summarize", {"text": "the doc"}, timeout=5)
+        rendered = " ".join(m["content"] for m in got["messages"])
+        assert "Please summarize: the doc" in rendered

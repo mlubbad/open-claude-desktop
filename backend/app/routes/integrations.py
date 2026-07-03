@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Body, Depends
 from ocd_core import integrations, skills
 from pydantic import BaseModel
 
@@ -81,6 +81,27 @@ def remove_mcp(sid: str, user: str = Depends(current_user)) -> dict:
 @router.get("/mcp-servers/{sid}/tools")
 def mcp_tools(sid: str, user: str = Depends(current_user)) -> dict:
     return {"tools": integrations.mcp_tools([sid])}
+
+
+@router.get("/mcp-servers/{sid}/resources")
+def mcp_resources(sid: str, user: str = Depends(current_user)) -> dict:
+    return {"resources": integrations.mcp_resources(sid)}
+
+
+@router.get("/mcp-servers/{sid}/resources/read")
+def mcp_read_resource(sid: str, uri: str, user: str = Depends(current_user)) -> dict:
+    return {"content": integrations.mcp_read_resource(sid, uri)}
+
+
+@router.get("/mcp-servers/{sid}/prompts")
+def mcp_prompts(sid: str, user: str = Depends(current_user)) -> dict:
+    return {"prompts": integrations.mcp_prompts(sid)}
+
+
+@router.post("/mcp-servers/{sid}/prompts/{name}")
+def mcp_get_prompt(sid: str, name: str, args: dict = Body(default={}),
+                   user: str = Depends(current_user)) -> dict:
+    return integrations.mcp_get_prompt(sid, name, args)
 
 
 @router.post("/mcp-servers/demo")

@@ -426,6 +426,47 @@ def refresh_mcp_server(sid: str) -> dict:
     return {}
 
 
+def _find_mcp(sid: str) -> dict | None:
+    for s in _load_mcp_servers():
+        if s["id"] == sid:
+            return s
+    return None
+
+
+def mcp_resources(sid: str) -> list[dict]:
+    """List an MCP server's resources ([] if it declares none / doesn't support them)."""
+    s = _find_mcp(sid)
+    if not s:
+        return []
+    with contextlib.suppress(Exception):
+        return mcp_registry.registry.list_resources(_resolve_cfg(s))
+    return []
+
+
+def mcp_read_resource(sid: str, uri: str) -> str:
+    s = _find_mcp(sid)
+    if not s:
+        return ""
+    return mcp_registry.registry.read_resource(_resolve_cfg(s), uri)
+
+
+def mcp_prompts(sid: str) -> list[dict]:
+    """List an MCP server's prompts ([] if it declares none / doesn't support them)."""
+    s = _find_mcp(sid)
+    if not s:
+        return []
+    with contextlib.suppress(Exception):
+        return mcp_registry.registry.list_prompts(_resolve_cfg(s))
+    return []
+
+
+def mcp_get_prompt(sid: str, name: str, args: dict | None = None) -> dict:
+    s = _find_mcp(sid)
+    if not s:
+        return {"messages": []}
+    return mcp_registry.registry.get_prompt(_resolve_cfg(s), name, args or {})
+
+
 def list_mcp_servers() -> list[dict]:
     """Registered MCP servers (without the verbose cached tool schemas)."""
     return [{"id": s["id"], "name": s["name"], "transport": s.get("transport", "stdio"),

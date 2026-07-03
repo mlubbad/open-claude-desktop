@@ -190,6 +190,67 @@ class MCPRegistry:
                                  or {"type": "object", "properties": {}})}
                 for t in resp.tools]
 
+    async def _list_resources(self, cfg: dict, timeout: float) -> list[dict]:
+        sess = await self._get_session(cfg)
+        try:
+            resp = await asyncio.wait_for(sess.session.list_resources(), timeout=timeout)
+        except BaseException:
+            await self._close(_server_key(cfg))
+            raise
+        return [{"uri": str(r.uri), "name": r.name or "",
+                 "description": r.description or "",
+                 "mimeType": getattr(r, "mimeType", "") or ""}
+                for r in resp.resources]
+
+    async def _read_resource(self, cfg: dict, uri: str, timeout: float) -> str:
+        from pydantic import AnyUrl
+        sess = await self._get_session(cfg)
+        try:
+            resp = await asyncio.wait_for(
+                sess.session.read_resource(AnyUrl(uri)), timeout=timeout)
+        except BaseException:
+            await self._close(_server_key(cfg))
+            raise
+        parts: list[str] = []
+        for c in resp.contents:
+            text = getattr(c, "text", None)
+            if text is not None:
+                parts.append(text)
+            elif getattr(c, "blob", None) is not None:
+                mime = getattr(c, "mimeType", "") or "application/octet-stream"
+                parts.append(f"(binary content · {mime})")
+        return "\n".join(parts) or "(empty)"
+
+    async def _list_prompts(self, cfg: dict, timeout: float) -> list[dict]:
+        sess = await self._get_session(cfg)
+        try:
+            resp = await asyncio.wait_for(sess.session.list_prompts(), timeout=timeout)
+        except BaseException:
+            await self._close(_server_key(cfg))
+            raise
+        return [{"name": p.name, "description": p.description or "",
+                 "arguments": [{"name": a.name, "description": a.description or "",
+                                "required": bool(getattr(a, "required", False))}
+                               for a in (p.arguments or [])]}
+                for p in resp.prompts]
+
+    async def _get_prompt(self, cfg: dict, name: str, args: dict, timeout: float) -> dict:
+        sess = await self._get_session(cfg)
+        try:
+            resp = await asyncio.wait_for(
+                sess.session.get_prompt(name, args or {}), timeout=timeout)
+        except BaseException:
+            await self._close(_server_key(cfg))
+            raise
+        msgs = []
+        for m in resp.messages:
+            content = m.content
+            text = getattr(content, "text", None)
+            if text is None:
+                text = str(getattr(content, "data", content))
+            msgs.append({"role": str(m.role), "content": text})
+        return {"description": resp.description or "", "messages": msgs}
+
     # ---- public, synchronous API --------------------------------------- #
     def call(self, cfg: dict, tool: str, args: dict,
              timeout: float = _DEFAULT_TIMEOUT) -> str:
@@ -197,6 +258,19 @@ class MCPRegistry:
 
     def discover(self, cfg: dict, timeout: float = _DEFAULT_TIMEOUT) -> list[dict]:
         return self._submit(self._discover(cfg, timeout), timeout)
+
+    def list_resources(self, cfg: dict, timeout: float = _DEFAULT_TIMEOUT) -> list[dict]:
+        return self._submit(self._list_resources(cfg, timeout), timeout)
+
+    def read_resource(self, cfg: dict, uri: str, timeout: float = _DEFAULT_TIMEOUT) -> str:
+        return self._submit(self._read_resource(cfg, uri, timeout), timeout)
+
+    def list_prompts(self, cfg: dict, timeout: float = _DEFAULT_TIMEOUT) -> list[dict]:
+        return self._submit(self._list_prompts(cfg, timeout), timeout)
+
+    def get_prompt(self, cfg: dict, name: str, args: dict,
+                   timeout: float = _DEFAULT_TIMEOUT) -> dict:
+        return self._submit(self._get_prompt(cfg, name, args, timeout), timeout)
 
     def drop(self, cfg: dict):
         """Forget a server (e.g. on remove/refresh) so its process is killed."""

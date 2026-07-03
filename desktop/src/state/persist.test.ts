@@ -32,6 +32,7 @@ const sample: Message[] = [
           content: "<h1>1</h1>",
           version: 1,
           streaming: false,
+          versions: ["<h1>1</h1>"],
         },
       },
     ],

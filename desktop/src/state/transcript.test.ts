@@ -6,12 +6,14 @@ import {
   applyEvent,
   type AssistantMessage,
   buildHistory,
+  contentAtVersion,
   editFrom,
   findArtifact,
   initialState,
   lastUserIndex,
   type Message,
   retryFrom,
+  setVersion,
   startTurn,
   type ToolCard,
   type TranscriptState,
@@ -190,6 +192,38 @@ describe("transcript reducer", () => {
     expect(doc.version).toBe(2);
     const artifactBlocks = assistant(s).blocks.filter((b) => b.kind === "artifact");
     expect(artifactBlocks).toHaveLength(1); // upsert, not duplicate
+  });
+
+  it("accumulates each finalized version's content in history", () => {
+    const s = drive([
+      { type: "artifact_open", id: "art1", title: "Doc", kind: "markdown", language: "" },
+      { type: "artifact_delta", id: "art1", text: "v1 body" },
+      { type: "artifact_close", id: "art1", version: 1 },
+      { type: "artifact_open", id: "art1", title: "Doc", kind: "markdown", language: "" },
+      { type: "artifact_delta", id: "art1", text: "v2 body" },
+      { type: "artifact_close", id: "art1", version: 2 },
+    ]);
+    const doc = findArtifact(s, "art1")!;
+    expect(doc.versions).toEqual(["v1 body", "v2 body"]);
+    // The live content is the newest; older versions are recoverable.
+    expect(contentAtVersion(doc, 1)).toBe("v1 body");
+    expect(contentAtVersion(doc, 2)).toBe("v2 body");
+  });
+
+  it("setVersion writes at a 1-based slot and pads gaps", () => {
+    expect(setVersion([], 1, "a")).toEqual(["a"]);
+    expect(setVersion(["a"], 2, "b")).toEqual(["a", "b"]);
+    expect(setVersion(["a"], 3, "c")).toEqual(["a", "", "c"]);
+    // overwrite in place
+    expect(setVersion(["a", "b"], 1, "z")).toEqual(["z", "b"]);
+  });
+
+  it("contentAtVersion tolerates a legacy doc without a versions array", () => {
+    const legacy = {
+      id: "x", title: "t", kind: "markdown" as const, language: "",
+      content: "live", version: 1, streaming: false,
+    } as unknown as Parameters<typeof contentAtVersion>[0];
+    expect(contentAtVersion(legacy, 1)).toBe("live");
   });
 
   it("editFrom replaces a user message and drops everything after it", () => {

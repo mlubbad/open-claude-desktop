@@ -489,6 +489,16 @@ adjust the roadmap ordering above:
   connect → discover its `whoami` tool; plus zip-slip/bad-zip/missing-config/uninstall
   safety tests and 5 route tests. Backend: 228 (13 new), frontend: 31 (2 new), tsc clean,
   build 106 KB gz.
+- **2026-07-03 — Artifact version history + navigation (complete):** artifacts now keep
+  every revision, not just the latest. The transcript reducer records each finalized
+  version's content in `ArtifactDoc.versions` on `artifact_close` (pure `setVersion` slot
+  writer; `contentAtVersion` reader that tolerates legacy docs without the array), so an
+  `update_artifact` no longer discards the prior content. ArtifactPanel gains `‹ vN/M ›`
+  navigation that snaps to the newest revision as it streams and lets the user page back
+  through history — preview, code, copy, and download all follow the selected version.
+  Verified: 34 vitest (3 new — history accumulation, setVersion slotting, legacy tolerance),
+  tsc clean, build 106 KB gz.
 - **Next (Phase 3 cont.):** MCP OAuth 2.1 (PKCE + DCR) for remote connectors;
-  artifact version history + true token-streaming; finish the Tauri shell on a build host
-  (tray, icons, signed updater, commit externalBin/sidecar spawn).
+  true artifact token-streaming; conversation full-text search; web-search hardening
+  (SearXNG/ddgs); finish the Tauri shell on a build host (tray, icons, signed updater,
+  commit externalBin/sidecar spawn).

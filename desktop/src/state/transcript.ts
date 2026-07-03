@@ -14,6 +14,9 @@ export interface ArtifactDoc {
   content: string;
   version: number;
   streaming: boolean;
+  // Finalized content of every version, 1-indexed by position (versions[0] is v1).
+  // Lets the panel navigate revisions the way Claude Desktop does.
+  versions: string[];
 }
 
 export interface ArtifactBlock {
@@ -303,7 +306,8 @@ export function applyEvent(prev: TranscriptState, ev: AgentEvent): TranscriptSta
 
     case "artifact_open": {
       if (findArtifact(state, ev.id)) {
-        // An update: reset content for the incoming new version.
+        // An update: reset the live content for the incoming new version. Prior
+        // versions stay in `versions` (each was recorded on its artifact_close).
         const s2 = mutateArtifact(state, ev.id, (d) => ({
           ...d,
           title: ev.title,
@@ -324,6 +328,7 @@ export function applyEvent(prev: TranscriptState, ev: AgentEvent): TranscriptSta
           content: "",
           version: 0,
           streaming: true,
+          versions: [],
         },
       });
       return { ...state, openArtifactId: ev.id };
@@ -333,7 +338,14 @@ export function applyEvent(prev: TranscriptState, ev: AgentEvent): TranscriptSta
       return mutateArtifact(state, ev.id, (d) => ({ ...d, content: d.content + ev.text }));
 
     case "artifact_close":
-      return mutateArtifact(state, ev.id, (d) => ({ ...d, streaming: false, version: ev.version }));
+      // Finalize: stamp the version number and snapshot the completed content so it
+      // can be revisited even after later revisions overwrite the live content.
+      return mutateArtifact(state, ev.id, (d) => ({
+        ...d,
+        streaming: false,
+        version: ev.version,
+        versions: setVersion(d.versions, ev.version, d.content),
+      }));
 
     case "approval_required": {
       updateTool(state, assistant, ev.id, (t) => ({ ...t, status: "awaiting_approval" }));
@@ -391,6 +403,23 @@ function updateTool(
     }
   }
   return state;
+}
+
+// Record a finalized version's content at its 1-based slot, growing the list (with
+// "" placeholders) if a version number arrives out of order. Pure + immutable.
+export function setVersion(versions: string[], version: number, content: string): string[] {
+  const out = versions.slice();
+  const idx = Math.max(0, version - 1);
+  while (out.length <= idx) out.push("");
+  out[idx] = content;
+  return out;
+}
+
+// The content to show for a given 1-based version. The newest/live content lives in
+// `doc.content`; older finalized versions live in `doc.versions`.
+export function contentAtVersion(doc: ArtifactDoc, version: number): string {
+  if (version >= doc.version) return doc.content;
+  return (doc.versions ?? [])[version - 1] ?? doc.content;
 }
 
 // Immutably update the artifact doc with the given id wherever it lives.

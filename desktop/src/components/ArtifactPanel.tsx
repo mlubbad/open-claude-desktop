@@ -1,10 +1,11 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
-import type { ArtifactDoc } from "../state/transcript";
+import { type ArtifactDoc, contentAtVersion } from "../state/transcript";
 
-// Renders an artifact in a side panel with a Preview/Code toggle. Preview runs in a
-// sandboxed iframe (sandbox="allow-scripts" WITHOUT allow-same-origin) so model-
-// generated HTML/SVG/React/Mermaid cannot touch the host page, cookies, or storage.
+// Renders an artifact in a side panel with a Preview/Code toggle and version
+// navigation. Preview runs in a sandboxed iframe (sandbox="allow-scripts" WITHOUT
+// allow-same-origin) so model-generated HTML/SVG/React/Mermaid cannot touch the host
+// page, cookies, or storage.
 export function ArtifactPanel({
   doc,
   onClose,
@@ -15,13 +16,24 @@ export function ArtifactPanel({
   const previewable = doc.kind === "html" || doc.kind === "svg" || doc.kind === "mermaid" || doc.kind === "react";
   const [tab, setTab] = useState<"preview" | "code">(previewable ? "preview" : "code");
 
-  const srcDoc = useMemo(() => (previewable ? buildSrcDoc(doc) : ""), [doc, previewable]);
+  // Which version is on screen. Snap to the newest whenever a new version lands so a
+  // fresh revision is shown live; the user can then page back through the history.
+  const total = Math.max(doc.version, doc.versions?.length ?? 0);
+  const [view, setView] = useState(total);
+  useEffect(() => setView(doc.version), [doc.version]);
+  const shownVersion = Math.min(Math.max(view, 1), Math.max(total, 1));
+  const isLatest = shownVersion >= total;
+  const shownContent = contentAtVersion(doc, shownVersion);
+  // Render the currently-selected version (not always the live content).
+  const shownDoc = isLatest ? doc : { ...doc, content: shownContent };
+
+  const srcDoc = useMemo(() => (previewable ? buildSrcDoc(shownDoc) : ""), [shownDoc, previewable]);
 
   function copy() {
-    void navigator.clipboard?.writeText(doc.content);
+    void navigator.clipboard?.writeText(shownContent);
   }
   function download() {
-    const blob = new Blob([doc.content], { type: "text/plain" });
+    const blob = new Blob([shownContent], { type: "text/plain" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -35,7 +47,29 @@ export function ArtifactPanel({
       <header className="artifact-head">
         <div className="artifact-title" title={doc.title}>
           {doc.title}
-          {doc.version > 1 && <span className="artifact-ver">v{doc.version}</span>}
+          {total > 1 && (
+            <span className="artifact-vernav">
+              <button
+                className="artifact-vbtn"
+                disabled={shownVersion <= 1}
+                title="Previous version"
+                onClick={() => setView(shownVersion - 1)}
+              >
+                ‹
+              </button>
+              <span className="artifact-ver">
+                v{shownVersion}/{total}
+              </span>
+              <button
+                className="artifact-vbtn"
+                disabled={shownVersion >= total}
+                title="Next version"
+                onClick={() => setView(shownVersion + 1)}
+              >
+                ›
+              </button>
+            </span>
+          )}
           {doc.streaming && <span className="artifact-streaming">•••</span>}
         </div>
         <div className="artifact-actions">
@@ -70,7 +104,7 @@ export function ArtifactPanel({
           />
         ) : (
           <pre className="artifact-code">
-            <code>{doc.content}</code>
+            <code>{shownContent}</code>
           </pre>
         )}
       </div>

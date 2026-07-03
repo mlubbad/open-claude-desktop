@@ -1,0 +1,8 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.vite/
+
+# Tauri build artifacts
+src-tauri/target/
+src-tauri/gen/

@@ -1,0 +1,61 @@
+import { useMemo, useState } from "react";
+
+import { ApprovalPrompt } from "./components/ApprovalPrompt";
+import { Composer } from "./components/Composer";
+import { AssistantBubble, UserBubble } from "./components/Message";
+import { Settings } from "./components/Settings";
+import { useTranscript } from "./state/useTranscript";
+
+export default function App() {
+  const [provider, setProvider] = useState<string>("zhipu");
+  const [model, setModel] = useState<string>("glm-4-plus");
+  const [showSettings, setShowSettings] = useState(false);
+
+  const config = useMemo(
+    () => ({ provider, model, effort: "High", permissionMode: "ask" as const }),
+    [provider, model],
+  );
+  const { state, busy, send, stop, resolveApproval } = useTranscript(config);
+
+  return (
+    <div className="app">
+      <header className="topbar">
+        <div className="brand">Open Claude Desktop</div>
+        <button className="model-pill" onClick={() => setShowSettings(true)}>
+          {provider} · {model}
+        </button>
+      </header>
+
+      <main className="transcript">
+        {state.messages.length === 0 && (
+          <div className="empty">
+            <h1>How can I help?</h1>
+            <p>Bring your own model — pick a provider and key in settings.</p>
+          </div>
+        )}
+        {state.messages.map((m, i) =>
+          m.role === "user" ? <UserBubble key={i} msg={m} /> : <AssistantBubble key={i} msg={m} />,
+        )}
+        {state.error && <div className="turn-error">{state.error}</div>}
+        {state.pendingApproval && (
+          <ApprovalPrompt pending={state.pendingApproval} onDecide={resolveApproval} />
+        )}
+      </main>
+
+      <footer className="footer">
+        <Composer busy={busy} onSend={send} onStop={stop} />
+      </footer>
+
+      {showSettings && (
+        <Settings
+          active={{ provider, model }}
+          onPick={(p, m) => {
+            setProvider(p);
+            setModel(m);
+          }}
+          onClose={() => setShowSettings(false)}
+        />
+      )}
+    </div>
+  );
+}

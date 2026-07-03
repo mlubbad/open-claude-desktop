@@ -35,6 +35,25 @@ jobs:
         working-directory: frontend
         run: pytest
 
+  desktop:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - name: Install client deps
+        working-directory: desktop
+        run: npm ci
+      - name: Typecheck + test + build
+        working-directory: desktop
+        run: |
+          npm run typecheck
+          npm run test
+          npm run build
+
   lint:
     runs-on: ubuntu-latest
     # Blocking: the repo is ruff-clean (lint debt burned down 2026-07-03).

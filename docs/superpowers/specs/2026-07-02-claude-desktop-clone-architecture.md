@@ -393,5 +393,14 @@ adjust the roadmap ordering above:
   stdio MCP server (vs the current opt-in built-in tool group) is a tracked follow-up —
   the capability is preserved, not orphaned. HITL registry is in-process (correct for
   local-first); server mode needs a shared channel (Redis) — documented.
-- **Next:** Phase 3 — the TS/React + Tauri desktop client, consuming the frozen event
-  vocabulary (now incl. `turn_start`/`approval_required`), with Reflex kept behind a flag.
+- **2026-07-03 — Phase 3 foundation (complete):** new `desktop/` TS/React + Vite client
+  + Tauri v2 shell scaffold. The heart is `src/state/transcript.ts` — a pure, framework-free
+  `applyEvent` reducer porting the Reflex streaming semantics (thinking coalescing, answer
+  streaming, tool-card upsert by id, sources, HITL approval), unit-tested with vitest (8/8).
+  Typed SSE+REST+BYOK client (`@microsoft/fetch-event-source`), React binding, chat UI
+  (streaming, tool cards, HITL approval prompt, provider/model settings, stop-generation),
+  original theme-aware design. Verified: tsc clean, 8 vitest pass, vite build 98 KB gz.
+  New CI `desktop` job (typecheck + test + build). Reflex `frontend/` kept as the spec.
+- **Next (Phase 3 cont.):** conversation persistence + history, projects/knowledge,
+  artifacts side-panel, message edit/retry/branch, keyboard shortcuts/command palette, and
+  the Tauri shell features (tray, global hotkey, updater, keychain, backend sidecar).

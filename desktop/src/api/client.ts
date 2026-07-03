@@ -1,0 +1,131 @@
+// Typed REST + SSE client for the FastAPI backend. The single seam between the UI
+// and the backend; no domain logic lives here.
+
+import { fetchEventSource } from "@microsoft/fetch-event-source";
+
+import type { AgentEvent } from "./events";
+
+// In web dev, Vite proxies "/api" -> backend. In the packaged app, VITE_API_BASE
+// points at the bundled backend.
+const BASE = (import.meta.env?.VITE_API_BASE as string | undefined) ?? "/api";
+
+let token: string | null = null;
+export function setToken(t: string | null): void {
+  token = t;
+}
+
+function authHeaders(extra?: Record<string, string>): Record<string, string> {
+  const h: Record<string, string> = { ...(extra ?? {}) };
+  if (token) h["Authorization"] = `Bearer ${token}`;
+  return h;
+}
+
+export class ApiError extends Error {
+  constructor(
+    public status: number,
+    public detail: string,
+  ) {
+    super(`${status}: ${detail}`);
+  }
+}
+
+async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const resp = await fetch(BASE + path, {
+    method,
+    headers: authHeaders(body !== undefined ? { "Content-Type": "application/json" } : undefined),
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
+  if (!resp.ok) {
+    let detail = resp.statusText;
+    try {
+      detail = (await resp.json())?.detail ?? detail;
+    } catch {
+      /* keep statusText */
+    }
+    throw new ApiError(resp.status, detail);
+  }
+  return (await resp.json()) as T;
+}
+
+export const api = {
+  get: <T>(p: string) => request<T>("GET", p),
+  post: <T>(p: string, body?: unknown) => request<T>("POST", p, body),
+  put: <T>(p: string, body?: unknown) => request<T>("PUT", p, body),
+  del: <T>(p: string) => request<T>("DELETE", p),
+};
+
+export interface ProviderInfo {
+  id: string;
+  label: string;
+  is_local: boolean;
+  requires_key: boolean;
+  has_key: boolean;
+  default_model: string;
+  models: string[];
+  docs: string;
+  is_default: boolean;
+}
+
+export const providers = {
+  list: () => api.get<ProviderInfo[]>("/providers"),
+  setKey: (id: string, key: string) => api.put<{ id: string; has_key: boolean }>(`/providers/${id}/key`, { key }),
+  deleteKey: (id: string) => api.del<{ id: string; has_key: boolean }>(`/providers/${id}/key`),
+};
+
+export interface AgentTurnRequest {
+  project_id?: string | null;
+  goal: string;
+  history: { role: string; content: string; kind?: string }[];
+  model: string;
+  provider?: string | null;
+  effort?: string;
+  permission_mode?: string | null;
+  options?: Record<string, boolean>;
+  enabled_plugins?: string[];
+  enabled_connectors?: string[];
+  enabled_mcp?: string[];
+}
+
+// Stream an agent turn. Invokes onEvent for each typed event; resolves on `done`.
+// The returned AbortController lets the caller stop the turn.
+export function streamTurn(
+  req: AgentTurnRequest,
+  onEvent: (ev: AgentEvent) => void,
+  onError?: (err: unknown) => void,
+): AbortController {
+  const ctrl = new AbortController();
+  fetchEventSource(BASE + "/agent/turn", {
+    method: "POST",
+    headers: authHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify(req),
+    signal: ctrl.signal,
+    openWhenHidden: true,
+    onmessage(msg) {
+      if (!msg.data) return;
+      let ev: AgentEvent;
+      try {
+        ev = JSON.parse(msg.data) as AgentEvent;
+      } catch {
+        return;
+      }
+      onEvent(ev);
+      if (ev.type === "done") ctrl.abort();
+    },
+    onerror(err) {
+      onError?.(err);
+      throw err; // stop the built-in retry loop
+    },
+  }).catch((err) => {
+    if (!ctrl.signal.aborted) onError?.(err);
+  });
+  return ctrl;
+}
+
+// Resolve a HITL approval prompt for a running turn.
+export function replyPermission(
+  turnId: string,
+  toolCallId: string,
+  decision: "approve" | "decline",
+): Promise<{ resolved: boolean; decision: string }> {
+  return api.post(`/agent/turn/${turnId}/permission`, { tool_call_id: toolCallId, decision });
+}

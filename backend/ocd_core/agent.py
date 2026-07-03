@@ -33,6 +33,10 @@ yields; the API layer appends a terminal {"type": "done"} after the stream ends.
   {"type": "artifact_delta", "id": str, "text": str}
   {"type": "artifact_close", "id": str, "version": int}
 
+  Usage (emitted once at the end of a successful turn — drives the context/cost meter):
+  {"type": "usage", "model": str, "context_tokens": int, "output_tokens": int,
+                    "context_limit": int, "context_pct": int, "cost_usd": float|None}
+
   Interactive permission (HITL — only when a turn_id + non-auto permission mode):
   {"type": "approval_required", "turn_id": str, "id": str,   # awaiting a decision;
                           "name": str, "input": str}         #   reply via the API
@@ -61,6 +65,7 @@ from . import (
     permissions,
     prompts,
     schema_catalog,
+    usage,
     util,
 )
 from .llm import LLMConfigError, reasoning_of, resolve_turn_client
@@ -620,6 +625,7 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
     # ---- Main tool-calling loop (streamed) ----
     final_text = None
     answer_shown = False
+    out_parts: list[str] = []  # accumulated generated text, for the usage estimate
     for _ in range(steps):
         yield {"type": "answer_open"}
         done = {}
@@ -635,6 +641,8 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
             return
 
         content = done.get("content") or ""
+        if content:
+            out_parts.append(content)
         tool_calls = done.get("tool_calls") or []
         assistant_msg = {"role": "assistant", "content": content}
         if tool_calls:
@@ -761,6 +769,10 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
         vtext = _strip_answer_label((done.get("content") or "").strip())
         if vtext:
             final_text = vtext
+            out_parts.append(vtext)
         else:  # verify produced nothing — show the draft as the answer
             yield {"type": "delta", "scope": "answer", "text": final_text}
         answer_shown = True
+
+    # ---- Usage / cost meter (one event at the end of a successful turn) ----
+    yield usage.build_usage(model, messages, "".join(out_parts))

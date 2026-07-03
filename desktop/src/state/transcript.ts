@@ -4,7 +4,7 @@
 // semantics: thinking-block coalescing with elapsed labels, answer streaming,
 // per-call tool cards upserted by id, sources, and HITL approval prompts.
 
-import type { AgentEvent, ArtifactKind, Source } from "../api/events";
+import type { AgentEvent, ArtifactKind, Source, Usage } from "../api/events";
 
 export interface ArtifactDoc {
   id: string;
@@ -74,6 +74,8 @@ export interface TranscriptState {
   pendingApproval: { turnId: string; toolCallId: string; name: string; input: string } | null;
   // The artifact id currently shown in the side panel (null = panel closed).
   openArtifactId: string | null;
+  // Token/cost usage from the most recent completed turn (null until one finishes).
+  usage: Usage | null;
   error: string | null;
 }
 
@@ -84,6 +86,7 @@ export function initialState(): TranscriptState {
     running: false,
     pendingApproval: null,
     openArtifactId: null,
+    usage: null,
     error: null,
   };
 }
@@ -331,6 +334,19 @@ export function applyEvent(prev: TranscriptState, ev: AgentEvent): TranscriptSta
         },
       };
     }
+
+    case "usage":
+      return {
+        ...state,
+        usage: {
+          model: ev.model,
+          context_tokens: ev.context_tokens,
+          output_tokens: ev.output_tokens,
+          context_limit: ev.context_limit,
+          context_pct: ev.context_pct,
+          cost_usd: ev.cost_usd,
+        },
+      };
 
     case "error":
       return { ...state, error: ev.text, running: false };

@@ -34,8 +34,26 @@ export type AgentEvent =
   | { type: "artifact_delta"; id: string; text: string }
   | { type: "artifact_close"; id: string; version: number }
   | { type: "approval_required"; turn_id: string; id: string; name: string; input: string }
+  | {
+      type: "usage";
+      model: string;
+      context_tokens: number;
+      output_tokens: number;
+      context_limit: number;
+      context_pct: number;
+      cost_usd: number | null;
+    }
   | { type: "error"; text: string }
   | { type: "done" };
+
+export interface Usage {
+  model: string;
+  context_tokens: number;
+  output_tokens: number;
+  context_limit: number;
+  context_pct: number;
+  cost_usd: number | null;
+}
 
 export interface Source {
   title?: string;

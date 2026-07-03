@@ -105,6 +105,30 @@ describe("transcript reducer", () => {
     expect(s.pendingApproval).toBeNull();
   });
 
+  it("stores usage from the usage event", () => {
+    const s = drive([
+      { type: "delta", scope: "answer", text: "hi" },
+      {
+        type: "usage",
+        model: "gpt-4o",
+        context_tokens: 1200,
+        output_tokens: 40,
+        context_limit: 128000,
+        context_pct: 1,
+        cost_usd: 0.003,
+      },
+      { type: "done" },
+    ]);
+    expect(s.usage).toEqual({
+      model: "gpt-4o",
+      context_tokens: 1200,
+      output_tokens: 40,
+      context_limit: 128000,
+      context_pct: 1,
+      cost_usd: 0.003,
+    });
+  });
+
   it("records an error event", () => {
     const s = drive([{ type: "error", text: "no API key for OpenAI" }]);
     expect(s.error).toBe("no API key for OpenAI");

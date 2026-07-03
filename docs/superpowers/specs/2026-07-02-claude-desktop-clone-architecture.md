@@ -447,5 +447,12 @@ adjust the roadmap ordering above:
   Backend suite: 204 (2 new sidecar guards).
 - **Remaining Tauri work:** system tray, deep links, sign + publish the updater feed, app
   icons, and committing the `externalBin`/`sidecar()` spawn wiring on a build host.
+- **2026-07-03 — Usage/cost meter (complete):** a `usage` SSE event at the end of each
+  turn (context tokens, output tokens, context limit + %, rough cost) drives a topbar
+  context-fill + cost indicator. `ocd_core/usage.py` is dependency-free and offline (a
+  ~4-chars/token heuristic — tiktoken was rejected: it fetches its BPE vocab over the
+  network, wrong for a packaged offline app) with a best-effort per-model price table.
+  Verified: backend 208 (5 new), frontend 24 (1 new), tsc clean, build 103 KB gz.
 - **Next (Phase 3 cont.):** artifact version history + true token-streaming, message
-  edit/branch, command palette, usage/cost meter; then the remaining shell items above.
+  edit/branch, command palette; MCP remote transports + OAuth (extensions parity); then
+  the remaining shell items (tray, icons, signed updater, commit externalBin/sidecar spawn).

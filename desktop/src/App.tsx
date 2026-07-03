@@ -8,6 +8,7 @@ import { AssistantBubble, UserBubble } from "./components/Message";
 import { ProjectPanel } from "./components/ProjectPanel";
 import { Settings } from "./components/Settings";
 import { Sidebar } from "./components/Sidebar";
+import { UsageMeter } from "./components/UsageMeter";
 import { conversationsForProject } from "./state/projectFilter";
 import { findArtifact } from "./state/transcript";
 import { useConversations } from "./state/useConversations";
@@ -100,9 +101,12 @@ export default function App() {
             Open Claude Desktop
             {proj.active && <span className="project-chip">{activeProjectName}</span>}
           </div>
-          <button className="model-pill" onClick={() => setShowSettings(true)}>
-            {provider} · {model}
-          </button>
+          <div className="topbar-right">
+            {state.usage && <UsageMeter usage={state.usage} />}
+            <button className="model-pill" onClick={() => setShowSettings(true)}>
+              {provider} · {model}
+            </button>
+          </div>
         </header>
 
         <main className="transcript">

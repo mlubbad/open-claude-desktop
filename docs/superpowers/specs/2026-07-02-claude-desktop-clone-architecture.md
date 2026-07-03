@@ -510,6 +510,19 @@ adjust the roadmap ordering above:
   existing chat list). Verified: 11 backend tests (extraction, title/body match, case-
   insensitivity, snippet windowing, limit, empty/no-match) + a route test; 34 vitest,
   tsc clean, build 107 KB gz. Backend: 237 (11 new).
+- **2026-07-03 — Web-search hardening: pluggable provider (complete):** the agent's
+  research quality no longer hangs on a single scraped endpoint (a review-flagged
+  ToS/reliability risk). A `SearchProvider` seam offers **SearXNG** (privacy-respecting,
+  self-hostable, clean JSON API — the recommended free/open-source backend; its URL is
+  user-trusted so localhost is allowed and deliberately not SSRF-filtered) with automatic
+  fallback to the keyless **DuckDuckGo HTML** endpoint whenever SearXNG is unset or
+  unreachable. The HTML/JSON parsers (`_parse_ddg_html`, `_parse_searxng_json`) and result
+  normalization (`_result_item`: domain + favicon) are pure and unit-tested against
+  fixtures; `_web_results` dispatches via `search_provider`/`searxng_url` settings.
+  Frontend: a **Web search** section in Settings (provider dropdown + SearXNG URL);
+  `AppSettings`/`SettingsBody` gain the two fields. Verified: 11 web-search tests (parsers,
+  dispatch, fallback, non-http rejection, empty query) + settings round-trip — all offline;
+  frontend 34 vitest, tsc clean, build 107 KB gz. Backend: 250 (13 new).
 - **Next (Phase 3 cont.):** MCP OAuth 2.1 (PKCE + DCR) for remote connectors;
-  true artifact token-streaming; web-search hardening (SearXNG/ddgs); finish the Tauri
-  shell on a build host (tray, icons, signed updater, commit externalBin/sidecar spawn).
+  true artifact token-streaming; finish the Tauri shell on a build host (tray, icons,
+  signed updater, commit externalBin/sidecar spawn).

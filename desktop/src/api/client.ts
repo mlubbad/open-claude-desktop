@@ -81,6 +81,8 @@ export interface AppSettings {
   effort?: string;
   theme?: string;
   profile?: UserProfile;
+  search_provider?: string; // "ddg" (keyless default) | "searxng"
+  searxng_url?: string;
 }
 
 export const settings = {

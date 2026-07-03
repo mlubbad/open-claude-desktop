@@ -61,7 +61,12 @@ EFFORT_DESCRIPTIONS = {
 }
 DEFAULT_SETTINGS = {"model": AGENT_MODEL,
                     "provider": os.getenv("LLM_PROVIDER", "zhipu"),
-                    "effort": "High", "theme": "light", "profile": {}}
+                    "effort": "High", "theme": "light", "profile": {},
+                    # Web-search backend. "searxng" (privacy-respecting, self-hostable,
+                    # JSON API — the recommended free/open-source option; set searxng_url)
+                    # falls back to the keyless "ddg" HTML endpoint when unset/unreachable.
+                    "search_provider": os.getenv("SEARCH_PROVIDER", "ddg"),
+                    "searxng_url": os.getenv("SEARXNG_URL", "")}
 SETTINGS_FILE = REPO_ROOT / "settings.json"
 
 # --- projects / conversations ---

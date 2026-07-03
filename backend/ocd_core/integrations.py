@@ -699,7 +699,15 @@ def run_tool(name: str, args: dict) -> str:
 
 
 # --------------------------------------------------------------------------- #
-#  Web search — keyless DuckDuckGo HTML endpoint
+#  Web search — pluggable provider
+#
+#  Two backends behind one seam so the agent's research quality never depends on a
+#  single scraped endpoint:
+#    * "searxng" — a privacy-respecting metasearch engine with a clean JSON API,
+#      free and self-hostable. The recommended option (set searxng_url in settings);
+#      because it can run on localhost, its URL is trusted (not SSRF-filtered).
+#    * "ddg"     — the keyless DuckDuckGo HTML endpoint, kept as a zero-config
+#      fallback and used automatically when SearXNG is unset or unreachable.
 # --------------------------------------------------------------------------- #
 _DDG_URL = "https://html.duckduckgo.com/html/"
 _UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -732,35 +740,101 @@ def _domain(url: str) -> str:
         return ""
 
 
-def _web_results(query: str, n: int = 5) -> list[dict]:
-    """Structured web results: list of {title, url, snippet, domain, favicon}."""
-    query = (query or "").strip()
-    if not query:
-        return []
+def _result_item(title: str, url: str, snippet: str) -> dict | None:
+    """Normalize one hit into {title, url, snippet, domain, favicon}, or None if it
+    lacks a title/url."""
+    title = (title or "").strip()
+    url = (url or "").strip()
+    snippet = (snippet or "").strip()
+    if not (title and url):
+        return None
+    dom = _domain(url)
+    return {"title": title, "url": url, "snippet": snippet, "domain": dom,
+            "favicon": (f"https://www.google.com/s2/favicons?domain={dom}&sz=64"
+                        if dom else "")}
+
+
+def _parse_ddg_html(html: str, n: int) -> list[dict]:
+    """Extract structured results from a DuckDuckGo HTML SERP. Pure (no network) so it
+    can be unit-tested against a fixture."""
+    out: list[dict] = []
+    for m in re.finditer(
+            r'result__a"[^>]*href="(.*?)".*?>(.*?)</a>.*?'
+            r'result__snippet"[^>]*>(.*?)</a>', html or "", re.DOTALL):
+        url = _clean_ddg_url(re.sub(r"<.*?>", "", m.group(1)).strip())
+        title = re.sub(r"<.*?>", "", m.group(2)).strip()
+        snippet = re.sub(r"<.*?>", "", m.group(3)).strip()
+        item = _result_item(title, url, snippet)
+        if item:
+            out.append(item)
+        if len(out) >= n:
+            break
+    return out
+
+
+def _parse_searxng_json(data: dict, n: int) -> list[dict]:
+    """Map a SearXNG JSON response ({"results":[{title,url,content}...]}) to our shape.
+    Pure (no network) for unit testing."""
+    out: list[dict] = []
+    for r in (data or {}).get("results", []) if isinstance(data, dict) else []:
+        if not isinstance(r, dict):
+            continue
+        item = _result_item(r.get("title", ""), r.get("url", ""), r.get("content", ""))
+        if item:
+            out.append(item)
+        if len(out) >= n:
+            break
+    return out
+
+
+def _search_config() -> tuple[str, str]:
+    """(provider, searxng_url) from settings, defaulting to the keyless DDG backend."""
+    from . import settings
+    s = settings.get_settings()
+    return (s.get("search_provider") or "ddg").strip().lower(), (s.get("searxng_url") or "").strip()
+
+
+def _ddg_html_results(query: str, n: int) -> list[dict]:
     try:
         import httpx
         resp = httpx.post(_DDG_URL, data={"q": query}, timeout=15,
                           headers={"User-Agent": _UA})
-        html = resp.text
+        return _parse_ddg_html(resp.text, n)
     except Exception:
         return []
-    out: list[dict] = []
-    for m in re.finditer(
-            r'result__a"[^>]*href="(.*?)".*?>(.*?)</a>.*?'
-            r'result__snippet"[^>]*>(.*?)</a>', html, re.DOTALL):
-        url, title, snippet = m.group(1), m.group(2), m.group(3)
-        title = re.sub(r"<.*?>", "", title).strip()
-        snippet = re.sub(r"<.*?>", "", snippet).strip()
-        url = _clean_ddg_url(re.sub(r"<.*?>", "", url).strip())
-        dom = _domain(url)
-        if title and url:
-            out.append({"title": title, "url": url, "snippet": snippet,
-                        "domain": dom,
-                        "favicon": (f"https://www.google.com/s2/favicons?domain={dom}&sz=64"
-                                    if dom else "")})
-        if len(out) >= n:
-            break
-    return out
+
+
+def _searxng_results(query: str, n: int, base_url: str) -> list[dict]:
+    """Query a SearXNG instance's JSON API. Rejects non-http(s) URLs; localhost is fine
+    (a self-hosted instance is trusted, so it is deliberately NOT SSRF-filtered)."""
+    from urllib.parse import urlparse
+    base = (base_url or "").strip().rstrip("/")
+    if urlparse(base).scheme not in ("http", "https"):
+        return []
+    try:
+        import httpx
+        resp = httpx.get(f"{base}/search",
+                         params={"q": query, "format": "json"},
+                         timeout=15, headers={"User-Agent": _UA},
+                         follow_redirects=True)
+        return _parse_searxng_json(resp.json(), n)
+    except Exception:
+        return []
+
+
+def _web_results(query: str, n: int = 5) -> list[dict]:
+    """Structured web results via the configured provider, with a keyless DDG fallback
+    whenever SearXNG is unconfigured or returns nothing."""
+    query = (query or "").strip()
+    if not query:
+        return []
+    provider, searxng_url = _search_config()
+    if provider == "searxng" and searxng_url:
+        results = _searxng_results(query, n, searxng_url)
+        if results:
+            return results
+        # SearXNG down/misconfigured — degrade gracefully rather than returning nothing.
+    return _ddg_html_results(query, n)
 
 
 def _format_web_block(query: str, results: list[dict]) -> str:

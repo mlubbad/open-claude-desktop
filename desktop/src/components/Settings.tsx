@@ -17,6 +17,8 @@ export function Settings({
   const [keyDraft, setKeyDraft] = useState<Record<string, string>>({});
   const [err, setErr] = useState<string | null>(null);
   const [profile, setProfile] = useState<UserProfile>({});
+  const [searchProvider, setSearchProvider] = useState("ddg");
+  const [searxngUrl, setSearxngUrl] = useState("");
 
   async function refresh() {
     try {
@@ -28,11 +30,24 @@ export function Settings({
 
   useEffect(() => {
     void refresh();
-    settingsApi.get().then((s) => setProfile(s.profile ?? {})).catch(() => {});
+    settingsApi
+      .get()
+      .then((s) => {
+        setProfile(s.profile ?? {});
+        setSearchProvider(s.search_provider ?? "ddg");
+        setSearxngUrl(s.searxng_url ?? "");
+      })
+      .catch(() => {});
   }, []);
 
   function saveProfile() {
     void settingsApi.save({ profile }).catch((e) => setErr(String(e)));
+  }
+
+  function saveSearch(next: { search_provider?: string; searxng_url?: string }) {
+    void settingsApi
+      .save({ search_provider: searchProvider, searxng_url: searxngUrl, ...next })
+      .catch((e) => setErr(String(e)));
   }
 
   function setField(k: keyof UserProfile, v: string) {
@@ -67,6 +82,28 @@ export function Settings({
           <textarea placeholder="Response preferences (tone, length, format…)" rows={2}
                     value={profile.preferences ?? ""}
                     onChange={(e) => setField("preferences", e.target.value)} onBlur={saveProfile} />
+        </div>
+
+        <label className="field-label">Web search</label>
+        <div className="profile-form">
+          <select
+            value={searchProvider}
+            onChange={(e) => {
+              setSearchProvider(e.target.value);
+              saveSearch({ search_provider: e.target.value });
+            }}
+          >
+            <option value="ddg">DuckDuckGo (keyless, default)</option>
+            <option value="searxng">SearXNG (self-hosted, privacy-respecting)</option>
+          </select>
+          {searchProvider === "searxng" && (
+            <input
+              placeholder="SearXNG base URL (e.g. http://localhost:8888)"
+              value={searxngUrl}
+              onChange={(e) => setSearxngUrl(e.target.value)}
+              onBlur={() => saveSearch({})}
+            />
+          )}
         </div>
 
         <label className="field-label">Providers &amp; models</label>

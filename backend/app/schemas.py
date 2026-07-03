@@ -84,6 +84,8 @@ class SettingsBody(BaseModel):
     effort: str | None = None
     theme: str | None = None
     profile: dict | None = None
+    search_provider: str | None = None
+    searxng_url: str | None = None
 
 
 class TitleRequest(BaseModel):

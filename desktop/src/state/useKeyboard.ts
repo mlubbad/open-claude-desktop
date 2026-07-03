@@ -5,6 +5,7 @@ import { useEffect, useRef } from "react";
 export interface KeyHandlers {
   onEscape?: () => void;
   onNewChat?: () => void;
+  onPalette?: () => void;
 }
 
 export function useKeyboard(handlers: KeyHandlers): void {
@@ -15,6 +16,12 @@ export function useKeyboard(handlers: KeyHandlers): void {
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") {
         ref.current.onEscape?.();
+        return;
+      }
+      // Cmd/Ctrl+K -> command palette
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        ref.current.onPalette?.();
         return;
       }
       // Cmd/Ctrl+Shift+O -> new chat

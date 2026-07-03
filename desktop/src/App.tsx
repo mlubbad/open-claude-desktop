@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { notify, registerSummonHotkey, unregisterSummonHotkey } from "./platform";
 import { ApprovalPrompt } from "./components/ApprovalPrompt";
 import { ArtifactPanel } from "./components/ArtifactPanel";
+import { type Command, CommandPalette } from "./components/CommandPalette";
 import { Composer } from "./components/Composer";
 import { ConnectorsPanel } from "./components/ConnectorsPanel";
 import { AssistantBubble, UserBubble } from "./components/Message";
@@ -23,6 +24,7 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [showProject, setShowProject] = useState(false);
   const [showConnectors, setShowConnectors] = useState(false);
+  const [showPalette, setShowPalette] = useState(false);
 
   const proj = useProjects();
   const connectors = useConnectors();
@@ -55,7 +57,26 @@ export default function App() {
     remove,
   } = useConversations(config);
 
-  useKeyboard({ onEscape: () => (busy ? stop() : closeArtifact()), onNewChat: newChat });
+  useKeyboard({
+    onEscape: () => (busy ? stop() : closeArtifact()),
+    onNewChat: newChat,
+    onPalette: () => setShowPalette(true),
+  });
+
+  const commands: Command[] = useMemo(() => {
+    const actions: Command[] = [
+      { label: "New chat", hint: "⌘⇧O", run: newChat },
+      { label: "Open settings & providers", run: () => setShowSettings(true) },
+      { label: "Open connectors (MCP)", run: () => setShowConnectors(true) },
+    ];
+    if (proj.active) actions.push({ label: "Manage current project", run: () => setShowProject(true) });
+    const chats: Command[] = list.map((c) => ({
+      label: `Chat: ${c.title || "Untitled"}`,
+      hint: c.updated_rel,
+      run: () => openConversation(c.id, c.project_id ?? "general"),
+    }));
+    return [...actions, ...chats];
+  }, [newChat, proj.active, list, openConversation]);
 
   // Global summon hotkey (desktop only; no-op on web). Fired from the OS even when the
   // app is unfocused; brings it forward and starts a fresh chat.
@@ -157,6 +178,8 @@ export default function App() {
       </div>
 
       {openDoc && <ArtifactPanel doc={openDoc} onClose={closeArtifact} />}
+
+      {showPalette && <CommandPalette commands={commands} onClose={() => setShowPalette(false)} />}
 
       {showSettings && (
         <Settings

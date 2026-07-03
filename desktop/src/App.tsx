@@ -4,20 +4,26 @@ import { ApprovalPrompt } from "./components/ApprovalPrompt";
 import { ArtifactPanel } from "./components/ArtifactPanel";
 import { Composer } from "./components/Composer";
 import { AssistantBubble, UserBubble } from "./components/Message";
+import { ProjectPanel } from "./components/ProjectPanel";
 import { Settings } from "./components/Settings";
 import { Sidebar } from "./components/Sidebar";
+import { conversationsForProject } from "./state/projectFilter";
 import { findArtifact } from "./state/transcript";
 import { useConversations } from "./state/useConversations";
 import { useKeyboard } from "./state/useKeyboard";
+import { useProjects } from "./state/useProjects";
 
 export default function App() {
   const [provider, setProvider] = useState<string>("zhipu");
   const [model, setModel] = useState<string>("glm-4-plus");
   const [showSettings, setShowSettings] = useState(false);
+  const [showProject, setShowProject] = useState(false);
+
+  const proj = useProjects();
 
   const config = useMemo(
-    () => ({ provider, model, effort: "High", permissionMode: "ask" as const }),
-    [provider, model],
+    () => ({ provider, model, effort: "High", permissionMode: "ask" as const, projectId: proj.active }),
+    [provider, model, proj.active],
   );
   const {
     state,
@@ -37,16 +43,31 @@ export default function App() {
 
   useKeyboard({ onEscape: () => (busy ? stop() : closeArtifact()), onNewChat: newChat });
 
-  const lastAssistantIdx = state.messages.reduce(
-    (acc, m, i) => (m.role === "assistant" ? i : acc),
-    -1,
-  );
+  const lastAssistantIdx = state.messages.reduce((acc, m, i) => (m.role === "assistant" ? i : acc), -1);
   const openDoc = findArtifact(state, state.openArtifactId);
+  const scopedList = conversationsForProject(list, proj.active);
+  const activeProjectName = proj.list.find((p) => p.id === proj.active)?.name ?? "";
+
+  async function newProject() {
+    const name = window.prompt("New project name");
+    if (name?.trim()) {
+      await proj.create(name.trim());
+      newChat();
+    }
+  }
 
   return (
     <div className="app-shell">
       <Sidebar
-        list={list}
+        projects={proj.list}
+        activeProject={proj.active}
+        onSelectProject={(pid) => {
+          proj.setActive(pid);
+          newChat();
+        }}
+        onNewProject={newProject}
+        onManageProject={() => setShowProject(true)}
+        list={scopedList}
         currentId={current?.cid ?? null}
         onNew={newChat}
         onOpen={openConversation}
@@ -55,7 +76,10 @@ export default function App() {
 
       <div className="app">
         <header className="topbar">
-          <div className="brand">Open Claude Desktop</div>
+          <div className="brand">
+            Open Claude Desktop
+            {proj.active && <span className="project-chip">{activeProjectName}</span>}
+          </div>
           <button className="model-pill" onClick={() => setShowSettings(true)}>
             {provider} · {model}
           </button>
@@ -103,6 +127,19 @@ export default function App() {
             setModel(m);
           }}
           onClose={() => setShowSettings(false)}
+        />
+      )}
+
+      {showProject && proj.active && (
+        <ProjectPanel
+          pid={proj.active}
+          name={activeProjectName}
+          onClose={() => setShowProject(false)}
+          onDelete={async () => {
+            await proj.remove(proj.active!);
+            setShowProject(false);
+            newChat();
+          }}
         />
       )}
     </div>

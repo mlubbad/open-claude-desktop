@@ -31,9 +31,10 @@ export function useConversations(config: TurnConfig) {
     async (goal: string) => {
       if (!goal.trim() || chat.busy) return;
       if (!current) {
+        const pid = config.projectId ?? GENERAL_PROJECT;
         try {
-          const created = await convApi.create(GENERAL_PROJECT, goal);
-          setCurrent({ cid: created.id, pid: GENERAL_PROJECT });
+          const created = await convApi.create(pid, goal);
+          setCurrent({ cid: created.id, pid });
           void refresh();
         } catch {
           /* offline: proceed without persistence */
@@ -41,7 +42,7 @@ export function useConversations(config: TurnConfig) {
       }
       chat.send(goal);
     },
-    [current, chat, refresh],
+    [current, chat, refresh, config.projectId],
   );
 
   // Auto-save the transcript when a turn transitions from running -> idle.

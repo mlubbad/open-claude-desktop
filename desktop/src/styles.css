@@ -39,6 +39,14 @@ body { margin: 0; background: var(--bg); color: var(--text); }
 
 .sidebar { width: 260px; flex-shrink: 0; background: var(--surface-2); border-right: 1px solid var(--border);
   display: flex; flex-direction: column; padding: 10px; gap: 8px; }
+.project-select { display: flex; gap: 6px; }
+.project-select select { flex: 1; border: 1px solid var(--border); background: var(--surface);
+  color: var(--text); border-radius: 8px; padding: 7px 8px; font-size: 13px; }
+.manage-project { border: 1px solid var(--border); background: var(--surface); color: var(--muted);
+  border-radius: 8px; padding: 0 10px; cursor: pointer; }
+.project-chip { margin-left: 8px; font-size: 12px; color: var(--accent-fg); background: var(--accent);
+  border-radius: 999px; padding: 2px 8px; font-weight: 500; }
+
 .new-chat { border: 1px solid var(--border); background: var(--surface); color: var(--text);
   border-radius: 8px; padding: 8px 12px; cursor: pointer; font-size: 14px; text-align: left; }
 .new-chat:hover { border-color: var(--accent); }
@@ -193,3 +201,24 @@ body { margin: 0; background: var(--bg); color: var(--text); }
   border-radius: 999px; padding: 4px 10px; cursor: pointer; font-size: 12px; }
 .model-row .model.active { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
 .model-row .model:disabled { opacity: 0.4; cursor: default; }
+
+.field-label { display: block; font-size: 13px; font-weight: 600; margin: 12px 0 4px; }
+.instructions { width: 100%; border: 1px solid var(--border); border-radius: 8px; padding: 8px;
+  background: var(--bg); color: var(--text); font: inherit; resize: vertical; }
+.knowledge-head { display: flex; justify-content: space-between; align-items: flex-end; }
+.capacity { display: flex; align-items: center; gap: 8px; }
+.capacity-bar { width: 120px; height: 6px; background: var(--surface-2); border-radius: 999px; overflow: hidden; }
+.capacity-fill { height: 100%; background: var(--accent); }
+.capacity-text { font-size: 12px; color: var(--muted); }
+.file-list { list-style: none; padding: 0; margin: 6px 0; }
+.file-list li { display: flex; align-items: center; gap: 8px; padding: 6px 0; font-size: 13px;
+  border-bottom: 1px solid var(--border); }
+.file-badge { font-size: 10px; background: var(--surface-2); border-radius: 4px; padding: 2px 5px; color: var(--muted); }
+.file-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-size { color: var(--muted); font-size: 12px; }
+.file-empty { color: var(--muted); }
+.project-panel-actions { display: flex; justify-content: space-between; margin-top: 12px; }
+.project-panel-actions .upload { border: 1px solid var(--accent); background: var(--accent); color: var(--accent-fg);
+  border-radius: 8px; padding: 6px 14px; cursor: pointer; }
+.project-panel-actions .danger { border: 1px solid var(--danger); background: none; color: var(--danger);
+  border-radius: 8px; padding: 6px 14px; cursor: pointer; }

@@ -90,6 +90,47 @@ export interface AgentTurnRequest {
 // The backend routes non-project chats under this implicit project.
 export const GENERAL_PROJECT = "general";
 
+export interface Project {
+  id: string;
+  name: string;
+  created_at?: string;
+}
+
+export interface Capacity {
+  used_mb: number;
+  max_mb: number;
+  percent: number;
+}
+
+export interface ProjectFile {
+  name: string;
+  badge: string;
+  size: number;
+  meta?: string;
+}
+
+export const projects = {
+  list: () => api.get<Project[]>("/projects"),
+  create: (name: string) => api.post<Project>("/projects", { name }),
+  del: (pid: string) => api.del<{ ok: boolean }>(`/projects/${pid}`),
+  getInstructions: (pid: string) => api.get<{ content: string }>(`/projects/${pid}/instructions`),
+  saveInstructions: (pid: string, content: string) =>
+    api.put<{ ok: boolean }>(`/projects/${pid}/instructions`, { content }),
+  capacity: (pid: string) => api.get<Capacity>(`/projects/${pid}/capacity`),
+  files: (pid: string) => api.get<ProjectFile[]>(`/projects/${pid}/files`),
+  uploadFile: async (pid: string, file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    const resp = await fetch(`${BASE}/projects/${pid}/files`, {
+      method: "POST",
+      headers: authHeaders(), // no Content-Type: the browser sets the multipart boundary
+      body: form,
+    });
+    if (!resp.ok) throw new ApiError(resp.status, await resp.text());
+    return (await resp.json()) as { ok: boolean; name: string; chunks: number };
+  },
+};
+
 export interface ConversationSummary {
   id: string;
   title: string;

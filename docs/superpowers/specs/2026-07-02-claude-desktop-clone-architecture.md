@@ -421,6 +421,12 @@ adjust the roadmap ordering above:
   no same-origin, scoped CSP) + copy/download. Verified: backend 202 + 5 artifact tests,
   frontend 18 vitest (open/delta/close + update-upsert + persist round-trip), tsc clean,
   build 101 KB gz.
-- **Next (Phase 3 cont.):** projects/knowledge UI, artifact version history + true
-  token-streaming, message edit/branch, command palette, and the Tauri shell features
-  (tray, global hotkey, updater, keychain, backend sidecar).
+- **2026-07-03 — Phase 3 · Projects & Knowledge UI (complete):** the Projects surface
+  (frontend-only; backend already supported it). Sidebar project selector (General +
+  projects + new-project), active-project scoping of the chat list and of turns
+  (project_id → per-project instructions + KB), a ProjectPanel with an instructions
+  editor, knowledge-file upload/list, and a capacity meter. Pure `conversationsForProject`
+  filter unit-tested. Verified: 20 vitest, tsc clean, build 102.6 KB gz.
+- **Next (Phase 3 cont.):** artifact version history + true token-streaming, message
+  edit/branch, command palette, and the Tauri shell features (tray, global hotkey,
+  updater, keychain, backend sidecar).

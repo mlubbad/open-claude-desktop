@@ -1,12 +1,22 @@
-import type { ConversationSummary } from "../api/client";
+import type { ConversationSummary, Project } from "../api/client";
 
 export function Sidebar({
+  projects,
+  activeProject,
+  onSelectProject,
+  onNewProject,
+  onManageProject,
   list,
   currentId,
   onNew,
   onOpen,
   onDelete,
 }: {
+  projects: Project[];
+  activeProject: string | null;
+  onSelectProject: (pid: string | null) => void;
+  onNewProject: () => void;
+  onManageProject: () => void;
   list: ConversationSummary[];
   currentId: string | null;
   onNew: () => void;
@@ -15,9 +25,34 @@ export function Sidebar({
 }) {
   return (
     <aside className="sidebar">
+      <div className="project-select">
+        <select
+          value={activeProject ?? "__general"}
+          onChange={(e) => {
+            const v = e.target.value;
+            if (v === "__new") onNewProject();
+            else onSelectProject(v === "__general" ? null : v);
+          }}
+        >
+          <option value="__general">General</option>
+          {projects.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}
+            </option>
+          ))}
+          <option value="__new">+ New project…</option>
+        </select>
+        {activeProject && (
+          <button className="manage-project" title="Manage project" onClick={onManageProject}>
+            ⚙
+          </button>
+        )}
+      </div>
+
       <button className="new-chat" onClick={onNew}>
         + New chat
       </button>
+
       <nav className="conv-list">
         {list.map((c) => (
           <div

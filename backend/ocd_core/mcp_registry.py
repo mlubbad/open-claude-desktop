@@ -130,9 +130,12 @@ class MCPRegistry:
             if transport == "http":
                 # streamablehttp_client accepts headers= directly (the newer
                 # streamable_http_client takes a pre-built httpx client instead).
+                # An OAuth 2.1 provider (httpx.Auth) rides in via cfg["auth_provider"];
+                # the registry stays protocol-agnostic — integrations builds it.
                 from mcp.client.streamable_http import streamablehttp_client
                 read, write, _ = await stack.enter_async_context(
-                    streamablehttp_client(cfg["url"], headers=cfg.get("headers") or None))
+                    streamablehttp_client(cfg["url"], headers=cfg.get("headers") or None,
+                                          auth=cfg.get("auth_provider")))
             elif transport == "sse":
                 from mcp.client.sse import sse_client
                 read, write = await stack.enter_async_context(

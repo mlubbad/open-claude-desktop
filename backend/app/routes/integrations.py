@@ -114,6 +114,12 @@ def add_demo_mcp(user: str = Depends(current_user)) -> dict:
     return integrations.add_demo_mcp_server()
 
 
+@router.get("/mcp-servers/{sid}/oauth")
+def mcp_oauth_status(sid: str, user: str = Depends(current_user)) -> dict:
+    """OAuth authorization status for a connector (authorized?, scope, has_refresh)."""
+    return integrations.mcp_oauth_status(sid)
+
+
 def _spool_upload(file: UploadFile) -> Path:
     """Persist an uploaded bundle to a temp file so the installer can open it as a
     real zip. Caller is responsible for unlinking it."""

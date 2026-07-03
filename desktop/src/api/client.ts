@@ -204,6 +204,8 @@ export interface McpServer {
   args: string[];
   url: string;
   auth: boolean;
+  auth_mode?: string; // "oauth" for OAuth 2.1 connectors, else ""
+  authorized?: boolean; // OAuth connectors: whether a token is held
   source: string; // "mcpb" for one-click-installed extensions, else ""
   version: string;
   status: string;

@@ -535,6 +535,26 @@ adjust the roadmap ordering above:
   Verified: 8 tests (unchanged-when-fits, fits-budget-after-compaction, newest-turn-always-
   kept, recap content, window scaling, giant-single-message guard). Backend: 258 (8 new),
   ruff clean.
-- **Next (Phase 3 cont.):** MCP OAuth 2.1 (PKCE + DCR) for remote connectors;
+- **2026-07-03 — MCP OAuth 2.1 (PKCE + DCR), host pieces (complete; interactive step
+  pending a build host):** remote MCP servers that require OAuth 2.1 are now supported by
+  building on the MCP SDK's `OAuthClientProvider` (full protocol: discovery, Dynamic
+  Client Registration, PKCE, silent token refresh — it is an `httpx.Auth`). New
+  `ocd_core.mcp_oauth` supplies the host-specific glue: **`KeychainTokenStorage`**
+  persists both the issued token and the DCR client registration in the OS keychain (never
+  mcp_servers.json), so a connector stays authorized across restarts; **`LoopbackAuthCatcher`**
+  is a real one-shot `127.0.0.1` listener that captures the `?code=&state=` redirect
+  (the desktop `callback_handler`); `background_provider` attaches stored tokens + refreshes
+  silently and raises `ReauthorizationRequired` instead of popping a browser on the backend.
+  The registry passes `auth=cfg["auth_provider"]` to `streamablehttp_client`; `_resolve_cfg`
+  injects the provider for `auth_mode:"oauth"` servers; `remove_mcp_server` calls
+  `clear_oauth`; `list_mcp_servers` surfaces `auth_mode`/`authorized`; route
+  `GET /mcp-servers/{sid}/oauth` returns non-secret status. Verified offline (no live OAuth
+  server needed): token/client-info round-trips, corrupt-read tolerance, clear/has/summarize,
+  DCR client metadata (public client, PKCE, refresh grant), provider is an httpx.Auth,
+  `_resolve_cfg` injection, and the **loopback catcher end-to-end** (real HTTP GET →
+  code+state recovered). Backend: 269 (11 new). *Remaining:* the interactive browser
+  authorize + connect-retry loop is wired but only E2E-verifiable on the Tauri build host
+  against a live OAuth MCP server.
+- **Next (Phase 3 cont.):** interactive OAuth authorize on the Tauri host;
   true artifact token-streaming; finish the Tauri shell on a build host (tray, icons,
   signed updater, commit externalBin/sidecar spawn).

@@ -357,6 +357,11 @@ def _resolve_cfg(cfg: dict) -> dict:
             if token:
                 headers["Authorization"] = f"Bearer {token}"
         out["headers"] = headers or None
+        # OAuth 2.1 connectors attach an httpx.Auth provider that adds the stored token
+        # and refreshes it silently (raising ReauthorizationRequired if re-login needed).
+        if cfg.get("auth_mode") == "oauth":
+            from . import mcp_oauth
+            out["auth_provider"] = mcp_oauth.background_provider(cfg["id"], cfg["url"])
     else:
         out["command"] = _sub(cfg.get("command", ""))
         out["args"] = [_sub(a) for a in cfg.get("args", [])]
@@ -574,6 +579,10 @@ def remove_mcp_server(sid: str):
                 from . import secrets
                 with contextlib.suppress(Exception):
                     secrets.get_secret_store().delete(_mcp_auth_key(sid))
+            # Forget any OAuth tokens + dynamic client registration for this connector.
+            if s.get("auth_mode") == "oauth":
+                from . import mcp_oauth
+                mcp_oauth.clear_oauth(sid)
             # Reclaim a .mcpb extension's unpacked files, but only if the recorded
             # dir really lives under EXTENSIONS_DIR (never rmtree an arbitrary path).
             if s.get("source") == "mcpb" and s.get("dir"):
@@ -641,15 +650,29 @@ def mcp_get_prompt(sid: str, name: str, args: dict | None = None) -> dict:
     return mcp_registry.registry.get_prompt(_resolve_cfg(s), name, args or {})
 
 
+def _oauth_authorized(s: dict) -> bool:
+    if s.get("auth_mode") != "oauth":
+        return False
+    from . import mcp_oauth
+    return mcp_oauth.has_tokens(s["id"])
+
+
 def list_mcp_servers() -> list[dict]:
     """Registered MCP servers (without the verbose cached tool schemas)."""
     return [{"id": s["id"], "name": s["name"], "transport": s.get("transport", "stdio"),
              "command": s.get("command", ""), "args": s.get("args", []),
              "url": s.get("url", ""), "auth": bool(s.get("auth")),
+             "auth_mode": s.get("auth_mode", ""), "authorized": _oauth_authorized(s),
              "source": s.get("source", ""), "version": s.get("version", ""),
              "status": s.get("status", "unknown"), "detail": s.get("detail", ""),
              "tool_count": len(s.get("tools", []))}
             for s in _load_mcp_servers()]
+
+
+def mcp_oauth_status(sid: str) -> dict:
+    """OAuth authorization status for a connector (never returns the token itself)."""
+    from . import mcp_oauth
+    return mcp_oauth.summarize_tokens(sid)
 
 
 def mcp_tools(enabled_ids: list[str]) -> list[dict]:

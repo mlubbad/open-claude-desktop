@@ -461,7 +461,13 @@ adjust the roadmap ordering above:
   `McpBody`, and the route accept url/transport/env/headers/auth_token. Verified with a
   **real in-process FastMCP Streamable-HTTP server**: the registry connects, discovers the
   `echo` tool, and calls it end to end. Backend: 212 (7 new MCP tests).
+- **2026-07-03 — Desktop connectors UI (complete):** the client can now manage MCP
+  servers — list (name/transport/status/tool-count), add a local **stdio** or remote
+  **Streamable-HTTP/SSE** server (with an optional bearer token that goes to the backend
+  keychain), add the bundled demo, remove, and toggle per-session enablement; the enabled
+  set threads into each turn as `enabled_mcp`. This activates the remote-MCP backend end
+  user-side. Verified: 26 vitest (toggle helper), tsc clean, build 104.5 KB gz.
 - **Next (Phase 3 cont.):** MCP OAuth 2.1 (PKCE + DCR) + resources/prompts + `.mcpb`
-  one-click installs + a connectors UI in the new client; artifact version history + true
-  token-streaming; message edit/branch; command palette; finish the Tauri shell on a
-  build host (tray, icons, signed updater, commit externalBin/sidecar spawn).
+  one-click installs; artifact version history + true token-streaming; message edit/branch;
+  command palette; finish the Tauri shell on a build host (tray, icons, signed updater,
+  commit externalBin/sidecar spawn).

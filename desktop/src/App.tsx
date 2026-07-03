@@ -4,6 +4,7 @@ import { notify, registerSummonHotkey, unregisterSummonHotkey } from "./platform
 import { ApprovalPrompt } from "./components/ApprovalPrompt";
 import { ArtifactPanel } from "./components/ArtifactPanel";
 import { Composer } from "./components/Composer";
+import { ConnectorsPanel } from "./components/ConnectorsPanel";
 import { AssistantBubble, UserBubble } from "./components/Message";
 import { ProjectPanel } from "./components/ProjectPanel";
 import { Settings } from "./components/Settings";
@@ -11,6 +12,7 @@ import { Sidebar } from "./components/Sidebar";
 import { UsageMeter } from "./components/UsageMeter";
 import { conversationsForProject } from "./state/projectFilter";
 import { findArtifact } from "./state/transcript";
+import { useConnectors } from "./state/useConnectors";
 import { useConversations } from "./state/useConversations";
 import { useKeyboard } from "./state/useKeyboard";
 import { useProjects } from "./state/useProjects";
@@ -20,12 +22,21 @@ export default function App() {
   const [model, setModel] = useState<string>("glm-4-plus");
   const [showSettings, setShowSettings] = useState(false);
   const [showProject, setShowProject] = useState(false);
+  const [showConnectors, setShowConnectors] = useState(false);
 
   const proj = useProjects();
+  const connectors = useConnectors();
 
   const config = useMemo(
-    () => ({ provider, model, effort: "High", permissionMode: "ask" as const, projectId: proj.active }),
-    [provider, model, proj.active],
+    () => ({
+      provider,
+      model,
+      effort: "High",
+      permissionMode: "ask" as const,
+      projectId: proj.active,
+      enabledMcp: connectors.enabled,
+    }),
+    [provider, model, proj.active, connectors.enabled],
   );
   const {
     state,
@@ -103,6 +114,9 @@ export default function App() {
           </div>
           <div className="topbar-right">
             {state.usage && <UsageMeter usage={state.usage} />}
+            <button className="icon-btn" title="Connectors (MCP)" onClick={() => setShowConnectors(true)}>
+              🔌{connectors.enabled.length > 0 && <span className="badge">{connectors.enabled.length}</span>}
+            </button>
             <button className="model-pill" onClick={() => setShowSettings(true)}>
               {provider} · {model}
             </button>
@@ -151,6 +165,19 @@ export default function App() {
             setModel(m);
           }}
           onClose={() => setShowSettings(false)}
+        />
+      )}
+
+      {showConnectors && (
+        <ConnectorsPanel
+          servers={connectors.servers}
+          enabled={connectors.enabled}
+          err={connectors.err}
+          onAdd={(body) => void connectors.add(body)}
+          onAddDemo={() => void connectors.addDemo()}
+          onRemove={(sid) => void connectors.remove(sid)}
+          onToggle={connectors.toggle}
+          onClose={() => setShowConnectors(false)}
         />
       )}
 

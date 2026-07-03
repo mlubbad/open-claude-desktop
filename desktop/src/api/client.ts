@@ -165,6 +165,37 @@ export const conversations = {
   del: (pid: string, cid: string) => api.del<{ ok: boolean }>(`/projects/${pid}/conversations/${cid}`),
 };
 
+export interface McpServer {
+  id: string;
+  name: string;
+  transport: string;
+  command: string;
+  args: string[];
+  url: string;
+  auth: boolean;
+  status: string;
+  detail: string;
+  tool_count: number;
+}
+
+export interface AddMcpBody {
+  name: string;
+  command?: string;
+  args?: string[];
+  url?: string;
+  transport?: string;
+  env?: Record<string, string>;
+  headers?: Record<string, string>;
+  auth_token?: string;
+}
+
+export const mcp = {
+  list: () => api.get<McpServer[]>("/mcp-servers"),
+  add: (body: AddMcpBody) => api.post<McpServer>("/mcp-servers", body),
+  addDemo: () => api.post<McpServer>("/mcp-servers/demo"),
+  remove: (sid: string) => api.del<{ ok: boolean }>(`/mcp-servers/${sid}`),
+};
+
 // Stream an agent turn. Invokes onEvent for each typed event; resolves on `done`.
 // The returned AbortController lets the caller stop the turn.
 export function streamTurn(

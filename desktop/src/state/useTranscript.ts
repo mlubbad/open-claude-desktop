@@ -50,6 +50,7 @@ export interface TurnConfig {
   permissionMode?: string | null;
   projectId?: string | null;
   options?: Record<string, boolean>;
+  enabledMcp?: string[];
 }
 
 export function useTranscript(config: TurnConfig) {
@@ -69,6 +70,7 @@ export function useTranscript(config: TurnConfig) {
         permission_mode: config.permissionMode ?? null,
         project_id: config.projectId ?? null,
         options: config.options ?? {},
+        enabled_mcp: config.enabledMcp ?? [],
       };
       setBusy(true);
       ctrlRef.current = streamTurn(

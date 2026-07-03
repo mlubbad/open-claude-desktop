@@ -70,6 +70,31 @@ body { margin: 0; background: var(--bg); color: var(--text); }
   border-radius: 999px; padding: 5px 12px; cursor: pointer; font-size: 13px;
 }
 .topbar-right { display: flex; align-items: center; gap: 12px; }
+.icon-btn { position: relative; border: 1px solid var(--border); background: var(--surface-2);
+  color: var(--text); border-radius: 999px; padding: 5px 10px; cursor: pointer; font-size: 13px; }
+.icon-btn .badge { position: absolute; top: -4px; right: -4px; background: var(--accent);
+  color: var(--accent-fg); border-radius: 999px; font-size: 10px; padding: 0 5px; }
+
+.conn-list { list-style: none; padding: 0; margin: 8px 0; }
+.conn-list li { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); }
+.conn-meta { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.conn-name { font-weight: 500; }
+.conn-sub { font-size: 12px; color: var(--muted); display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.conn-badge { border: 1px solid var(--border); border-radius: 4px; padding: 0 5px; text-transform: uppercase; font-size: 10px; }
+.conn-status.connected { color: var(--ok); }
+.conn-status.error { color: var(--danger); }
+.conn-del { border: none; background: none; color: var(--muted); cursor: pointer; }
+.conn-empty { color: var(--muted); }
+.conn-add { border-top: 1px solid var(--border); padding-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+.conn-tabs { display: flex; gap: 6px; align-items: center; }
+.conn-tabs button { border: 1px solid var(--border); background: var(--surface-2); color: var(--text);
+  border-radius: 8px; padding: 4px 10px; cursor: pointer; font-size: 13px; }
+.conn-tabs button.active { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+.conn-tabs .conn-demo { margin-left: auto; }
+.conn-add input, .conn-add select { border: 1px solid var(--border); border-radius: 8px; padding: 7px 8px;
+  background: var(--bg); color: var(--text); font: inherit; }
+.conn-submit { background: var(--accent); color: var(--accent-fg); border: none; border-radius: 8px;
+  padding: 8px; cursor: pointer; }
 .usage-meter { display: flex; align-items: center; gap: 6px; }
 .usage-bar { width: 64px; height: 5px; background: var(--surface-2); border-radius: 999px; overflow: hidden; }
 .usage-fill { height: 100%; background: var(--accent); transition: width 0.2s; }

@@ -372,5 +372,12 @@ adjust the roadmap ordering above:
 - **2026-07-02 — Phase 1a (complete):** `ocd_core/llm/` provider layer (12 providers,
   BYOK via keychain, capability catalog, OpenAI-compatible client), `/providers` API,
   zhipuai dependency removed, provider-shape contract tests. Backend suite: 175 passed.
+- **2026-07-03 — Phase 1b (complete):** per-turn provider routing (`resolve_turn_client`,
+  request+settings `provider`), provider-scoped model fallback, streaming duplicate-emit
+  bug fixed, `owner_id`/`workspace_id` multi-user seams (+migration). Backend: 180 passed.
+- **2026-07-03 — Ops:** ruff lint debt burned down repo-wide; CI lint gate flipped to
+  blocking. Backend 180 + frontend 32 green; `ruff check .` clean.
 - **Deferred/refined by §9:** HITL permission loop pulled earlier; ContextManager before
-  Code/Cowork; owner_id/workspace_id seams; AgentEngine port + native coding floor.
+  Code/Cowork; AgentEngine port + native coding floor; Anthropic-native adapter.
+- **Next:** Phase 2 — de-BigQuery the agent core (composable system prompt, tool registry,
+  BigQuery→MCP connector shipped in the same slice), then the early HITL permission loop.

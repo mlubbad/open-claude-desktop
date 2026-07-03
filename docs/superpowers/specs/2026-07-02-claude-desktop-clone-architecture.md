@@ -401,6 +401,11 @@ adjust the roadmap ordering above:
   (streaming, tool cards, HITL approval prompt, provider/model settings, stop-generation),
   original theme-aware design. Verified: tsc clean, 8 vitest pass, vite build 98 KB gz.
   New CI `desktop` job (typecheck + test + build). Reflex `frontend/` kept as the spec.
-- **Next (Phase 3 cont.):** conversation persistence + history, projects/knowledge,
-  artifacts side-panel, message edit/retry/branch, keyboard shortcuts/command palette, and
-  the Tauri shell features (tray, global hotkey, updater, keychain, backend sidecar).
+- **2026-07-03 — Phase 3 · conversation persistence (complete):** the client now saves &
+  restores chats. `persist.ts` losslessly round-trips the rich block transcript through the
+  backend's {role,content,kind} store (vitest 5/5); `useConversations` adds the sidebar list,
+  create-on-first-send, auto-save on turn-end, open/restore, and delete — all degrading
+  gracefully offline. History sidebar UI. Verified: 13 vitest, tsc clean, build 99 KB gz.
+- **Next (Phase 3 cont.):** projects/knowledge, artifacts side-panel, message edit/retry/
+  branch, keyboard shortcuts/command palette, and the Tauri shell features (tray, global
+  hotkey, updater, keychain, backend sidecar).

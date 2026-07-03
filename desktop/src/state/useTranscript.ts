@@ -5,9 +5,20 @@ import { useCallback, useReducer, useRef, useState } from "react";
 
 import { type AgentTurnRequest, replyPermission, streamTurn } from "../api/client";
 import type { AgentEvent } from "../api/events";
-import { applyEvent, initialState, startTurn, type TranscriptState } from "./transcript";
+import {
+  applyEvent,
+  initialState,
+  loadMessages,
+  type Message,
+  startTurn,
+  type TranscriptState,
+} from "./transcript";
 
-type Action = { kind: "event"; ev: AgentEvent } | { kind: "start"; goal: string } | { kind: "reset" };
+type Action =
+  | { kind: "event"; ev: AgentEvent }
+  | { kind: "start"; goal: string }
+  | { kind: "load"; messages: Message[] }
+  | { kind: "reset" };
 
 function reducer(state: TranscriptState, action: Action): TranscriptState {
   switch (action.kind) {
@@ -15,6 +26,8 @@ function reducer(state: TranscriptState, action: Action): TranscriptState {
       return applyEvent(state, action.ev);
     case "start":
       return startTurn(state, action.goal);
+    case "load":
+      return loadMessages(action.messages);
     case "reset":
       return initialState();
   }
@@ -93,6 +106,7 @@ export function useTranscript(config: TurnConfig) {
   );
 
   const reset = useCallback(() => dispatch({ kind: "reset" }), []);
+  const load = useCallback((messages: Message[]) => dispatch({ kind: "load", messages }), []);
 
-  return { state, busy, send, stop, resolveApproval, reset };
+  return { state, busy, send, stop, resolveApproval, reset, load };
 }

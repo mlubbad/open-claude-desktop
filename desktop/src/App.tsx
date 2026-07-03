@@ -4,7 +4,8 @@ import { ApprovalPrompt } from "./components/ApprovalPrompt";
 import { Composer } from "./components/Composer";
 import { AssistantBubble, UserBubble } from "./components/Message";
 import { Settings } from "./components/Settings";
-import { useTranscript } from "./state/useTranscript";
+import { Sidebar } from "./components/Sidebar";
+import { useConversations } from "./state/useConversations";
 
 export default function App() {
   const [provider, setProvider] = useState<string>("zhipu");
@@ -15,36 +16,47 @@ export default function App() {
     () => ({ provider, model, effort: "High", permissionMode: "ask" as const }),
     [provider, model],
   );
-  const { state, busy, send, stop, resolveApproval } = useTranscript(config);
+  const { state, busy, send, stop, resolveApproval, list, current, openConversation, newChat, remove } =
+    useConversations(config);
 
   return (
-    <div className="app">
-      <header className="topbar">
-        <div className="brand">Open Claude Desktop</div>
-        <button className="model-pill" onClick={() => setShowSettings(true)}>
-          {provider} · {model}
-        </button>
-      </header>
+    <div className="app-shell">
+      <Sidebar
+        list={list}
+        currentId={current?.cid ?? null}
+        onNew={newChat}
+        onOpen={openConversation}
+        onDelete={remove}
+      />
 
-      <main className="transcript">
-        {state.messages.length === 0 && (
-          <div className="empty">
-            <h1>How can I help?</h1>
-            <p>Bring your own model — pick a provider and key in settings.</p>
-          </div>
-        )}
-        {state.messages.map((m, i) =>
-          m.role === "user" ? <UserBubble key={i} msg={m} /> : <AssistantBubble key={i} msg={m} />,
-        )}
-        {state.error && <div className="turn-error">{state.error}</div>}
-        {state.pendingApproval && (
-          <ApprovalPrompt pending={state.pendingApproval} onDecide={resolveApproval} />
-        )}
-      </main>
+      <div className="app">
+        <header className="topbar">
+          <div className="brand">Open Claude Desktop</div>
+          <button className="model-pill" onClick={() => setShowSettings(true)}>
+            {provider} · {model}
+          </button>
+        </header>
 
-      <footer className="footer">
-        <Composer busy={busy} onSend={send} onStop={stop} />
-      </footer>
+        <main className="transcript">
+          {state.messages.length === 0 && (
+            <div className="empty">
+              <h1>How can I help?</h1>
+              <p>Bring your own model — pick a provider and key in settings.</p>
+            </div>
+          )}
+          {state.messages.map((m, i) =>
+            m.role === "user" ? <UserBubble key={i} msg={m} /> : <AssistantBubble key={i} msg={m} />,
+          )}
+          {state.error && <div className="turn-error">{state.error}</div>}
+          {state.pendingApproval && (
+            <ApprovalPrompt pending={state.pendingApproval} onDecide={resolveApproval} />
+          )}
+        </main>
+
+        <footer className="footer">
+          <Composer busy={busy} onSend={send} onStop={stop} />
+        </footer>
+      </div>
 
       {showSettings && (
         <Settings

@@ -51,6 +51,7 @@ export const api = {
   get: <T>(p: string) => request<T>("GET", p),
   post: <T>(p: string, body?: unknown) => request<T>("POST", p, body),
   put: <T>(p: string, body?: unknown) => request<T>("PUT", p, body),
+  patch: <T>(p: string, body?: unknown) => request<T>("PATCH", p, body),
   del: <T>(p: string) => request<T>("DELETE", p),
 };
 
@@ -85,6 +86,43 @@ export interface AgentTurnRequest {
   enabled_connectors?: string[];
   enabled_mcp?: string[];
 }
+
+// The backend routes non-project chats under this implicit project.
+export const GENERAL_PROJECT = "general";
+
+export interface ConversationSummary {
+  id: string;
+  title: string;
+  updated_at: string;
+  updated_rel?: string;
+  pinned: boolean;
+  project_id?: string;
+  project_name?: string;
+}
+
+export interface StoredMsg {
+  role: string;
+  content: string;
+  kind: string;
+}
+
+export interface ConversationDetail extends ConversationSummary {
+  messages: StoredMsg[];
+}
+
+export const conversations = {
+  listAll: (limit = 200) => api.get<ConversationSummary[]>(`/conversations?limit=${limit}`),
+  create: (pid: string, firstMessage: string) =>
+    api.post<ConversationDetail>(`/projects/${pid}/conversations`, { first_message: firstMessage }),
+  get: (pid: string, cid: string) => api.get<ConversationDetail>(`/projects/${pid}/conversations/${cid}`),
+  save: (pid: string, cid: string, messages: StoredMsg[], title?: string) =>
+    api.put<ConversationDetail>(`/projects/${pid}/conversations/${cid}`, { messages, title }),
+  rename: (pid: string, cid: string, title: string) =>
+    api.patch<{ ok: boolean }>(`/projects/${pid}/conversations/${cid}`, { title }),
+  setPinned: (pid: string, cid: string, pinned: boolean) =>
+    api.patch<{ ok: boolean }>(`/projects/${pid}/conversations/${cid}`, { pinned }),
+  del: (pid: string, cid: string) => api.del<{ ok: boolean }>(`/projects/${pid}/conversations/${cid}`),
+};
 
 // Stream an agent turn. Invokes onEvent for each typed event; resolves on `done`.
 // The returned AbortController lets the caller stop the turn.

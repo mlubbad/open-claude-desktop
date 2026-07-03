@@ -64,6 +64,11 @@ export function initialState(): TranscriptState {
   return { messages: [], turnId: null, running: false, pendingApproval: null, error: null };
 }
 
+// Replace the whole transcript (loading a saved conversation).
+export function loadMessages(messages: Message[]): TranscriptState {
+  return { ...initialState(), messages };
+}
+
 // Begin a new user turn: append the user message + a fresh assistant message.
 export function startTurn(state: TranscriptState, goal: string): TranscriptState {
   return {

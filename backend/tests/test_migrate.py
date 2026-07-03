@@ -1,7 +1,8 @@
 import json
+
 from ocd_core.db import migrate
 from ocd_core.db.engine import session
-from ocd_core.db.models import Project, Conversation
+from ocd_core.db.models import Conversation, Project
 from sqlmodel import select
 
 
@@ -13,12 +14,14 @@ def _seed_tree(root):
     (pdir / "knowledge").mkdir(parents=True)
     (pdir / "instructions.md").write_text("do alpha", encoding="utf-8")
     (pdir / "allowlist.json").write_text(json.dumps(["aj360.events"]), encoding="utf-8")
-    cdir = pdir / "conversations"; cdir.mkdir()
+    cdir = pdir / "conversations"
+    cdir.mkdir()
     (cdir / "c1.json").write_text(json.dumps({
         "id": "c1", "title": "Chat 1", "created_at": "2026-01-02T00:00:00+00:00",
         "updated_at": "2026-01-03T00:00:00+00:00", "pinned": True,
         "messages": [{"role": "user", "content": "hi", "kind": "user"}]}), encoding="utf-8")
-    gdir = root / "general" / "conversations"; gdir.mkdir(parents=True)
+    gdir = root / "general" / "conversations"
+    gdir.mkdir(parents=True)
     (gdir / "g1.json").write_text(json.dumps({
         "id": "g1", "title": "General", "created_at": "2026-01-04T00:00:00+00:00",
         "updated_at": "2026-01-04T00:00:00+00:00", "messages": []}), encoding="utf-8")
@@ -47,7 +50,8 @@ def test_migrate_is_idempotent(db, tmp_path):
 
 def test_legacy_chat_history_fold_is_idempotent(db, tmp_path):
     import json
-    pdir = tmp_path / "oldproj" / "conversations"; pdir.mkdir(parents=True)
+    pdir = tmp_path / "oldproj" / "conversations"
+    pdir.mkdir(parents=True)
     (tmp_path / "oldproj" / "chat_history.json").write_text(json.dumps(
         [{"role": "user", "content": "legacy hi", "kind": "user"}]), encoding="utf-8")
     from ocd_core.db.engine import session

@@ -37,9 +37,7 @@ jobs:
 
   lint:
     runs-on: ubuntu-latest
-    # Advisory while pre-existing lint debt is burned down; then drop
-    # continue-on-error to make it blocking.
-    continue-on-error: true
+    # Blocking: the repo is ruff-clean (lint debt burned down 2026-07-03).
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

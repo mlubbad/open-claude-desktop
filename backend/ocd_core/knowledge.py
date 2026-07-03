@@ -26,7 +26,7 @@ def _file_meta(path: Path) -> dict:
     ext = path.suffix.lstrip(".").lower()
     if ext in _TEXT_EXTS:
         try:
-            with open(path, "r", encoding="utf-8", errors="ignore") as fh:
+            with open(path, encoding="utf-8", errors="ignore") as fh:
                 meta = f"{sum(1 for _ in fh)} lines"
         except Exception:
             meta = util.fmt_size(size)

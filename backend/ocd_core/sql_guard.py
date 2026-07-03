@@ -58,7 +58,7 @@ def tables_off_allowlist(referenced_tables: list[str], allowlist: list[str]) -> 
     return any(r not in allowed for r in refs)
 
 
-def check_banned_aliases(sql: str) -> "str | None":
+def check_banned_aliases(sql: str) -> str | None:
     """Return an error string if the SQL uses a BigQuery reserved word as an
     alias (via ``AS x`` or a parenthesis alias), else None."""
     aliases = set()

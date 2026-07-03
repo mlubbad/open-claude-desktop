@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 
 def slugify(text: str) -> str:
@@ -63,12 +63,12 @@ def relative_time(value) -> str:
         if isinstance(value, str):
             dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
         elif isinstance(value, (int, float)):
-            dt = datetime.fromtimestamp(value, tz=timezone.utc)
+            dt = datetime.fromtimestamp(value, tz=UTC)
         else:
             dt = value
         if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        secs = (datetime.now(timezone.utc) - dt).total_seconds()
+            dt = dt.replace(tzinfo=UTC)
+        secs = (datetime.now(UTC) - dt).total_seconds()
         if secs < 60:
             return "just now"
         if secs < 3600:

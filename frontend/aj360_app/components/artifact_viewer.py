@@ -2,8 +2,8 @@
 import reflex as rx
 
 from ..state import AppState
-from .theme import BORDER, CARD_BG
 from .sidebar import sidebar
+from .theme import BORDER, CARD_BG
 
 
 def code_page() -> rx.Component:

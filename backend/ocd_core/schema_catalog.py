@@ -125,7 +125,7 @@ def search_schema(question: str, active_project: str | None = None, top_k: int =
             if docs.get("documents") and docs["documents"][0]:
                 wiki_hits, doc_hits = [], []
                 metas = docs.get("metadatas", [[]])[0]
-                for doc, meta in zip(docs["documents"][0], metas):
+                for doc, meta in zip(docs["documents"][0], metas, strict=False):
                     if meta.get("type") == "wiki" or str(meta.get("source", "")).endswith(".md"):
                         wiki_hits.append(doc)
                     else:

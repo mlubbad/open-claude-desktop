@@ -1,5 +1,6 @@
 import importlib
 
+
 def test_defaults_match_current_values(monkeypatch):
     for k in ("GCP_PROJECT_ID", "CATALOG_DATASETS", "MAX_BYTES_BILLED_GB",
               "QUERY_TIMEOUT_SEC", "RATE_LIMIT_QUERIES", "RATE_LIMIT_WINDOW_SEC"):

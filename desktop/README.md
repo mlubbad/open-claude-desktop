@@ -56,8 +56,35 @@ detects the Tauri global and falls back to web behavior in a plain browser, so t
 client runs identically either way.
 
 **Remaining shell work:** the system tray, deep links, sign the updater feed
-(`tauri signer generate` → set `plugins.updater.pubkey`), app icons, and packaging the
-FastAPI backend as a bundled sidecar (PyInstaller → `externalBin`).
+(`tauri signer generate` → set `plugins.updater.pubkey`), and app icons.
+
+## Backend sidecar (ships the app without a system Python)
+
+The FastAPI backend freezes into a self-contained binary (verified: the frozen
+binary serves `/healthz` and `/providers`). To package it into the app:
+
+```bash
+pip install ./backend pyinstaller
+bash desktop/scripts/build-backend-sidecar.sh   # → src-tauri/binaries/ocd-backend-<triple>
+```
+
+Then declare it in `src-tauri/tauri.conf.json` and spawn it from the shell:
+
+```jsonc
+// tauri.conf.json → "bundle"
+"externalBin": ["binaries/ocd-backend"]
+```
+
+```rust
+// src-tauri/src/lib.rs (add tauri-plugin-shell), in .setup():
+use tauri_plugin_shell::ShellExt;
+let (_rx, _child) = app.shell().sidecar("ocd-backend").unwrap()
+    .args(["--port", "8000"]).spawn().expect("failed to start backend");
+```
+
+`externalBin` is intentionally NOT committed to `tauri.conf.json` so `npm run tauri
+dev`/`build` of the UI shell works before the 290 MB sidecar is built; the release
+workflow (`.github/workflows/release.yml`) builds the sidecar first, then the app.
 
 ## Status (foundation slice)
 

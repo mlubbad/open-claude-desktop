@@ -1,2 +1,4 @@
 /target
 /gen/schemas
+# Built PyInstaller backend sidecar (produced by scripts/build-backend-sidecar.sh)
+/binaries

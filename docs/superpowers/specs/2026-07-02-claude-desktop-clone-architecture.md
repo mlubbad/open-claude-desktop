@@ -435,7 +435,17 @@ adjust the roadmap ordering above:
   This environment lacks the WebKit system libs, so the Rust cannot be COMPILED here — but
   the full Tauri + 5-plugin dependency graph is validated (`cargo fetch` OK) and the app
   side is fully verified: 23 vitest (3 platform-fallback tests), tsc clean, build 103 KB gz.
+- **2026-07-03 — Backend sidecar + release pipeline (complete, verified):** the FastAPI
+  backend ships self-contained. `backend/sidecar.py` (uvicorn entry, loopback default via
+  netguard, machine-readable ready line) + `ocd-backend.spec` + `build-backend-sidecar.sh`
+  freeze it with PyInstaller. **VERIFIED end to end in this environment:** the freeze
+  succeeds and the frozen binary (26 MB exe, 290 MB onedir) serves `/healthz` (200) and
+  `/providers` (the 12-provider BYOK list) with no system Python. A `release.yml` workflow
+  builds the sidecar + Tauri app per-platform (macOS/Windows/Linux) and publishes to
+  Releases; the Rust `sidecar()` spawn snippet + `externalBin` wiring are documented (the
+  latter kept out of the committed config so UI-only `tauri dev`/`build` still works).
+  Backend suite: 204 (2 new sidecar guards).
 - **Remaining Tauri work:** system tray, deep links, sign + publish the updater feed, app
-  icons, and the FastAPI backend as a PyInstaller sidecar (`externalBin`).
+  icons, and committing the `externalBin`/`sidecar()` spawn wiring on a build host.
 - **Next (Phase 3 cont.):** artifact version history + true token-streaming, message
   edit/branch, command palette, usage/cost meter; then the remaining shell items above.

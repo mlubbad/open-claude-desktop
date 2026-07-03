@@ -536,7 +536,8 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
                    web_fetch: bool = False, code_exec: bool = False, bash: bool = False,
                    text_editor: bool = False, memory: bool = False,
                    provider: str | None = None, turn_id: str | None = None,
-                   permission_mode: str | None = None, artifacts: bool = False):
+                   permission_mode: str | None = None, artifacts: bool = False,
+                   user_profile: str = ""):
     """Drive one agent turn, yielding events. `history` is prior (role/content) turns.
 
     `turn_id` + `permission_mode` enable the interactive HITL gate: when set (and the
@@ -564,6 +565,7 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
     messages = [{"role": "system",
                  "content": prompts.build_system_prompt(
                      extra_sections=extra_sections or None, memory=memory,
+                     user_profile=user_profile,
                      project_instructions=project_instructions,
                      skill_instructions=skill_instructions, research=research)},
                 *history, {"role": "user", "content": goal}]

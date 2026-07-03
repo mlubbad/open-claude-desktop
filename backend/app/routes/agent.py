@@ -3,7 +3,17 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from ocd_core import agent, commands, integrations, observability, permissions, projects, skills
+from ocd_core import (
+    agent,
+    commands,
+    integrations,
+    observability,
+    permissions,
+    profile,
+    projects,
+    settings,
+    skills,
+)
 from sse_starlette.sse import EventSourceResponse
 
 from ..deps import current_user
@@ -29,6 +39,7 @@ async def agent_turn(req: AgentTurnRequest, user: str = Depends(current_user)):
     o = req.options
     history = [m.model_dump() for m in req.history]
     turn_id = uuid.uuid4().hex
+    user_profile = profile.render(settings.get_settings().get("profile") or {})
 
     async def stream():
         # First frame carries the turn_id so the client can reply to permission prompts
@@ -41,7 +52,7 @@ async def agent_turn(req: AgentTurnRequest, user: str = Depends(current_user)):
                     research=o.research, extra_tools=extra_tools, web_fetch=o.web_fetch,
                     code_exec=o.code_exec, bash=o.bash, text_editor=o.text_editor, memory=o.memory,
                     provider=req.provider, turn_id=turn_id, permission_mode=req.permission_mode,
-                    artifacts=o.artifacts):
+                    artifacts=o.artifacts, user_profile=user_profile):
                 yield format_event(ev)
         except Exception as e:
             yield format_event({"type": "error", "text": str(e)})

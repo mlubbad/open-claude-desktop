@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { type ProviderInfo, providers } from "../api/client";
+import { type ProviderInfo, providers, settings as settingsApi, type UserProfile } from "../api/client";
 
 // BYOK settings: list providers, store a key per provider (the key is never read
 // back — only a has_key flag), and pick the active provider + model for the session.
@@ -16,6 +16,7 @@ export function Settings({
   const [list, setList] = useState<ProviderInfo[]>([]);
   const [keyDraft, setKeyDraft] = useState<Record<string, string>>({});
   const [err, setErr] = useState<string | null>(null);
+  const [profile, setProfile] = useState<UserProfile>({});
 
   async function refresh() {
     try {
@@ -27,7 +28,16 @@ export function Settings({
 
   useEffect(() => {
     void refresh();
+    settingsApi.get().then((s) => setProfile(s.profile ?? {})).catch(() => {});
   }, []);
+
+  function saveProfile() {
+    void settingsApi.save({ profile }).catch((e) => setErr(String(e)));
+  }
+
+  function setField(k: keyof UserProfile, v: string) {
+    setProfile((p) => ({ ...p, [k]: v }));
+  }
 
   async function saveKey(id: string) {
     try {
@@ -47,6 +57,19 @@ export function Settings({
           <button onClick={onClose}>✕</button>
         </div>
         {err && <div className="settings-err">{err}</div>}
+
+        <label className="field-label">About you (personalizes every chat)</label>
+        <div className="profile-form">
+          <input placeholder="What should the assistant call you?" value={profile.call_me ?? ""}
+                 onChange={(e) => setField("call_me", e.target.value)} onBlur={saveProfile} />
+          <input placeholder="Your role or work (optional)" value={profile.role ?? ""}
+                 onChange={(e) => setField("role", e.target.value)} onBlur={saveProfile} />
+          <textarea placeholder="Response preferences (tone, length, format…)" rows={2}
+                    value={profile.preferences ?? ""}
+                    onChange={(e) => setField("preferences", e.target.value)} onBlur={saveProfile} />
+        </div>
+
+        <label className="field-label">Providers &amp; models</label>
         <ul className="provider-list">
           {list.map((p) => (
             <li key={p.id} className={p.id === active.provider ? "active" : ""}>

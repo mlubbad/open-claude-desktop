@@ -67,6 +67,27 @@ export interface ProviderInfo {
   is_default: boolean;
 }
 
+export interface UserProfile {
+  name?: string;
+  call_me?: string;
+  role?: string;
+  about?: string;
+  preferences?: string;
+}
+
+export interface AppSettings {
+  model?: string;
+  provider?: string;
+  effort?: string;
+  theme?: string;
+  profile?: UserProfile;
+}
+
+export const settings = {
+  get: () => api.get<AppSettings>("/settings"),
+  save: (patch: Partial<AppSettings>) => api.put<AppSettings>("/settings", patch),
+};
+
 export const providers = {
   list: () => api.get<ProviderInfo[]>("/providers"),
   setKey: (id: string, key: string) => api.put<{ id: string; has_key: boolean }>(`/providers/${id}/key`, { key }),

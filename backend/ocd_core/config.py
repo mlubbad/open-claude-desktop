@@ -61,7 +61,7 @@ EFFORT_DESCRIPTIONS = {
 }
 DEFAULT_SETTINGS = {"model": AGENT_MODEL,
                     "provider": os.getenv("LLM_PROVIDER", "zhipu"),
-                    "effort": "High", "theme": "light"}
+                    "effort": "High", "theme": "light", "profile": {}}
 SETTINGS_FILE = REPO_ROOT / "settings.json"
 
 # --- projects / conversations ---

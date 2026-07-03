@@ -83,6 +83,7 @@ class SettingsBody(BaseModel):
     provider: str | None = None
     effort: str | None = None
     theme: str | None = None
+    profile: dict | None = None
 
 
 class TitleRequest(BaseModel):

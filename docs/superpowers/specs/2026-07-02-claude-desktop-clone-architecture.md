@@ -498,7 +498,18 @@ adjust the roadmap ordering above:
   through history — preview, code, copy, and download all follow the selected version.
   Verified: 34 vitest (3 new — history accumulation, setVersion slotting, legacy tolerance),
   tsc clean, build 106 KB gz.
+- **2026-07-03 — Conversation full-text search (complete):** search across every chat's
+  title AND message bodies, not just titles. `search_conversations(q, limit)` does a
+  portable in-Python scan (identical on SQLite/Postgres) over all threads;
+  `_message_text` extracts human-readable text from the JSON block transcripts
+  (answer/thinking text, tool summaries, artifact titles+content) so assistant turns are
+  searchable; results carry a `snippet` (context window with ellipses) and `matched_in`
+  role, ordered pinned/newest-first. Route `GET /conversations/search?q=`. Frontend:
+  `conversations.search`; the command palette (⌘K) now fires a debounced content search
+  and shows body matches under an **In chats** section (title matches deduped against the
+  existing chat list). Verified: 11 backend tests (extraction, title/body match, case-
+  insensitivity, snippet windowing, limit, empty/no-match) + a route test; 34 vitest,
+  tsc clean, build 107 KB gz. Backend: 237 (11 new).
 - **Next (Phase 3 cont.):** MCP OAuth 2.1 (PKCE + DCR) for remote connectors;
-  true artifact token-streaming; conversation full-text search; web-search hardening
-  (SearXNG/ddgs); finish the Tauri shell on a build host (tray, icons, signed updater,
-  commit externalBin/sidecar spawn).
+  true artifact token-streaming; web-search hardening (SearXNG/ddgs); finish the Tauri
+  shell on a build host (tray, icons, signed updater, commit externalBin/sidecar spawn).

@@ -236,12 +236,17 @@ body { margin: 0; background: var(--bg); color: var(--text); }
 .palette-input { width: 100%; border: none; border-bottom: 1px solid var(--border); outline: none;
   background: transparent; color: var(--text); font-size: 15px; padding: 14px 16px; }
 .palette-list { list-style: none; margin: 0; padding: 6px; max-height: 50vh; overflow-y: auto; }
-.palette-list li { display: flex; justify-content: space-between; align-items: center; gap: 8px;
+.palette-list li { display: flex; flex-direction: column; gap: 2px;
   padding: 8px 10px; border-radius: 8px; cursor: pointer; }
 .palette-list li.active { background: var(--accent); color: var(--accent-fg); }
+.palette-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .palette-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.palette-hint { font-size: 12px; opacity: 0.7; }
-.palette-empty { color: var(--muted); padding: 10px; }
+.palette-hint { font-size: 12px; opacity: 0.7; flex-shrink: 0; }
+.palette-sub { font-size: 12px; opacity: 0.7; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.palette-section { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted);
+  padding: 8px 10px 2px; cursor: default; }
+.palette-section.active, .palette-empty.active { background: none; }
+.palette-empty { color: var(--muted); padding: 10px; cursor: default; }
 
 .settings-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.4);
   display: flex; align-items: center; justify-content: center; }

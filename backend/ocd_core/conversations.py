@@ -6,6 +6,7 @@ changed. Datetimes are returned as ISO strings. The on-read legacy fold
 """
 from __future__ import annotations
 
+import json
 import uuid
 
 from sqlmodel import select
@@ -129,6 +130,92 @@ def list_all_conversations(limit: int = 200) -> list[dict]:
             out.append({**c, "project_id": pid, "project_name": pname})
     out.sort(key=lambda x: (x["pinned"], x["updated_at"]), reverse=True)
     return out[:limit]
+
+
+# --------------------------------------------------------------------------- #
+#  Full-text search across every conversation (title + message bodies).
+#
+#  Portable in-Python scan (works identically on SQLite and Postgres) — the desktop
+#  scale (hundreds of threads, each capped at CONV_MAX_MESSAGES) makes an FTS index
+#  unnecessary. Assistant turns are stored as JSON block lists (see the desktop
+#  persist layer), so we extract the human-readable text before matching.
+# --------------------------------------------------------------------------- #
+def _message_text(m: dict) -> str:
+    """Human-readable text of one stored message. For assistant 'blocks' turns,
+    pull the answer/thinking text, tool summaries, and artifact titles/content."""
+    content = m.get("content", "")
+    if m.get("kind") != "blocks":
+        return content if isinstance(content, str) else ""
+    try:
+        blocks = json.loads(content)
+    except (ValueError, TypeError):
+        return content if isinstance(content, str) else ""
+    parts: list[str] = []
+    for b in blocks if isinstance(blocks, list) else []:
+        if not isinstance(b, dict):
+            continue
+        bk = b.get("kind")
+        if bk in ("answer", "thinking"):
+            parts.append(str(b.get("text", "")))
+        elif bk == "tool":
+            parts.append(str(b.get("summary", "")))
+        elif bk == "artifact":
+            doc = b.get("doc", {}) or {}
+            parts.append(str(doc.get("title", "")))
+            parts.append(str(doc.get("content", "")))
+    return "\n".join(p for p in parts if p)
+
+
+def _snippet(text: str, idx: int, qlen: int, radius: int = 40) -> str:
+    """A one-line context window around a match, with ellipses and collapsed space."""
+    start = max(0, idx - radius)
+    end = min(len(text), idx + qlen + radius)
+    s = " ".join(text[start:end].split())
+    if start > 0:
+        s = "…" + s
+    if end < len(text):
+        s = s + "…"
+    return s
+
+
+def _match_conversation(c: Conversation, ql: str, qlen: int) -> tuple[str, str] | None:
+    """Return (matched_in, snippet) for the first title/message hit, else None."""
+    if ql in (c.title or "").lower():
+        return "title", c.title or ""
+    for m in c.transcript:
+        if not isinstance(m, dict):
+            continue
+        text = _message_text(m)
+        i = text.lower().find(ql)
+        if i != -1:
+            return str(m.get("role", "")), _snippet(text, i, qlen)
+    return None
+
+
+def search_conversations(query: str, limit: int = 50) -> list[dict]:
+    """Conversations whose title or any message contains ``query`` (case-insensitive),
+    newest/pinned first. Each result is a summary plus ``snippet`` and ``matched_in``."""
+    q = (query or "").strip()
+    if not q:
+        return []
+    ql = q.lower()
+    from .projects import list_projects
+    names = {p["id"]: p.get("name", "Untitled") for p in list_projects()}
+    names[config.GENERAL_ID] = config.GENERAL_NAME
+    out: list[dict] = []
+    with session() as s:
+        rows = s.exec(select(Conversation)).all()
+        rows = sorted(rows, key=lambda c: (c.pinned, c.updated_at), reverse=True)
+        for c in rows:
+            hit = _match_conversation(c, ql, len(q))
+            if hit is None:
+                continue
+            out.append({**_summary(c, c.project_id), "project_id": c.project_id,
+                        "project_name": names.get(c.project_id, "Untitled"),
+                        "matched_in": hit[0], "snippet": hit[1]})
+            if len(out) >= limit:
+                break
+    return out
 
 
 def generate_conversation_title(first_message: str) -> str:

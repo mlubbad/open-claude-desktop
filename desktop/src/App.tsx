@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { conversations } from "./api/client";
 import { notify, registerSummonHotkey, unregisterSummonHotkey } from "./platform";
 import { ApprovalPrompt } from "./components/ApprovalPrompt";
 import { ArtifactPanel } from "./components/ArtifactPanel";
@@ -179,7 +180,24 @@ export default function App() {
 
       {openDoc && <ArtifactPanel doc={openDoc} onClose={closeArtifact} />}
 
-      {showPalette && <CommandPalette commands={commands} onClose={() => setShowPalette(false)} />}
+      {showPalette && (
+        <CommandPalette
+          commands={commands}
+          search={async (q) => {
+            const hits = await conversations.search(q);
+            // Body matches only — title matches are already in the command list above.
+            return hits
+              .filter((h) => h.matched_in !== "title")
+              .map((h) => ({
+                label: `Chat: ${h.title || "Untitled"}`,
+                hint: h.updated_rel,
+                sub: h.snippet,
+                run: () => openConversation(h.id, h.project_id ?? "general"),
+              }));
+          }}
+          onClose={() => setShowPalette(false)}
+        />
+      )}
 
       {showSettings && (
         <Settings

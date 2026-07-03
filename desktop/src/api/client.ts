@@ -172,8 +172,16 @@ export interface ConversationDetail extends ConversationSummary {
   messages: StoredMsg[];
 }
 
+// A search hit: a conversation summary plus where it matched and a context snippet.
+export interface ConversationSearchHit extends ConversationSummary {
+  matched_in: string;
+  snippet: string;
+}
+
 export const conversations = {
   listAll: (limit = 200) => api.get<ConversationSummary[]>(`/conversations?limit=${limit}`),
+  search: (q: string, limit = 50) =>
+    api.get<ConversationSearchHit[]>(`/conversations/search?q=${encodeURIComponent(q)}&limit=${limit}`),
   create: (pid: string, firstMessage: string) =>
     api.post<ConversationDetail>(`/projects/${pid}/conversations`, { first_message: firstMessage }),
   get: (pid: string, cid: string) => api.get<ConversationDetail>(`/projects/${pid}/conversations/${cid}`),

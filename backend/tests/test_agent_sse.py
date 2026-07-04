@@ -18,7 +18,7 @@ async def _fake_run_turn(*args, **kwargs):
 def client(monkeypatch):
     from ocd_core import agent
     monkeypatch.setattr(agent, "run_turn", _fake_run_turn)
-    from backend.app.main import app
+    from app.main import app
     return TestClient(app)
 
 
@@ -56,7 +56,7 @@ def test_agent_turn_rate_limited(monkeypatch, db):
     from ocd_core import agent, observability
     monkeypatch.setattr(agent, "run_turn", _fake_run_turn)
     monkeypatch.setattr(observability, "check_rate_limit", lambda user: False)  # always block
-    from backend.app.main import app
+    from app.main import app
     c = TestClient(app)
     r = c.post("/agent/turn", json={"project_id": None, "goal": "hi", "history": [],
                                     "model": "m", "effort": "Low", "options": {},

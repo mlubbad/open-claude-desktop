@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 
 @pytest.fixture
 def client():
-    from backend.app.main import app
+    from app.main import app
     return TestClient(app)
 
 
@@ -24,7 +24,7 @@ def test_login_and_protected_route(monkeypatch):
     monkeypatch.setenv("APP_USERNAME", "u")
     monkeypatch.setenv("APP_PASSWORD", "p")
     monkeypatch.setenv("CHAINLIT_AUTH_SECRET", "s")
-    from backend.app.main import app
+    from app.main import app
     c = TestClient(app)
     assert c.get("/settings").status_code == 401          # no token
     tok = c.post("/auth/login", json={"username": "u", "password": "p"}).json()["token"]

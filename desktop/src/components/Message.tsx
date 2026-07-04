@@ -73,7 +73,7 @@ export function AssistantBubble({
         <BlockView key={i} block={b} onOpenArtifact={onOpenArtifact} />
       ))}
       {!streaming && answer && (
-        <div className="msg-actions">
+        <div className={`msg-actions ${isLast ? "pinned" : ""}`}>
           <CopyButton getText={() => answer} label="Copy" />
           {isLast && onRetry && (
             <button className="msg-action" onClick={onRetry} disabled={busy} title="Regenerate">

@@ -17,6 +17,7 @@ from contextlib import asynccontextmanager  # noqa: E402
 from fastapi import FastAPI  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from ocd_core import netguard, scheduler  # noqa: E402
+from ocd_core.db import engine as db_engine  # noqa: E402
 
 from .routes import (  # noqa: E402
     agent,
@@ -42,6 +43,12 @@ async def lifespan(_: FastAPI):
     # C1: fail closed on network exposure. A non-loopback bind with auth disabled
     # (the historical default) is an unauthenticated-RCE surface — refuse to start.
     netguard.assert_safe_binding()
+    # Local-first convenience: auto-create the schema for a SQLite DB so a fresh
+    # `pip install` + run works with zero migration steps. Postgres deployments own
+    # their schema via Alembic (`python -m ocd_core.db.migrate`), so skip it there.
+    if db_engine.database_url().startswith("sqlite"):
+        with contextlib.suppress(Exception):
+            db_engine.init_db()
     # Background ticker for scheduled ("automation") Cowork tasks. Disable with
     # SCHEDULER_ENABLED=0 (e.g. in tests / headless one-shots).
     ticker = None

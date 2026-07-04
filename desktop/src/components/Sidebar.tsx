@@ -11,6 +11,8 @@ export function Sidebar({
   onNew,
   onOpen,
   onDelete,
+  onRename,
+  onTogglePin,
 }: {
   projects: Project[];
   activeProject: string | null;
@@ -22,6 +24,8 @@ export function Sidebar({
   onNew: () => void;
   onOpen: (cid: string, pid: string) => void;
   onDelete: (cid: string, pid: string) => void;
+  onRename: (cid: string, pid: string, title: string) => void;
+  onTogglePin: (cid: string, pid: string, pinned: boolean) => void;
 }) {
   return (
     <aside className="sidebar">
@@ -54,28 +58,54 @@ export function Sidebar({
       </button>
 
       <nav className="conv-list">
-        {list.map((c) => (
-          <div
-            key={c.id}
-            className={`conv-item ${c.id === currentId ? "active" : ""}`}
-            onClick={() => onOpen(c.id, c.project_id ?? "general")}
-          >
-            <span className="conv-title" title={c.title}>
-              {c.pinned ? "★ " : ""}
-              {c.title || "Untitled"}
-            </span>
-            <button
-              className="conv-del"
-              title="Delete"
-              onClick={(e) => {
-                e.stopPropagation();
-                onDelete(c.id, c.project_id ?? "general");
-              }}
+        {list.map((c) => {
+          const pid = c.project_id ?? "general";
+          return (
+            <div
+              key={c.id}
+              className={`conv-item ${c.id === currentId ? "active" : ""}`}
+              onClick={() => onOpen(c.id, pid)}
             >
-              ✕
-            </button>
-          </div>
-        ))}
+              <span className="conv-title" title={c.title}>
+                {c.pinned ? "★ " : ""}
+                {c.title || "Untitled"}
+              </span>
+              <span className="conv-actions">
+                <button
+                  className="conv-act"
+                  title={c.pinned ? "Unpin" : "Pin"}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onTogglePin(c.id, pid, !c.pinned);
+                  }}
+                >
+                  {c.pinned ? "★" : "☆"}
+                </button>
+                <button
+                  className="conv-act"
+                  title="Rename"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const next = window.prompt("Rename conversation", c.title || "");
+                    if (next?.trim()) onRename(c.id, pid, next.trim());
+                  }}
+                >
+                  ✎
+                </button>
+                <button
+                  className="conv-act conv-del"
+                  title="Delete"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDelete(c.id, pid);
+                  }}
+                >
+                  ✕
+                </button>
+              </span>
+            </div>
+          );
+        })}
         {list.length === 0 && <div className="conv-empty">No conversations yet</div>}
       </nav>
     </aside>

@@ -87,6 +87,32 @@ export function useConversations(config: TurnConfig) {
     [current, newChat, refresh],
   );
 
+  const rename = useCallback(
+    async (cid: string, pid: string, title: string) => {
+      const t = title.trim();
+      if (!t) return;
+      try {
+        await convApi.rename(pid, cid, t);
+      } catch {
+        /* ignore */
+      }
+      void refresh();
+    },
+    [refresh],
+  );
+
+  const togglePin = useCallback(
+    async (cid: string, pid: string, pinned: boolean) => {
+      try {
+        await convApi.setPinned(pid, cid, pinned);
+      } catch {
+        /* ignore */
+      }
+      void refresh();
+    },
+    [refresh],
+  );
+
   return {
     state: chat.state,
     busy: chat.busy,
@@ -102,5 +128,7 @@ export function useConversations(config: TurnConfig) {
     openConversation,
     newChat,
     remove,
+    rename,
+    togglePin,
   };
 }

@@ -71,7 +71,12 @@ body { margin: 0; background: var(--bg); color: var(--text); }
   padding: 7px 10px; border-radius: 8px; cursor: pointer; font-size: 13px; }
 .conv-item:hover { background: var(--surface); }
 .conv-item.active { background: var(--surface); border: 1px solid var(--border); }
-.conv-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.conv-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.conv-actions { display: flex; gap: 2px; flex-shrink: 0; }
+.conv-act { opacity: 0; border: none; background: none; color: var(--muted); cursor: pointer;
+  padding: 0 3px; font-size: 13px; line-height: 1; }
+.conv-act:hover { color: var(--text); }
+.conv-item:hover .conv-act { opacity: 1; }
 .conv-del { opacity: 0; border: none; background: none; color: var(--muted); cursor: pointer; }
 .conv-item:hover .conv-del { opacity: 1; }
 .conv-empty { color: var(--muted); font-size: 13px; padding: 8px 10px; }

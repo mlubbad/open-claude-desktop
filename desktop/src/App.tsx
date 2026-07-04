@@ -62,6 +62,8 @@ export default function App() {
     openConversation,
     newChat,
     remove,
+    rename,
+    togglePin,
   } = useConversations(config);
 
   useKeyboard({
@@ -145,6 +147,8 @@ export default function App() {
         onNew={newChat}
         onOpen={openConversation}
         onDelete={remove}
+        onRename={rename}
+        onTogglePin={togglePin}
       />
 
       <div className="app">

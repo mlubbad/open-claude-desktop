@@ -592,6 +592,11 @@ adjust the roadmap ordering above:
   first paint. A topbar glyph button (◐/☀/☾) cycles the preference. Verified: 10 vitest
   (explicit-wins, system-follows-OS, cycle order, glyph labels, type guard). Frontend: 53
   vitest, tsc clean, build 108 KB gz.
+- **2026-07-03 — Sidebar rename + pin conversations (complete):** the backend's rename +
+  setPinned (PATCH conversation) are now reachable from the UI. Each sidebar row gains
+  pin/unpin (★/☆) and rename (✎) actions beside delete; `useConversations.rename` /
+  `togglePin` call the API and refresh so pinned chats sort to the top. Verified: frontend
+  53 vitest (unchanged; UI wiring over already-tested pure helpers), tsc clean, build 108 KB gz.
 - **Next (Phase 3 cont.):** interactive OAuth authorize on the Tauri host;
   true artifact token-streaming; finish the Tauri shell on a build host (tray, icons,
   signed updater, commit externalBin/sidecar spawn).

@@ -4,6 +4,7 @@ import { conversations } from "./api/client";
 import { notify, onTrayNewChat, registerSummonHotkey, unregisterSummonHotkey } from "./platform";
 import { ApprovalPrompt } from "./components/ApprovalPrompt";
 import { ArtifactPanel } from "./components/ArtifactPanel";
+import { CodePanel } from "./components/CodePanel";
 import { type Command, CommandPalette } from "./components/CommandPalette";
 import { Composer } from "./components/Composer";
 import { ConnectorsPanel } from "./components/ConnectorsPanel";
@@ -19,6 +20,7 @@ import { useAutoScroll } from "./state/useAutoScroll";
 import { conversationsForProject } from "./state/projectFilter";
 import { STARTER_PROMPTS } from "./state/starters";
 import { findArtifact } from "./state/transcript";
+import { useCode } from "./state/useCode";
 import { useConnectors } from "./state/useConnectors";
 import { useConversations } from "./state/useConversations";
 import { useKeyboard } from "./state/useKeyboard";
@@ -36,11 +38,13 @@ export default function App() {
   const [showPalette, setShowPalette] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [drafts, setDrafts] = useState<Drafts>({});
+  const [view, setView] = useState<"chat" | "code">("chat");
 
   const proj = useProjects();
   const connectors = useConnectors();
   const skills = useSkills();
   const theme = useTheme();
+  const codeWs = useCode(proj.active ?? undefined, view === "code");
 
   const config = useMemo(
     () => ({
@@ -50,8 +54,10 @@ export default function App() {
       permissionMode: "ask" as const,
       projectId: proj.active,
       enabledMcp: connectors.enabled,
+      // In Code mode, give the agent its file + shell tools over the workspace.
+      options: view === "code" ? { text_editor: true, bash: true, code_exec: true } : undefined,
     }),
-    [provider, model, proj.active, connectors.enabled],
+    [provider, model, proj.active, connectors.enabled, view],
   );
   const {
     state,
@@ -112,14 +118,21 @@ export default function App() {
     return () => unlisten();
   }, []);
 
-  // Notify when a response finishes while the window is in the background.
+  // Notify when a response finishes while the window is in the background, and refresh
+  // the code workspace so any files the agent edited this turn show up.
   const prevBusy = useRef(false);
   useEffect(() => {
-    if (prevBusy.current && !busy && typeof document !== "undefined" && document.hidden) {
-      void notify("Open Claude Desktop", "Your response is ready.");
+    if (prevBusy.current && !busy) {
+      if (typeof document !== "undefined" && document.hidden) {
+        void notify("Open Claude Desktop", "Your response is ready.");
+      }
+      if (view === "code") {
+        void codeWs.refresh();
+        codeWs.reopen();
+      }
     }
     prevBusy.current = busy;
-  }, [busy]);
+  }, [busy, view, codeWs]);
 
   // Follow streaming content; state.messages changes on each token so this stays pinned.
   const scroll = useAutoScroll<HTMLElement>([state.messages]);
@@ -174,6 +187,14 @@ export default function App() {
           <div className="brand">
             Open Claude Desktop
             {proj.active && <span className="project-chip">{activeProjectName}</span>}
+            <span className="view-toggle">
+              <button className={view === "chat" ? "active" : ""} onClick={() => setView("chat")}>
+                Chat
+              </button>
+              <button className={view === "code" ? "active" : ""} onClick={() => setView("code")}>
+                Code
+              </button>
+            </span>
           </div>
           <div className="topbar-right">
             {state.usage && <UsageMeter usage={state.usage} />}
@@ -198,6 +219,18 @@ export default function App() {
           </div>
         </header>
 
+        <div className={`workarea ${view === "code" ? "with-code" : ""}`}>
+          {view === "code" && (
+            <CodePanel
+              tree={codeWs.tree}
+              selected={codeWs.selected}
+              file={codeWs.file}
+              err={codeWs.err}
+              onOpen={codeWs.open}
+              onRefresh={codeWs.refresh}
+            />
+          )}
+          <div className="chat-col">
         <main className="transcript" ref={scroll.ref}>
           {state.messages.length === 0 && (
             <div className="empty">
@@ -255,6 +288,8 @@ export default function App() {
             onTextChange={(t) => setDrafts((d) => setDraft(d, current?.cid ?? "new", t))}
           />
         </footer>
+          </div>
+        </div>
       </div>
 
       {openDoc && <ArtifactPanel doc={openDoc} onClose={closeArtifact} />}

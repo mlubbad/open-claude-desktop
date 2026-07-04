@@ -261,6 +261,32 @@ async function postForm<T>(path: string, form: FormData): Promise<T> {
   return (await resp.json()) as T;
 }
 
+export interface CodeEntry {
+  path: string;
+  type: "file" | "dir";
+  size: number;
+}
+
+export interface CodeFile {
+  path?: string;
+  content?: string;
+  binary?: boolean;
+  size?: number;
+  truncated?: boolean;
+  error?: string;
+}
+
+export const code = {
+  tree: (project?: string) =>
+    api.get<{ project: string; entries: CodeEntry[] }>(
+      `/code/tree${project ? `?project=${encodeURIComponent(project)}` : ""}`,
+    ),
+  file: (path: string, project?: string) =>
+    api.get<CodeFile>(
+      `/code/file?path=${encodeURIComponent(path)}${project ? `&project=${encodeURIComponent(project)}` : ""}`,
+    ),
+};
+
 export interface SkillSummary {
   name: string;
   description?: string;

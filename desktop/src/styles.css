@@ -52,6 +52,32 @@ body { margin: 0; background: var(--bg); color: var(--text); }
 
 .app-shell { display: flex; height: 100vh; }
 .app { flex: 1; display: flex; flex-direction: column; min-width: 0; position: relative; }
+.workarea { flex: 1; display: flex; min-height: 0; }
+.chat-col { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+
+/* Chat/Code view toggle in the header. */
+.view-toggle { display: inline-flex; margin-left: 10px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.view-toggle button { border: none; background: transparent; color: var(--muted); cursor: pointer;
+  font-size: 12px; padding: 3px 10px; }
+.view-toggle button.active { background: var(--accent); color: var(--accent-fg); }
+
+/* Code tab: file tree + read-only viewer. */
+.code-panel { display: flex; min-height: 0; width: 48%; max-width: 640px; border-right: 1px solid var(--border); }
+.code-tree { width: 220px; flex-shrink: 0; display: flex; flex-direction: column; border-right: 1px solid var(--border); min-height: 0; }
+.code-tree-head { display: flex; justify-content: space-between; align-items: center; padding: 8px 10px;
+  font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); border-bottom: 1px solid var(--border); }
+.code-tree-body { flex: 1; overflow: auto; padding: 4px 0; font-size: 13px; }
+.code-node { padding: 3px 8px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.code-node:hover { background: var(--surface-2); }
+.code-file.active { background: var(--accent); color: var(--accent-fg); }
+.code-chev { color: var(--muted); font-size: 10px; }
+.code-view { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.code-view-head { display: flex; gap: 8px; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--border); font-size: 13px; }
+.code-view-path { font-family: var(--mono); }
+.code-view-note { font-size: 11px; color: var(--danger); }
+.code-view-body { flex: 1; overflow: auto; margin: 0; padding: 12px; font-family: var(--mono); font-size: 12.5px; line-height: 1.5; }
+.code-empty { color: var(--muted); padding: 16px; font-size: 13px; }
+
 .jump-latest { position: absolute; left: 50%; transform: translateX(-50%); bottom: 84px;
   width: 34px; height: 34px; border-radius: 999px; border: 1px solid var(--border);
   background: var(--surface); color: var(--text); cursor: pointer; font-size: 16px;

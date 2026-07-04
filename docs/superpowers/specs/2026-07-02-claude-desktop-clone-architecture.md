@@ -747,8 +747,22 @@ adjust the roadmap ordering above:
   JSONL round-trip, arg parsing, history mapping, REPL command parser) + a real end-to-end
   run (`ocd -p` → clean keyless error, exit 1; `ocd --version`; `--help`). Backend: 321
   (10 new), ruff clean; the `ocd` console script resolves after install.
+- **2026-07-04 — Code surface, Phase 6 (complete):** a **Code** tab lands as an agentic
+  coding workspace over the tools the agent already has (`text_editor`/`bash`/
+  `code_execution`), which are jailed to `SANDBOX_ROOT/<project>` — so the Code tab simply
+  *renders that same directory*. Backend: `ocd_core.workspace` (`list_tree` skipping
+  build/vendor dirs; `read_file` traversal-jailed via the existing `_jail_path`, binary-safe,
+  size-capped) + read-only routes `GET /code/tree` and `GET /code/file`. Frontend: a
+  header **Chat/Code** toggle; in Code mode the layout splits into a collapsible file tree
+  (`CodePanel`, fed by the pure `buildTree` flat→nested folder) + a read-only file viewer,
+  and the turn config enables the file/shell tools (`text_editor`/`bash`/`code_exec`) so the
+  agent can edit the workspace (HITL approval still gates the sensitive ones). After each
+  turn the tree + open file refresh so the agent's edits appear. Verified: 6 backend tests
+  (tree lists + skips vendor dirs, read content, traversal blocked, missing file, binary,
+  the two routes incl. route-level traversal jail) + 5 frontend tests (nesting, dir-before-
+  file ordering, synthesized intermediate dirs, empty, lang map). Backend: 327 (6 new), ruff
+  clean; frontend 91 vitest, tsc clean, build 112 KB gz.
 - **Status:** every roadmap item that is verifiable in-container is now done and tested,
-  **including the Phase-6 CLI**. Remaining scoped surfaces: the **Code** and **Cowork** tabs
-  (desktop UIs over the existing tools/engine) and a plugin-marketplace UI. External-only:
-  maintainer sets CI signing secrets + pushes a `v*` tag for the signed release; the OAuth
-  browser round-trip runs against a real OAuth-protected MCP server.
+  **including the Phase-6 CLI and Code tab**. Remaining scoped surface: the **Cowork** tab,
+  plus a plugin-marketplace UI. External-only: maintainer sets CI signing secrets + pushes a
+  `v*` tag for the signed release; the OAuth browser round-trip runs against a real OAuth MCP server.

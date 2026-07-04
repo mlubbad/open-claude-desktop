@@ -20,6 +20,7 @@ from .routes import (  # noqa: E402
     agent,
     auth,
     bigquery,
+    code,
     conversations,
     health,
     integrations,
@@ -62,3 +63,4 @@ app.include_router(integrations.router)
 app.include_router(sql.router)
 app.include_router(bigquery.router)
 app.include_router(providers.router)
+app.include_router(code.router)

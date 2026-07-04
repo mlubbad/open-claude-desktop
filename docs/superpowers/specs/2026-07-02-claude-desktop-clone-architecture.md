@@ -612,6 +612,15 @@ adjust the roadmap ordering above:
   many characters were dropped; `run_turn` applies it where it appends each `tool` message.
   Complements the history compaction. Verified: 4 new tests (short passthrough, head+tail
   preserved under cap, omitted-count accuracy). Backend: 278 (4 new), ruff clean.
+- **2026-07-03 — Retry transient provider errors with backoff (complete):** BYOK users on
+  free tiers hit rate limits constantly; previously any error fell back or failed at once.
+  `_is_retryable` classifies transient failures (status 408/409/425/429/5xx, or name hints
+  like RateLimit/Timeout/Connection/Overloaded) vs permanent (400/auth); `_create_with_retry`
+  retries the chosen model with exponential backoff (2 retries, 0.5s→1s) before `_llm_create`
+  falls back to the provider's default model. Verified with a fake client + patched sleep:
+  classifier by status and by name, retryable-then-success, non-retryable-raises-immediately,
+  exhaustion, and fall-back-after-retries. Backend: 283 (5 new), ruff clean. *(Covers the
+  non-streaming planning/verification passes; streaming-path retry is future work.)*
 - **Next (Phase 3 cont.):** interactive OAuth authorize on the Tauri host;
   true artifact token-streaming; finish the Tauri shell on a build host (tray, icons,
   signed updater, commit externalBin/sidecar spawn).

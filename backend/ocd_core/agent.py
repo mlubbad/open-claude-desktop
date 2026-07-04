@@ -178,25 +178,59 @@ def _strip_answer_label(text: str) -> str:
     return _LABEL_RE.sub("", text, count=1).lstrip()
 
 
+# Transient failures worth retrying before giving up on a model (rate limits, upstream
+# hiccups, timeouts). Permanent ones (bad request, auth) fall through immediately.
+_RETRYABLE_STATUS = frozenset({408, 409, 425, 429, 500, 502, 503, 504})
+_RETRYABLE_NAME_HINTS = ("ratelimit", "timeout", "connection", "internalserver",
+                         "serviceunavailable", "apiconnection", "overloaded")
+
+
+def _is_retryable(exc: BaseException) -> bool:
+    """Whether an LLM call error is transient and worth a backoff retry."""
+    status = getattr(exc, "status_code", None)
+    if not isinstance(status, int):
+        status = getattr(exc, "status", None)
+    if isinstance(status, int) and status in _RETRYABLE_STATUS:
+        return True
+    name = type(exc).__name__.lower()
+    return any(h in name for h in _RETRYABLE_NAME_HINTS)
+
+
+async def _create_with_retry(llm, model, kw, retries: int = 2, base_delay: float = 0.5):
+    """Call the model, retrying transient errors with exponential backoff. Non-transient
+    errors (and the final attempt) raise so the caller can fall back."""
+    delay = base_delay
+    for attempt in range(retries + 1):
+        try:
+            return await asyncio.to_thread(llm.chat.completions.create, model=model, **kw)
+        except Exception as e:
+            if attempt < retries and _is_retryable(e):
+                await asyncio.sleep(delay)
+                delay *= 2
+                continue
+            raise
+
+
 async def _llm_create(llm, model, messages, tools=None, temperature=0.1,
                       max_tokens=4096, fallback_model=None):
-    """LLM create with a single fallback to `fallback_model` if `model` errors.
+    """LLM create with transient-error retry, then a single fallback to `fallback_model`.
 
-    `fallback_model` is the active provider's default model (resolved per-turn), so
-    the fallback stays within the user's chosen provider/client. Returns
-    (response, note); note is non-empty on fallback, response is None if both fail.
+    Transient errors (rate limits, timeouts, 5xx) are retried with backoff on the chosen
+    model first; only if that is exhausted (or the error is permanent) do we fall back to
+    `fallback_model` — the active provider's default — so the fallback stays within the
+    user's chosen provider/client. Returns (response, note); note is non-empty on fallback,
+    response is None if both fail.
     """
     kw = dict(messages=messages, temperature=temperature, max_tokens=max_tokens)
     if tools:
         kw["tools"] = tools
         kw["tool_choice"] = "auto"
     try:
-        return await asyncio.to_thread(llm.chat.completions.create, model=model, **kw), None
+        return await _create_with_retry(llm, model, kw), None
     except Exception as e:
         if fallback_model and model != fallback_model:
             try:
-                r = await asyncio.to_thread(
-                    llm.chat.completions.create, model=fallback_model, **kw)
+                r = await _create_with_retry(llm, fallback_model, kw)
                 return r, (f"Model '{model}' is unavailable — fell back to "
                            f"{fallback_model}.")
             except Exception as e2:

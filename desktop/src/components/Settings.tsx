@@ -19,6 +19,20 @@ export function Settings({
   const [profile, setProfile] = useState<UserProfile>({});
   const [searchProvider, setSearchProvider] = useState("ddg");
   const [searxngUrl, setSearxngUrl] = useState("");
+  const [probing, setProbing] = useState<string | null>(null);
+  const [probe, setProbe] = useState<Record<string, { ok: boolean; detail: string }>>({});
+
+  async function testProvider(id: string) {
+    setProbing(id);
+    try {
+      const r = await providers.test(id);
+      setProbe((p) => ({ ...p, [id]: { ok: r.ok, detail: r.detail } }));
+    } catch (e) {
+      setProbe((p) => ({ ...p, [id]: { ok: false, detail: String(e) } }));
+    } finally {
+      setProbing(null);
+    }
+  }
 
   async function refresh() {
     try {
@@ -114,10 +128,26 @@ export function Settings({
                 <span className="provider-label">
                   {p.label} {p.is_local && <em>(local)</em>}
                 </span>
-                <span className={`key-badge ${p.has_key ? "ok" : "missing"}`}>
-                  {p.requires_key ? (p.has_key ? "key set" : "no key") : "no key needed"}
+                <span className="provider-row-right">
+                  <button
+                    className="provider-test"
+                    disabled={probing === p.id || (p.requires_key && !p.has_key)}
+                    onClick={() => void testProvider(p.id)}
+                    title="Test the connection"
+                  >
+                    {probing === p.id ? "Testing…" : "Test"}
+                  </button>
+                  <span className={`key-badge ${p.has_key ? "ok" : "missing"}`}>
+                    {p.requires_key ? (p.has_key ? "key set" : "no key") : "no key needed"}
+                  </span>
                 </span>
               </div>
+              {probe[p.id] && (
+                <div className={`provider-probe ${probe[p.id].ok ? "ok" : "err"}`}>
+                  {probe[p.id].ok ? "✓ " : "✕ "}
+                  {probe[p.id].detail}
+                </div>
+              )}
               {p.requires_key && (
                 <div className="key-entry">
                   <input

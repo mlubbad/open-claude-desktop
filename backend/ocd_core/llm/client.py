@@ -72,6 +72,24 @@ def get_client_for_model(model: str | None):
     return get_client(pid), bare
 
 
+def probe_provider(provider_id: str | None = None) -> tuple[bool, str]:
+    """Best-effort BYOK connectivity check: a minimal 1-token completion against the
+    provider's default model. Returns (ok, detail). Never raises — a bad key, wrong
+    base_url, or unreachable local runtime surfaces as (False, message)."""
+    prov = get_provider(provider_id)
+    model = prov.default_model or (prov.models[0] if prov.models else "")
+    if not model:
+        return False, f"No model configured for {prov.label}; pick one first."
+    try:
+        client = get_client(provider_id)
+        client.chat.completions.create(
+            model=model, max_tokens=1,
+            messages=[{"role": "user", "content": "ping"}])
+        return True, f"Connected — {prov.label} ({model}) responded."
+    except Exception as e:  # noqa: BLE001 - report any failure as a clean status
+        return False, str(e)[:200]
+
+
 def resolve_turn_client(model: str | None, provider: str | None = None):
     """Resolve (client, bare_model, fallback_model) for one agent turn.
 

@@ -54,6 +54,13 @@ def delete_provider_key(provider_id: str, user: str = Depends(current_user)) -> 
     return {"id": provider_id, "has_key": llm_keys.has_key(provider_id)}
 
 
+@router.post("/providers/{provider_id}/test")
+def test_provider(provider_id: str, user: str = Depends(current_user)) -> dict:
+    """Verify a BYOK provider is reachable and the key works (a 1-token completion)."""
+    ok, detail = llm.probe_provider(provider_id)
+    return {"id": provider_id, "ok": ok, "detail": detail}
+
+
 @router.get("/providers/{provider_id}/models")
 def provider_models(provider_id: str, user: str = Depends(current_user)) -> dict:
     from ocd_core.llm import catalog

@@ -321,6 +321,13 @@ body { margin: 0; background: var(--bg); color: var(--text); }
 .provider-list li.active { border-color: var(--accent); }
 .provider-row { display: flex; justify-content: space-between; align-items: center; }
 .provider-label { font-weight: 500; }
+.provider-row-right { display: flex; align-items: center; gap: 8px; }
+.provider-test { border: 1px solid var(--border); background: var(--surface-2); color: var(--text);
+  border-radius: 8px; padding: 2px 10px; font-size: 12px; cursor: pointer; }
+.provider-test:disabled { opacity: 0.4; cursor: default; }
+.provider-probe { font-size: 12px; margin-top: 4px; }
+.provider-probe.ok { color: var(--ok); }
+.provider-probe.err { color: var(--danger); }
 .key-badge { font-size: 12px; padding: 2px 8px; border-radius: 999px; }
 .key-badge.ok { color: var(--ok); }
 .key-badge.missing { color: var(--muted); }

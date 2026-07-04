@@ -49,3 +49,16 @@ def test_provider_models_include_capabilities(client):
     assert any(m["id"] == "gpt-4o" for m in body["models"])
     gpt4o = next(m for m in body["models"] if m["id"] == "gpt-4o")
     assert gpt4o["capabilities"]["vision"] is True
+
+
+def test_provider_test_route(client, monkeypatch):
+    import types
+    fake = types.SimpleNamespace(
+        chat=types.SimpleNamespace(
+            completions=types.SimpleNamespace(create=lambda model, **kw: "ok")))
+    monkeypatch.setattr(llm_client, "get_client", lambda pid=None: fake)
+    r = client.post("/providers/deepseek/test")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["id"] == "deepseek" and body["ok"] is True
+    assert "Connected" in body["detail"]

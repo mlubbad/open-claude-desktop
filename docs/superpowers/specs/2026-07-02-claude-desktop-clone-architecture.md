@@ -658,6 +658,14 @@ adjust the roadmap ordering above:
   Older. The Sidebar renders section headers. Verified: 5 vitest (calendar bucketing,
   pinned-section, empty-section omission, bad-timestamp, empty list). Frontend: 81 vitest,
   tsc clean, build 111 KB gz.
+- **2026-07-03 — Provider connection test (complete):** BYOK users can verify a key +
+  endpoint actually work before relying on them. `llm.probe_provider(id)` does a minimal
+  1-token completion against the provider's default model and never raises — a bad key,
+  wrong base_url, or unreachable local runtime surfaces as `(False, detail)`; providers with
+  no model report that without connecting. Route `POST /providers/{id}/test`; Settings gains
+  a per-provider **Test** button showing ✓/✕ + detail. Verified with a mocked client:
+  probe success/error/no-model (no-connect) + the route. Backend: 289 (4 new), ruff clean;
+  frontend 81 vitest, tsc clean, build 111 KB gz.
 - **Next (Phase 3 cont.):** interactive OAuth authorize on the Tauri host;
   true artifact token-streaming; finish the Tauri shell on a build host (tray, icons,
   signed updater, commit externalBin/sidecar spawn).

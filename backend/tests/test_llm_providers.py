@@ -123,6 +123,41 @@ def test_resolve_turn_client_explicit_provider():
     assert fallback is None
 
 
+def _fake_client(create):
+    import types
+    return types.SimpleNamespace(
+        chat=types.SimpleNamespace(completions=types.SimpleNamespace(create=create)))
+
+
+def test_probe_provider_success(monkeypatch):
+    def create(model, **kw):
+        assert kw.get("max_tokens") == 1  # minimal, cheap probe
+        return "ok"
+    monkeypatch.setattr(llm_client, "get_client", lambda pid=None: _fake_client(create))
+    ok, detail = llm.probe_provider("deepseek")
+    assert ok is True
+    assert "Connected" in detail
+
+
+def test_probe_provider_reports_error(monkeypatch):
+    def create(model, **kw):
+        raise RuntimeError("401 unauthorized")
+    monkeypatch.setattr(llm_client, "get_client", lambda pid=None: _fake_client(create))
+    ok, detail = llm.probe_provider("deepseek")
+    assert ok is False
+    assert "401" in detail
+
+
+def test_probe_provider_without_a_model_does_not_connect(monkeypatch):
+    calls = {"n": 0}
+    monkeypatch.setattr(llm_client, "get_client",
+                        lambda pid=None: calls.__setitem__("n", calls["n"] + 1))
+    ok, detail = llm.probe_provider("vllm")  # no default_model, empty models
+    assert ok is False
+    assert "No model" in detail
+    assert calls["n"] == 0  # never attempted a connection
+
+
 def test_resolve_turn_client_prefix_and_fallback(monkeypatch):
     llm_keys.set_api_key("deepseek", "sk-x")
     client, model, fallback = llm.resolve_turn_client("deepseek/deepseek-reasoner")

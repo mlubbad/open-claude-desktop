@@ -210,6 +210,23 @@ describe("transcript reducer", () => {
     expect(contentAtVersion(doc, 2)).toBe("v2 body");
   });
 
+  it("a streamed update (empty kind/language) preserves the existing fields", () => {
+    const s = drive([
+      { type: "artifact_open", id: "art1", title: "Chart", kind: "html", language: "" },
+      { type: "artifact_delta", id: "art1", text: "<h1>1</h1>" },
+      { type: "artifact_close", id: "art1", version: 1 },
+      // A live-streamed update omits kind/title (empty) — must keep them.
+      { type: "artifact_open", id: "art1", title: "", kind: "", language: "" },
+      { type: "artifact_delta", id: "art1", text: "<h1>2</h1>" },
+      { type: "artifact_close", id: "art1", version: 2 },
+    ]);
+    const doc = findArtifact(s, "art1")!;
+    expect(doc.kind).toBe("html"); // preserved
+    expect(doc.title).toBe("Chart"); // preserved
+    expect(doc.content).toBe("<h1>2</h1>");
+    expect(doc.version).toBe(2);
+  });
+
   it("setVersion writes at a 1-based slot and pads gaps", () => {
     expect(setVersion([], 1, "a")).toEqual(["a"]);
     expect(setVersion(["a"], 2, "b")).toEqual(["a", "b"]);

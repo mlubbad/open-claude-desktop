@@ -51,9 +51,11 @@ artifact id and the complete new content. Use short inline code blocks (not arti
 for small snippets."""
 
 
-def create(args: dict, store: dict) -> dict:
-    """Create an artifact in the per-turn store and return its document."""
-    aid = f"art{len(store) + 1}"
+def create(args: dict, store: dict, artifact_id: str | None = None) -> dict:
+    """Create an artifact in the per-turn store and return its document. ``artifact_id``
+    lets the caller pin the id (e.g. the streaming tool-call id) so a live-streamed
+    artifact and its final record share one id; defaults to a per-store counter."""
+    aid = artifact_id or f"art{len(store) + 1}"
     kind = args.get("kind", "markdown")
     if kind not in KINDS:
         kind = "markdown"

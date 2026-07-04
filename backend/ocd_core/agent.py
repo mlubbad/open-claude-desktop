@@ -58,6 +58,7 @@ import time
 import types
 
 from . import (
+    artifact_stream,
     artifact_tools,
     bigquery,
     bigquery_tools,
@@ -296,6 +297,8 @@ async def _stream_llm(llm, model, messages, tools=None, temperature=0.1,
     attempts = [model] if not fallback_model or model == fallback_model else [model, fallback_model]
     for ai, m in enumerate(attempts):
         content, tool_acc, started = [], {}, False
+        art_streams: dict = {}          # per tool-call-index artifact content readers
+        streamed_artifacts: set = set()  # ids emitted live (so completion only closes them)
         try:
             async for chunk in _stream_chunks(llm, m, messages, tools, temperature,
                                               max_tokens):
@@ -321,12 +324,29 @@ async def _stream_llm(llm, model, messages, tools=None, temperature=0.1,
                             acc["name"] = fn.name
                         if getattr(fn, "arguments", None):
                             acc["arguments"] += fn.arguments
+                    # True artifact streaming: as the create/update args accumulate, emit
+                    # the content live so the side panel fills in as the model writes it.
+                    # Requires a known tool-call id so the streamed id matches the final one.
+                    if acc["name"] in artifact_tools.TOOL_NAMES and acc["id"]:
+                        art = art_streams.get(tcd.index)
+                        if art is None:
+                            art = artifact_stream.ArtifactArgStream(acc["name"], acc["id"])
+                            art_streams[tcd.index] = art
+                        open_meta, art_delta = art.feed(acc["arguments"])
+                        if open_meta:
+                            streamed_artifacts.add(open_meta["id"])
+                            yield {"type": "artifact_open", "id": open_meta["id"],
+                                   "title": open_meta["title"], "kind": open_meta["kind"],
+                                   "language": open_meta["language"]}
+                        if art_delta:
+                            yield {"type": "artifact_delta", "id": art.artifact_id,
+                                   "text": art_delta}
             tool_calls = [_ToolCallObj(a["id"] or f"call_{i}", a["name"], a["arguments"])
                           for i, a in sorted(tool_acc.items())]
             note = (f"Model '{model}' is unavailable — fell back to {fallback_model}."
                     if m != model else None)
             yield {"__done__": {"content": "".join(content), "tool_calls": tool_calls,
-                                "note": note}}
+                                "note": note, "streamed_artifacts": streamed_artifacts}}
             return
         except Exception:
             if not started and ai == 0 and len(attempts) > 1:
@@ -418,7 +438,10 @@ async def _run_one_tool(name, args, tc_id, active_project, goal, top_k,
     can retry (Claude's is_error protocol, expressed in the tool-result string)."""
     try:
         if name == "create_artifact":
-            a = artifact_tools.create(args, artifact_store if artifact_store is not None else {})
+            # Pin the artifact id to the tool-call id so a live-streamed artifact and its
+            # final record share one id (and later update_artifact calls address it).
+            a = artifact_tools.create(args, artifact_store if artifact_store is not None else {},
+                                      artifact_id=tc_id)
             return {"id": tc_id, "name": name, "ok": True, "artifact": a,
                     "result": f"Created artifact '{a['title']}' (id {a['id']}). It is shown "
                               "in the side panel; describe it briefly in your reply.",
@@ -540,8 +563,11 @@ async def _run_one_tool(name, args, tc_id, active_project, goal, top_k,
                            "Fix the input and retry, or proceed without it.")}
 
 
-def _completion_events(out: dict):
-    """Derive the UI completion event(s) for a finished tool outcome (id-keyed)."""
+def _completion_events(out: dict, streamed_artifacts: set | None = None):
+    """Derive the UI completion event(s) for a finished tool outcome (id-keyed). Artifacts
+    whose content was already streamed live get only a final ``artifact_close`` (no repeat
+    open + full-content delta)."""
+    streamed_artifacts = streamed_artifacts or set()
     if not out.get("ok"):
         return [{"type": "tool_error", "id": out["id"], "name": out["name"],
                  "text": out.get("error") or out.get("result", "Tool failed.")}]
@@ -555,9 +581,11 @@ def _completion_events(out: dict):
         evs.append({"type": "sources", "id": out["id"], "items": out["sources"]})
     if out.get("artifact"):
         a = out["artifact"]
-        evs.append({"type": "artifact_open", "id": a["id"], "title": a["title"],
-                    "kind": a["kind"], "language": a.get("language", "")})
-        evs.append({"type": "artifact_delta", "id": a["id"], "text": a["content"]})
+        if a["id"] not in streamed_artifacts:
+            # Not streamed live → emit the whole artifact now (open + full content).
+            evs.append({"type": "artifact_open", "id": a["id"], "title": a["title"],
+                        "kind": a["kind"], "language": a.get("language", "")})
+            evs.append({"type": "artifact_delta", "id": a["id"], "text": a["content"]})
         evs.append({"type": "artifact_close", "id": a["id"], "version": a["version"]})
     return evs
 
@@ -749,6 +777,7 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
                     continue
             calls.append((tc.id, name, args))
 
+        streamed = done.get("streamed_artifacts") or set()
         if parallel and len(calls) > 1:
             tasks = [asyncio.create_task(
                 _run_one_tool(n, a, i, active_project, goal, top_k, artifact_store))
@@ -757,14 +786,14 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
             for fut in asyncio.as_completed(tasks):
                 out = await fut
                 outcomes.append(out)
-                for ev in _completion_events(out):
+                for ev in _completion_events(out, streamed):
                     yield ev
         else:
             outcomes = []
             for (i, n, a) in calls:
                 out = await _run_one_tool(n, a, i, active_project, goal, top_k, artifact_store)
                 outcomes.append(out)
-                for ev in _completion_events(out):
+                for ev in _completion_events(out, streamed):
                     yield ev
 
         # Feed every tool result back to the model, one message per tool_call_id

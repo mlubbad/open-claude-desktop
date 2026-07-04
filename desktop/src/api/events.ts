@@ -30,7 +30,8 @@ export type AgentEvent =
       bytes: number;
     }
   | { type: "sources"; id: string; items: Source[] }
-  | { type: "artifact_open"; id: string; title: string; kind: ArtifactKind; language: string }
+  // kind/title may be "" on a live-streamed update (the client keeps the existing values).
+  | { type: "artifact_open"; id: string; title: string; kind: ArtifactKind | ""; language: string }
   | { type: "artifact_delta"; id: string; text: string }
   | { type: "artifact_close"; id: string; version: number }
   | { type: "approval_required"; turn_id: string; id: string; name: string; input: string }

@@ -307,12 +307,13 @@ export function applyEvent(prev: TranscriptState, ev: AgentEvent): TranscriptSta
     case "artifact_open": {
       if (findArtifact(state, ev.id)) {
         // An update: reset the live content for the incoming new version. Prior
-        // versions stay in `versions` (each was recorded on its artifact_close).
+        // versions stay in `versions` (each was recorded on its artifact_close). A
+        // streamed update omits kind/language/title (empty) — keep the existing values.
         const s2 = mutateArtifact(state, ev.id, (d) => ({
           ...d,
-          title: ev.title,
-          kind: ev.kind,
-          language: ev.language,
+          title: ev.title || d.title,
+          kind: ev.kind || d.kind,
+          language: ev.language || d.language,
           content: "",
           streaming: true,
         }));
@@ -323,7 +324,7 @@ export function applyEvent(prev: TranscriptState, ev: AgentEvent): TranscriptSta
         doc: {
           id: ev.id,
           title: ev.title,
-          kind: ev.kind,
+          kind: ev.kind || "markdown", // a new artifact always has a kind; "" only on updates
           language: ev.language,
           content: "",
           version: 0,

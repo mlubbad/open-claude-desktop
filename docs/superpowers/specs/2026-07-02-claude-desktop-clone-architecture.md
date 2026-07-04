@@ -712,5 +712,21 @@ adjust the roadmap ordering above:
   + 2 route tests. Backend: 304 (5 new), ruff clean; frontend 85 vitest, tsc clean, build 111 KB gz.
   *(The live browser round-trip is structurally correct — catcher + session share one loop — and
   is exercised against a real OAuth MCP server; here the non-network wiring is unit-tested.)*
-- **Next:** true artifact token-streaming (a streaming-backend change best validated against a
-  live model with the user's key).
+- **2026-07-04 — True artifact token-streaming (complete):** artifacts now fill in live as the
+  model writes them (Claude behavior), instead of appearing all at once when the create/update
+  tool finishes. New pure `ocd_core.artifact_stream.ArtifactArgStream` incrementally extracts an
+  artifact tool call's fields from the *streaming* JSON tool-call arguments — decoding string
+  escapes, holding back partial escapes at the buffer edge, tolerating any key order. `_stream_llm`
+  feeds it as arguments accumulate and emits `artifact_open`/`artifact_delta` **live** (id = the
+  tool-call id for create, the args `id` for update), recording streamed ids in `__done__`;
+  `create()` accepts an explicit id so the streamed artifact and its final record share one id;
+  `_completion_events` emits only `artifact_close` for already-streamed artifacts. Frontend: the
+  reducer keeps existing kind/title on a streamed update (which omits them), and the event type
+  admits `kind: ""`. Verified deterministically with fake streaming chunks — no live model needed:
+  10 parser tests (fragmented content, one-shot, update-uses-args-id, escapes, edge-held escapes,
+  unicode, unordered keys) + 3 integration tests (live open/delta ordering through `_stream_llm`,
+  completion suppression, explicit-id create) + a frontend reducer test. Backend: 311 (13 new),
+  ruff clean; frontend 86 vitest, tsc clean, build 111 KB gz.
+- **Status:** every roadmap item that is verifiable in-container is now done and tested. The only
+  remainders are external by nature (maintainer sets CI signing secrets + pushes a `v*` tag for
+  the signed release; the OAuth browser round-trip runs against a real OAuth-protected MCP server).

@@ -1,53 +1,74 @@
-/* Original, theme-aware palette (light + dark). Deliberately not a copy of any
-   third-party product's colors. */
+/* Original, theme-aware palette (light + dark). A warm, editorial identity —
+   inspired by the warm-canvas *category* of design, but built with our own values:
+   our clay accent (not any third-party's signature colour), our own neutrals, and
+   an open serif-display stack. Deliberately NOT a copy of any product's brand. */
 :root {
-  --bg: #f7f7f5;
-  --surface: #ffffff;
-  --surface-2: #f0f0ec;
-  --border: #e3e3dd;
-  --text: #1f1f1c;
-  --muted: #6b6b63;
-  --accent: #3b6ea5;
+  --bg: #f6f4ee;
+  --surface: #fffdf7;
+  --surface-2: #efece3;
+  --sunken: #f1eee6;
+  --border: #e6e1d6;
+  --border-strong: #d9d3c5;
+  --text: #26221c;
+  --muted: #7c7468;
+  --faint: #a49b8c;
+  --accent: #b3563b;
+  --accent-2: #c9754c;
+  --accent-soft: #f2e6dd;
   --accent-fg: #ffffff;
-  --danger: #b3261e;
-  --ok: #2e7d5b;
+  --danger: #b0402f;
+  --ok: #4a7c59;
   --radius: 12px;
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  --font-serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   color-scheme: light dark;
 }
 /* Dark palette. Applied when the app stamps data-theme="dark" (explicit choice or a
    resolved "system" preference). */
 :root[data-theme="dark"] {
-  --bg: #1b1b19;
-  --surface: #242422;
-  --surface-2: #2e2e2b;
-  --border: #38382f;
-  --text: #ececdf;
-  --muted: #9a9a8c;
-  --accent: #6fa8dc;
-  --accent-fg: #10233a;
-  --danger: #e57373;
-  --ok: #6bbf95;
+  --bg: #1b1916;
+  --surface: #23201c;
+  --surface-2: #2c2823;
+  --sunken: #17150f;
+  --border: #322d26;
+  --border-strong: #40392f;
+  --text: #efe9df;
+  --muted: #a69c8d;
+  --faint: #6f665a;
+  --accent: #df8a63;
+  --accent-2: #e8a074;
+  --accent-soft: #33271e;
+  --accent-fg: #1b1916;
+  --danger: #e88a7d;
+  --ok: #82b394;
 }
 /* Pre-JS fallback: honor the OS setting on first paint, before useTheme stamps
    data-theme. Once an explicit data-theme is present, that wins by specificity. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme]) {
-    --bg: #1b1b19;
-    --surface: #242422;
-    --surface-2: #2e2e2b;
-    --border: #38382f;
-    --text: #ececdf;
-    --muted: #9a9a8c;
-    --accent: #6fa8dc;
-    --accent-fg: #10233a;
-    --danger: #e57373;
-    --ok: #6bbf95;
+    --bg: #1b1916;
+    --surface: #23201c;
+    --surface-2: #2c2823;
+    --sunken: #17150f;
+    --border: #322d26;
+    --border-strong: #40392f;
+    --text: #efe9df;
+    --muted: #a69c8d;
+    --faint: #6f665a;
+    --accent: #df8a63;
+    --accent-2: #e8a074;
+    --accent-soft: #33271e;
+    --accent-fg: #1b1916;
+    --danger: #e88a7d;
+    --ok: #82b394;
   }
 }
 
 * { box-sizing: border-box; }
+
+/* Editorial display type: headings run the serif, body stays humanist sans. */
+h1, h2, h3 { font-family: var(--font-serif); letter-spacing: -0.01em; }
 body { margin: 0; background: var(--bg); color: var(--text); }
 
 .app-shell { display: flex; height: 100vh; }

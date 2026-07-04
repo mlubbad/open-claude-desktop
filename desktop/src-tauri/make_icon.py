@@ -19,7 +19,7 @@ B = S - PAD
 
 
 def _lerp(c1, c2, t):
-    return tuple(round(a + (b - a) * t) for a, b in zip(c1, c2))
+    return tuple(round(a + (b - a) * t) for a, b in zip(c1, c2, strict=True))
 
 
 def gradient_tile() -> Image.Image:

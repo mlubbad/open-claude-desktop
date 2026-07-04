@@ -17,8 +17,8 @@ jobs:
       - name: Install backend (+ dev)
         run: pip install -e ./backend[dev]
       - name: Run backend tests
-        # Run from the repo root so both `app.main` and `backend.app.main` test
-        # import styles resolve.
+        # Run from the repo root; tests import the installed package as `app` /
+        # `ocd_core` (the editable install exposes those top-level, not `backend`).
         run: pytest backend/tests
 
   frontend:
@@ -68,6 +68,11 @@ jobs:
 
   secrets:
     runs-on: ubuntu-latest
+    # gitleaks-action fetches the PR's commit list to scan the PR range, so the job
+    # token needs read access to contents + pull requests (else GitHub returns 403).
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
       - uses: actions/checkout@v4
         with:

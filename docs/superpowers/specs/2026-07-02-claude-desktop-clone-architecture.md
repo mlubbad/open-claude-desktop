@@ -625,6 +625,13 @@ adjust the roadmap ordering above:
   model-agnostic suggestion chips (draft email, explain, debug, chart, summarize, brainstorm);
   clicking one sends it. `STARTER_PROMPTS` is a pure export (2 vitest: well-formed + unique
   labels). Frontend: 60 vitest, tsc clean, build 109 KB gz.
+- **2026-07-03 — Composer text-file attachments (complete):** users can attach text files
+  (.txt/.md/.csv/.json/code/…) to a message via a 📎 button; files are read client-side,
+  size-clamped, shown as removable chips, and inlined into the outgoing message as named
+  fenced context blocks — model-agnostic (no vision required), so it works with any BYOK
+  model. Pure `formatAttachments`/`withAttachments`/`clampContent`/`fenceLang` helpers.
+  Verified: 8 vitest (clamp, lang mapping, block formatting, combine with/without text).
+  Frontend: 68 vitest, tsc clean, build 110 KB gz.
 - **Next (Phase 3 cont.):** interactive OAuth authorize on the Tauri host;
   true artifact token-streaming; finish the Tauri shell on a build host (tray, icons,
   signed updater, commit externalBin/sidecar spawn).

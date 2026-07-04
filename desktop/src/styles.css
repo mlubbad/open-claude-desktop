@@ -250,8 +250,16 @@ body { margin: 0; background: var(--bg); color: var(--text); }
 
 .footer { border-top: 1px solid var(--border); background: var(--surface); padding: 12px; }
 .composer { max-width: 760px; margin: 0 auto; display: flex; gap: 8px; align-items: flex-end;
-  border: 1px solid var(--border); border-radius: var(--radius); padding: 8px; background: var(--surface);
-  position: relative; }
+  flex-wrap: wrap; border: 1px solid var(--border); border-radius: var(--radius); padding: 8px;
+  background: var(--surface); position: relative; }
+.composer .attach { background: transparent; color: var(--muted); border: 1px solid var(--border); }
+.composer .attach:hover:not(:disabled) { color: var(--text); }
+.attach-row { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 6px; }
+.attach-chip { display: inline-flex; align-items: center; gap: 5px; font-size: 12px;
+  border: 1px solid var(--border); border-radius: 999px; padding: 3px 8px; color: var(--text);
+  background: var(--surface-2); }
+.attach-del { border: none; background: none; color: var(--muted); cursor: pointer; padding: 0;
+  font-size: 12px; width: auto; height: auto; }
 .slash-menu { position: absolute; left: 0; right: 0; bottom: calc(100% + 6px); margin: 0; padding: 6px;
   list-style: none; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
   box-shadow: 0 8px 24px rgba(0,0,0,0.18); max-height: 240px; overflow-y: auto; z-index: 20; }

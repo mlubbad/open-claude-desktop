@@ -4,6 +4,11 @@ import type { SkillSummary } from "../api/client";
 import { type Attachment, clampContent, withAttachments } from "../state/attachments";
 import { applySlash, slashSuggestions } from "../state/slashCommands";
 
+export const EFFORT_LEVELS = ["Low", "Medium", "High", "Max"] as const;
+
+// The message composer card: textarea on top, a control row underneath (attach,
+// model pill, effort selector, send/stop). Used both pinned at the bottom of a
+// conversation and centered in the empty-state hero.
 export function Composer({
   busy,
   onSend,
@@ -12,6 +17,11 @@ export function Composer({
   draftKey = "new",
   initialText = "",
   onTextChange,
+  placeholder = "Message Open Claude Desktop…  (type / for skills)",
+  modelLabel,
+  onModelClick,
+  effort,
+  onEffort,
 }: {
   busy: boolean;
   onSend: (text: string) => void;
@@ -20,6 +30,11 @@ export function Composer({
   draftKey?: string;
   initialText?: string;
   onTextChange?: (text: string) => void;
+  placeholder?: string;
+  modelLabel?: string;
+  onModelClick?: () => void;
+  effort?: string;
+  onEffort?: (e: string) => void;
 }) {
   const [text, setTextState] = useState(initialText);
   const [sel, setSel] = useState(0);
@@ -109,7 +124,7 @@ export function Composer({
         <div className="attach-row">
           {attachments.map((a, i) => (
             <span key={i} className="attach-chip" title={a.name}>
-              📄 {a.name}
+              {a.name}
               <button
                 className="attach-del"
                 title="Remove"
@@ -147,14 +162,6 @@ export function Composer({
           ))}
         </ul>
       )}
-      <button
-        className="attach"
-        title="Attach a text file"
-        disabled={busy}
-        onClick={() => fileRef.current?.click()}
-      >
-        📎
-      </button>
       <textarea
         value={text}
         onChange={(e) => {
@@ -162,18 +169,47 @@ export function Composer({
           setSel(0);
         }}
         onKeyDown={onKey}
-        placeholder="Message Open Claude Desktop…  (type / for skills)"
+        placeholder={placeholder}
         rows={1}
       />
-      {busy ? (
-        <button className="stop" onClick={onStop} title="Stop">
-          ■
+      <div className="composer-row">
+        <button
+          className="composer-ghost attach"
+          title="Attach a text file"
+          disabled={busy}
+          onClick={() => fileRef.current?.click()}
+        >
+          ＋
         </button>
-      ) : (
-        <button className="send" onClick={submit} disabled={!canSend} title="Send">
-          ↑
-        </button>
-      )}
+        {modelLabel && (
+          <button className="composer-pill model" title="Change model" onClick={onModelClick}>
+            <span className="model-dot" aria-hidden="true" />
+            {modelLabel}
+            <span className="pill-caret">▾</span>
+          </button>
+        )}
+        {effort && onEffort && (
+          <label className="composer-pill effort" title="Extended thinking effort">
+            <select value={effort} onChange={(e) => onEffort(e.target.value)} aria-label="Effort">
+              {EFFORT_LEVELS.map((l) => (
+                <option key={l} value={l}>
+                  {l}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        <span className="composer-spacer" />
+        {busy ? (
+          <button className="composer-send stop" onClick={onStop} title="Stop">
+            ■
+          </button>
+        ) : (
+          <button className="composer-send" onClick={submit} disabled={!canSend} title="Send">
+            ↑
+          </button>
+        )}
+      </div>
     </div>
   );
 }

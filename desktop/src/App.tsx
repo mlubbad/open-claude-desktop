@@ -37,6 +37,7 @@ import { themeGlyph } from "./state/theme";
 export default function App() {
   const [provider, setProvider] = useState<string>("zhipu");
   const [model, setModel] = useState<string>("glm-4-plus");
+  const [effort, setEffort] = useState<string>("High");
   const [showSettings, setShowSettings] = useState(false);
   const [showProject, setShowProject] = useState(false);
   const [showConnectors, setShowConnectors] = useState(false);
@@ -56,11 +57,11 @@ export default function App() {
   const theme = useTheme();
   const codeWs = useCode(proj.active ?? undefined, view === "code");
   const cowork = useCowork(
-    { model, provider, effort: "High", projectId: proj.active },
+    { model, provider, effort, projectId: proj.active },
     view === "cowork",
   );
   const sched = useSchedules(
-    { model, provider, effort: "High", projectId: proj.active },
+    { model, provider, effort, projectId: proj.active },
     view === "cowork",
   );
 
@@ -68,7 +69,7 @@ export default function App() {
     () => ({
       provider,
       model,
-      effort: "High",
+      effort,
       permissionMode: planMode ? "plan" : "ask",
       projectId: proj.active,
       enabledMcp: connectors.enabled,
@@ -80,7 +81,7 @@ export default function App() {
           ? { text_editor: true, bash: true, code_exec: true, subagents: true }
           : undefined,
     }),
-    [provider, model, proj.active, connectors.enabled, pluginMgr.enabled, view, planMode],
+    [provider, model, effort, proj.active, connectors.enabled, pluginMgr.enabled, view, planMode],
   );
   const {
     state,
@@ -185,9 +186,13 @@ export default function App() {
     }
   }
 
+  const convTitle = list.find((c) => c.id === current?.cid)?.title;
+
   return (
     <div className="app-shell">
       <Sidebar
+        view={view}
+        onView={setView}
         projects={proj.list}
         activeProject={proj.active}
         onSelectProject={(pid) => {
@@ -203,24 +208,15 @@ export default function App() {
         onDelete={remove}
         onRename={rename}
         onTogglePin={togglePin}
+        onCustomize={() => setShowSettings(true)}
+        modelLabel={`${provider} · ${model}`}
       />
 
       <div className="app">
         <header className="topbar">
-          <div className="brand">
-            Open Claude Desktop
+          <div className="topbar-title" title={convTitle || undefined}>
+            {state.messages.length > 0 ? convTitle || "Untitled" : ""}
             {proj.active && <span className="project-chip">{activeProjectName}</span>}
-            <span className="view-toggle">
-              <button className={view === "chat" ? "active" : ""} onClick={() => setView("chat")}>
-                Chat
-              </button>
-              <button className={view === "code" ? "active" : ""} onClick={() => setView("code")}>
-                Code
-              </button>
-              <button className={view === "cowork" ? "active" : ""} onClick={() => setView("cowork")}>
-                Cowork
-              </button>
-            </span>
           </div>
           <div className="topbar-right">
             {view !== "cowork" && (
@@ -234,7 +230,7 @@ export default function App() {
                 aria-pressed={planMode}
                 onClick={() => setPlanMode((p) => !p)}
               >
-                📋 Plan
+                Plan
               </button>
             )}
             {state.usage && <UsageMeter usage={state.usage} />}
@@ -251,13 +247,12 @@ export default function App() {
               </button>
             )}
             <button className="icon-btn" title="Connectors (MCP)" onClick={() => setShowConnectors(true)}>
-              🔌{connectors.enabled.length > 0 && <span className="badge">{connectors.enabled.length}</span>}
+              Connectors
+              {connectors.enabled.length > 0 && <span className="badge">{connectors.enabled.length}</span>}
             </button>
             <button className="icon-btn" title="Plugins" onClick={() => setShowPlugins(true)}>
-              🧩{pluginMgr.enabled.length > 0 && <span className="badge">{pluginMgr.enabled.length}</span>}
-            </button>
-            <button className="model-pill" onClick={() => setShowSettings(true)}>
-              {provider} · {model}
+              Plugins
+              {pluginMgr.enabled.length > 0 && <span className="badge">{pluginMgr.enabled.length}</span>}
             </button>
           </div>
         </header>
@@ -285,26 +280,49 @@ export default function App() {
             />
           )}
           <div className="chat-col">
-        <main className="transcript" ref={scroll.ref}>
-          {state.messages.length === 0 && (
-            <div className="empty">
-              <h1>How can I help?</h1>
-              <p>Bring your own model — pick a provider and key in settings.</p>
-              <div className="starters">
+        {state.messages.length === 0 ? (
+          <main className="hero">
+            <div className="hero-inner">
+              <h1 className="hero-greet">
+                <span className="hero-mark" aria-hidden="true" />
+                Where should we start?
+              </h1>
+              <div className="hero-composer">
+                <Composer
+                  busy={busy}
+                  onSend={send}
+                  onStop={stop}
+                  skills={skills}
+                  draftKey={current?.cid ?? "new"}
+                  initialText={getDraft(drafts, current?.cid ?? "new")}
+                  onTextChange={(t) => setDrafts((d) => setDraft(d, current?.cid ?? "new", t))}
+                  placeholder="How can I help you today?"
+                  modelLabel={`${provider} · ${model}`}
+                  onModelClick={() => setShowSettings(true)}
+                  effort={effort}
+                  onEffort={setEffort}
+                />
+              </div>
+              <p className="hero-note">
+                Bring your own key — switch provider or model anytime.
+              </p>
+              <div className="chips">
                 {STARTER_PROMPTS.map((s) => (
                   <button
                     key={s.label}
-                    className="starter"
+                    className="chip"
                     disabled={busy}
                     onClick={() => send(s.prompt)}
                   >
-                    <span className="starter-icon">{s.icon}</span>
+                    <span className="chip-icon">{s.icon}</span>
                     {s.label}
                   </button>
                 ))}
               </div>
             </div>
-          )}
+          </main>
+        ) : (
+        <main className="transcript" ref={scroll.ref}>
           {state.messages.map((m, i) =>
             m.role === "user" ? (
               <UserBubble key={i} msg={m} onEdit={busy ? undefined : (text) => editAndResend(i, text)} />
@@ -333,24 +351,31 @@ export default function App() {
             />
           )}
         </main>
+        )}
 
-        {scroll.showJump && (
+        {state.messages.length > 0 && scroll.showJump && (
           <button className="jump-latest" title="Jump to latest" onClick={scroll.jumpToBottom}>
             ↓
           </button>
         )}
 
-        <footer className="footer">
-          <Composer
-            busy={busy}
-            onSend={send}
-            onStop={stop}
-            skills={skills}
-            draftKey={current?.cid ?? "new"}
-            initialText={getDraft(drafts, current?.cid ?? "new")}
-            onTextChange={(t) => setDrafts((d) => setDraft(d, current?.cid ?? "new", t))}
-          />
-        </footer>
+        {state.messages.length > 0 && (
+          <footer className="footer">
+            <Composer
+              busy={busy}
+              onSend={send}
+              onStop={stop}
+              skills={skills}
+              draftKey={current?.cid ?? "new"}
+              initialText={getDraft(drafts, current?.cid ?? "new")}
+              onTextChange={(t) => setDrafts((d) => setDraft(d, current?.cid ?? "new", t))}
+              modelLabel={`${provider} · ${model}`}
+              onModelClick={() => setShowSettings(true)}
+              effort={effort}
+              onEffort={setEffort}
+            />
+          </footer>
+        )}
           </div>
         </div>
         )}

@@ -9,12 +9,13 @@ models and keys** — open/hosted models of your choice, not a single vendor.
 > agent ("AJ360") into the general-purpose, model-agnostic clone described in
 > [`docs/superpowers/specs/2026-07-02-claude-desktop-clone-architecture.md`](docs/superpowers/specs/2026-07-02-claude-desktop-clone-architecture.md).
 > See the [full repository review](docs/reviews/2026-07-02-full-repository-review.md)
-> for the current state and the 8-phase roadmap. **Done:** Phase 1 — any
-> OpenAI-compatible provider via BYOK (OpenAI, Zhipu/GLM, DeepSeek, Qwen, OpenRouter,
-> local Ollama/vLLM/LM Studio, …), keys in the OS keychain; Phase 2 — a general
-> assistant by default, with BigQuery demoted to an **optional connector** (auto-on
-> when `GCP_PROJECT_ID` is set). **Next:** the TS/React + Tauri desktop client,
-> artifacts, and the CLI.
+> for the origin story and the 8-phase roadmap. **Done:** BYOK model-agnostic core
+> (any OpenAI-compatible provider — OpenAI, Groq, OpenRouter, DeepSeek, Zhipu/GLM,
+> Together, Mistral, local Ollama/vLLM/LM Studio, …; keys in the OS keychain); a general
+> assistant with BigQuery as an **optional connector**; the **React/TypeScript + Tauri
+> desktop client** (`desktop/`) with Chat, Projects, Artifacts, MCP connectors, Plugins +
+> marketplace, Skills, a Code tab and a Cowork tab (subagents, plan mode, scheduled
+> automations); and the **`ocd` CLI**. The legacy Reflex client (`frontend/`) is retired.
 
 ## Architecture
 
@@ -25,12 +26,13 @@ logic and data; the frontend is a thin client.
 |------|------|
 | `backend/ocd_core/` | Framework-agnostic domain layer: agent loop + typed streaming events, LLM client, MCP client, tools, projects/conversations/knowledge, auth, secrets, persistence |
 | `backend/app/` | FastAPI HTTP + SSE surface over `ocd_core` |
-| `frontend/aj360_app/` | Reflex (Python→React) thin client (being rebuilt as a React/TypeScript + Tauri desktop app in Phase 3) |
+| `backend/ocd_cli/` | The `ocd` terminal client over `ocd_core` (interactive + headless) |
+| `desktop/` | The React/TypeScript + Vite + Tauri desktop client (the active UI) |
 | `mcp_servers/` | Bundled demo MCP server |
-| `plugins/`, `skills/` | Drop-in agent tools and skills |
+| `plugins/`, `skills/`, `content/marketplace/` | Drop-in agent tools, skills, and the bundled plugin catalog |
 
-The invariant: `ocd_core` never imports FastAPI, Reflex, or any UI/transport — the CLI,
-the desktop app, and a self-hosted server are all thin frontends over one engine.
+The invariant: `ocd_core` never imports FastAPI or any UI/transport — the CLI, the
+desktop app, and a self-hosted server are all thin frontends over one engine.
 
 ## Security posture (local-first)
 
@@ -56,16 +58,29 @@ cp .env.example .env            # pick a provider (LLM_PROVIDER) + set its API k
 
 ## Run
 
+The fastest way to try it is the terminal client:
+
 ```bash
-# 1) Postgres + backend via Docker (recommended):
-docker compose up -d --build           # backend on http://127.0.0.1:8000
-
-# — or — run the backend directly:
-cd backend && uvicorn app.main:app --reload   # binds 127.0.0.1 by default
-
-# 2) The (transitional) Reflex frontend, in another terminal:
-cd frontend && reflex run
+ocd -p "Explain what a model-agnostic BYOK assistant is, in two sentences."
+# or just `ocd` for an interactive session
 ```
+
+For the full desktop UI, run the backend and the React/Tauri client (`desktop/`) in
+two terminals:
+
+```bash
+# 1) Backend on http://127.0.0.1:8000 (binds loopback; runs open/anonymous locally)
+cd backend && uvicorn app.main:app --reload
+
+# 2) The desktop client (dev server on http://localhost:1420, proxies /api → :8000)
+cd desktop && npm install && npm run dev
+```
+
+With `DATABASE_URL=sqlite:///./ocd.db` (the default in `.env.example`) the schema is
+created automatically on first start — no database to set up. For a packaged native
+window instead of the browser, use `cd desktop && npm run tauri dev` (needs Rust + the
+platform WebView libs). Postgres is optional: `docker compose up -d` brings one up and
+the backend uses it when `DATABASE_URL` is unset.
 
 BigQuery (optional) authenticates via Application Default Credentials
 (`gcloud auth application-default login`) or Workload Identity — never a committed key.
@@ -73,8 +88,8 @@ BigQuery (optional) authenticates via Application Default Credentials
 ## Tests
 
 ```bash
-pytest backend/tests                 # backend (run from the repo root)
-cd frontend && pytest                # frontend
+pytest backend/tests                              # backend (run from the repo root)
+cd desktop && npm run typecheck && npm run test   # desktop client
 ```
 
 ## Contributing & security

@@ -583,6 +583,15 @@ adjust the roadmap ordering above:
   space commits the command) + `applySlash`; new `skills` API + `useSkills` hook feed the
   Composer. Verified: 6 vitest for the filter (not-a-slash, bare-slash lists all, name/desc
   match, committed-command suppression). Frontend: 48 vitest, tsc clean, build 108 KB gz.
+- **2026-07-03 — Theme: light/dark/system toggle (complete):** the previously-unused
+  `theme` setting now drives a real switch. Pure `resolveTheme(pref, systemDark)` +
+  `nextTheme` (cycles system→light→dark) + `themeGlyph`; `useTheme` stamps
+  `data-theme` on `<html>`, follows the OS via `matchMedia` while on "system", and persists
+  the preference to settings. CSS gains `:root[data-theme="dark"]` (beats the media query
+  by specificity) plus a `:not([data-theme])` pre-JS fallback that still honors the OS on
+  first paint. A topbar glyph button (◐/☀/☾) cycles the preference. Verified: 10 vitest
+  (explicit-wins, system-follows-OS, cycle order, glyph labels, type guard). Frontend: 53
+  vitest, tsc clean, build 108 KB gz.
 - **Next (Phase 3 cont.):** interactive OAuth authorize on the Tauri host;
   true artifact token-streaming; finish the Tauri shell on a build host (tray, icons,
   signed updater, commit externalBin/sidecar spawn).

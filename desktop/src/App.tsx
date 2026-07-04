@@ -20,6 +20,8 @@ import { useConversations } from "./state/useConversations";
 import { useKeyboard } from "./state/useKeyboard";
 import { useProjects } from "./state/useProjects";
 import { useSkills } from "./state/useSkills";
+import { useTheme } from "./state/useTheme";
+import { themeGlyph } from "./state/theme";
 
 export default function App() {
   const [provider, setProvider] = useState<string>("zhipu");
@@ -32,6 +34,7 @@ export default function App() {
   const proj = useProjects();
   const connectors = useConnectors();
   const skills = useSkills();
+  const theme = useTheme();
 
   const config = useMemo(
     () => ({
@@ -152,6 +155,13 @@ export default function App() {
           </div>
           <div className="topbar-right">
             {state.usage && <UsageMeter usage={state.usage} />}
+            <button
+              className="icon-btn"
+              title={`Theme: ${themeGlyph(theme.pref).label} (click to change)`}
+              onClick={theme.cycle}
+            >
+              {themeGlyph(theme.pref).icon}
+            </button>
             {state.messages.length > 0 && (
               <button className="icon-btn" title="Export chat as Markdown" onClick={exportChat}>
                 ⬇

@@ -16,8 +16,24 @@
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   color-scheme: light dark;
 }
+/* Dark palette. Applied when the app stamps data-theme="dark" (explicit choice or a
+   resolved "system" preference). */
+:root[data-theme="dark"] {
+  --bg: #1b1b19;
+  --surface: #242422;
+  --surface-2: #2e2e2b;
+  --border: #38382f;
+  --text: #ececdf;
+  --muted: #9a9a8c;
+  --accent: #6fa8dc;
+  --accent-fg: #10233a;
+  --danger: #e57373;
+  --ok: #6bbf95;
+}
+/* Pre-JS fallback: honor the OS setting on first paint, before useTheme stamps
+   data-theme. Once an explicit data-theme is present, that wins by specificity. */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme]) {
     --bg: #1b1b19;
     --surface: #242422;
     --surface-2: #2e2e2b;

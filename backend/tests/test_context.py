@@ -84,3 +84,28 @@ def test_single_giant_message_is_not_dropped_to_nothing():
     h = [{"role": "user", "content": "q" * 40_000, "kind": "user"}]
     out, dropped = context.compact_history(h, budget_tokens=500)
     assert out == h and dropped == 0
+
+
+def test_truncate_tool_result_passes_through_short_text():
+    assert context.truncate_tool_result("small") == "small"
+    assert context.truncate_tool_result("") == ""
+
+
+def test_truncate_tool_result_caps_and_keeps_head_and_tail():
+    text = "HEAD" + ("x" * 20_000) + "TAIL"
+    out = context.truncate_tool_result(text, max_chars=2000)
+    assert len(out) <= 2000
+    assert out.startswith("HEAD")  # head preserved
+    assert out.endswith("TAIL")  # tail preserved
+    assert "truncated to fit the context window" in out
+
+
+def test_truncate_tool_result_reports_omitted_count():
+    text = "a" * 10_000
+    out = context.truncate_tool_result(text, max_chars=1000)
+    # The notice states how many characters were dropped (kept ≈ 920).
+    import re
+    m = re.search(r"\[([\d,]+) characters truncated", out)
+    assert m
+    omitted = int(m.group(1).replace(",", ""))
+    assert 9000 < omitted < 10_000

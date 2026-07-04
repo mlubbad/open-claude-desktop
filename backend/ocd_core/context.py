@@ -16,6 +16,23 @@ from . import llm, usage
 HISTORY_BUDGET_FRACTION = 0.5
 # Hard floor so tiny/unknown context windows still leave usable room for a reply.
 MIN_HISTORY_TOKENS = 1000
+# Cap on a single tool result fed back to the model (~2k tokens). One oversized tool
+# output (a big web page, SQL dump, or MCP payload) must not blow the whole budget.
+DEFAULT_TOOL_RESULT_CHARS = 8000
+
+
+def truncate_tool_result(text: str, max_chars: int = DEFAULT_TOOL_RESULT_CHARS) -> str:
+    """Cap a tool result to ``max_chars``, keeping the head and tail (both usually carry
+    the signal) with a middle notice stating how much was dropped. Pure + deterministic."""
+    text = text or ""
+    if len(text) <= max_chars:
+        return text
+    keep = max(0, max_chars - 80)  # leave room for the notice line
+    head = keep * 3 // 4
+    tail = keep - head
+    omitted = len(text) - head - tail
+    notice = f"\n\n… [{omitted:,} characters truncated to fit the context window] …\n\n"
+    return text[:head] + notice + (text[-tail:] if tail else "")
 
 
 def history_budget(model: str, fraction: float = HISTORY_BUDGET_FRACTION) -> int:

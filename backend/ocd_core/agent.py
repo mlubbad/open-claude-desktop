@@ -738,8 +738,9 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
         by_id = {o["id"]: o for o in (outcomes + blocked_outcomes)}
         for tc in tool_calls:
             if tc.id in by_id:
+                # Cap any single oversized tool output so it can't overflow the window.
                 messages.append({"role": "tool", "tool_call_id": tc.id,
-                                 "content": by_id[tc.id]["result"]})
+                                 "content": context.truncate_tool_result(by_id[tc.id]["result"])})
 
     if final_text is None:
         final_text = ("Stopped after the step limit without a final answer. "

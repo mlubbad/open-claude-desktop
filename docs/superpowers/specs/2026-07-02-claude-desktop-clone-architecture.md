@@ -605,6 +605,13 @@ adjust the roadmap ordering above:
   any error/keyless env) and renames. Guarded by a `titled` set so it fires exactly once.
   Verified: 5 new vitest for the pure guards (`isFirstExchange` before/after reply, second
   user message, empty; `firstUserText`). Frontend: 58 vitest, tsc clean, build 109 KB gz.
+- **2026-07-03 — Tool-result truncation (complete):** a single oversized tool output (a
+  large web page, SQL dump, or MCP payload) can no longer overflow the model's context
+  window. `context.truncate_tool_result(text, max_chars=8000)` caps a result to ~2k tokens
+  keeping the head + tail (both usually carry the signal) with a middle notice stating how
+  many characters were dropped; `run_turn` applies it where it appends each `tool` message.
+  Complements the history compaction. Verified: 4 new tests (short passthrough, head+tail
+  preserved under cap, omitted-count accuracy). Backend: 278 (4 new), ruff clean.
 - **Next (Phase 3 cont.):** interactive OAuth authorize on the Tauri host;
   true artifact token-streaming; finish the Tauri shell on a build host (tray, icons,
   signed updater, commit externalBin/sidecar spawn).

@@ -137,6 +137,24 @@ TEXT_EDITOR_TOOL = {"type": "function", "function": {
                        "description": "[start, end] lines for view."}},
         "required": ["command", "path"]}}}
 
+TASK_TOOL = {"type": "function", "function": {
+    "name": "spawn_subagent",
+    "description": "Delegate a well-scoped subtask to an autonomous subagent that runs in its "
+                   "OWN fresh context and reports back a single concise result. Use it for work "
+                   "that would otherwise flood your context (reading many files, multi-step "
+                   "research, isolated analysis) or that benefits from a clean slate. The "
+                   "subagent has the SAME tools you do (except it cannot spawn further "
+                   "subagents) but CANNOT see this conversation and CANNOT ask questions — give "
+                   "it a complete, self-contained prompt stating all needed context and exactly "
+                   "what to return. Prefer one subagent per independent subtask.",
+    "parameters": {"type": "object", "properties": {
+        "description": {"type": "string",
+                        "description": "A 3-6 word label for the subtask (shown in the UI)."},
+        "prompt": {"type": "string",
+                   "description": "The full, self-contained instruction for the subagent, "
+                                  "including all context it needs and exactly what to return."}},
+        "required": ["description", "prompt"]}}}
+
 MEMORY_TOOL = {"type": "function", "function": {
     "name": "memory",
     "description": "Persistent cross-conversation memory under /memories. Commands: view, "
@@ -390,6 +408,7 @@ TOOL_LABELS = {
     "memory":        ("Updating memory",   "Updated memory",   "brain"),
     "create_artifact": ("Creating artifact", "Created artifact", "file-code"),
     "update_artifact": ("Updating artifact", "Updated artifact", "file-code"),
+    "spawn_subagent": ("Delegating to subagent", "Subagent finished", "users"),
 }
 
 
@@ -428,15 +447,27 @@ def _tool_input(name: str, args: dict) -> str:
                 f"{args.get('path') or args.get('old_path', '')}").strip()[:300]
     if name in ("create_artifact", "update_artifact"):
         return (args.get("title") or args.get("id") or "").strip()[:300]
+    if name == "spawn_subagent":
+        desc = (args.get("description") or "subtask").strip()
+        prompt = (args.get("prompt") or "").strip().replace("\n", " ")
+        return (f"{desc} — {prompt}" if prompt else desc)[:300]
     return json.dumps(args, default=str)[:300]
 
 
 async def _run_one_tool(name, args, tc_id, active_project, goal, top_k,
-                        artifact_store=None) -> dict:
+                        artifact_store=None, subagent=None) -> dict:
     """Execute ONE tool to completion and return a structured outcome (no UI events).
     Never raises — failures become {ok: False, ...} so the loop survives and the model
     can retry (Claude's is_error protocol, expressed in the tool-result string)."""
     try:
+        if name == "spawn_subagent":
+            if subagent is None:
+                return {"id": tc_id, "name": name, "ok": False,
+                        "result": "ERROR: subagents are not enabled for this turn."}
+            out = await subagent(args.get("prompt", ""), args.get("description", "subtask"))
+            out["id"], out["name"] = tc_id, name
+            return out
+
         if name == "create_artifact":
             # Pin the artifact id to the tool-call id so a live-streamed artifact and its
             # final record share one id (and later update_artifact calls address it).
@@ -600,7 +631,7 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
                    text_editor: bool = False, memory: bool = False,
                    provider: str | None = None, turn_id: str | None = None,
                    permission_mode: str | None = None, artifacts: bool = False,
-                   user_profile: str = ""):
+                   user_profile: str = "", subagents: bool = False):
     """Drive one agent turn, yielding events. `history` is prior (role/content) turns.
 
     `turn_id` + `permission_mode` enable the interactive HITL gate: when set (and the
@@ -653,6 +684,8 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
         tools.append(TEXT_EDITOR_TOOL)
     if memory:
         tools.append(MEMORY_TOOL)
+    if subagents:
+        tools.append(TASK_TOOL)
     if extra_tools:
         tools.extend(extra_tools)
     # H6: enforce tool enablement at DISPATCH, not just by which schemas we send.
@@ -689,6 +722,40 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
         plan = (done.get("content") or "").strip()
         if plan:
             messages.append({"role": "assistant", "content": f"My plan: {plan}"})
+
+    # A delegated subtask runs a fresh, isolated agent turn: same model/provider/effort
+    # and tool CAPABILITIES, but auto-permission (no HITL to answer), no UI artifacts, and
+    # no further nesting (subagents=False). Only its final answer flows back to the parent.
+    async def _run_subagent(sub_prompt: str, description: str) -> dict:
+        answer_buf: list[str] = []
+        tools_used: list[str] = []
+        err: str | None = None
+        async for ev in run_turn(
+                sub_prompt, [], active_project, model, project_instructions="",
+                top_k=top_k, web_search=web_search, research=research, web_fetch=web_fetch,
+                code_exec=code_exec, bash=bash, text_editor=text_editor, memory=memory,
+                artifacts=False, effort=effort, parallel=parallel, provider=provider,
+                permission_mode="auto", subagents=False):
+            t = ev.get("type")
+            if t in ("answer_open", "answer_to_think"):
+                answer_buf.clear()          # keep only the final answer block
+            elif t == "delta" and ev.get("scope") == "answer":
+                answer_buf.append(ev.get("text", ""))
+            elif t == "tool":
+                tools_used.append(ev.get("name", ""))
+            elif t == "error":
+                err = ev.get("text", "subagent error")
+        if err:
+            return {"ok": False, "error": err,
+                    "result": f"The subagent failed: {err}. Proceed without it, or retry "
+                              "with a clearer, more self-contained prompt."}
+        answer = "".join(answer_buf).strip() or "(the subagent produced no answer)"
+        used = ", ".join(dict.fromkeys(x for x in tools_used if x)) or "no tools"
+        return {"ok": True, "result": answer,
+                "summary": f"{(description or 'subtask')[:60]} · used {used} · "
+                           f"{len(answer):,} chars"}
+
+    subagent_runner = _run_subagent if subagents else None
 
     # ---- Main tool-calling loop (streamed) ----
     final_text = None
@@ -780,7 +847,8 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
         streamed = done.get("streamed_artifacts") or set()
         if parallel and len(calls) > 1:
             tasks = [asyncio.create_task(
-                _run_one_tool(n, a, i, active_project, goal, top_k, artifact_store))
+                _run_one_tool(n, a, i, active_project, goal, top_k, artifact_store,
+                              subagent=subagent_runner))
                 for (i, n, a) in calls]
             outcomes = []
             for fut in asyncio.as_completed(tasks):
@@ -791,7 +859,8 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
         else:
             outcomes = []
             for (i, n, a) in calls:
-                out = await _run_one_tool(n, a, i, active_project, goal, top_k, artifact_store)
+                out = await _run_one_tool(n, a, i, active_project, goal, top_k, artifact_store,
+                                          subagent=subagent_runner)
                 outcomes.append(out)
                 for ev in _completion_events(out, streamed):
                     yield ev

@@ -27,6 +27,7 @@ class AgentOptions(BaseModel):
     text_editor: bool = False
     memory: bool = False
     artifacts: bool = True
+    subagents: bool = False
 
 
 class AgentTurnRequest(BaseModel):

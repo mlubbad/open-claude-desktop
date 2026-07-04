@@ -60,8 +60,12 @@ export default function App() {
       permissionMode: "ask" as const,
       projectId: proj.active,
       enabledMcp: connectors.enabled,
-      // In Code mode, give the agent its file + shell tools over the workspace.
-      options: view === "code" ? { text_editor: true, bash: true, code_exec: true } : undefined,
+      // In Code mode, give the agent its file + shell tools over the workspace, plus
+      // subagents so it can fan out isolated subtasks (reading many files, focused analysis).
+      options:
+        view === "code"
+          ? { text_editor: true, bash: true, code_exec: true, subagents: true }
+          : undefined,
     }),
     [provider, model, proj.active, connectors.enabled, view],
   );

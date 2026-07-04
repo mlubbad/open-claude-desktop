@@ -779,10 +779,31 @@ adjust the roadmap ordering above:
   fake runner) + 4 frontend (replay rebuilds the transcript, empty events, status badges,
   running detection). Backend: 335 (8 new), ruff clean; frontend 95 vitest, tsc clean, build
   113 KB gz.
+- **2026-07-04 — Subagents / Task tool, Phase 6 (complete):** the agent can now delegate a
+  well-scoped subtask to an autonomous **subagent** that runs a FRESH, isolated `run_turn`
+  (same model/provider/effort and tool *capabilities*, but auto-permission — no HITL to answer —
+  no UI artifacts, and **no further nesting**) and reports back a single concise result. This is
+  the defining Claude Code/Desktop capability for keeping the parent's context clean: reading
+  many files, multi-step research, or focused analysis happens in a child context and only the
+  final answer flows back. Backend: a new `spawn_subagent` tool (`TASK_TOOL`, gated behind a new
+  `subagents=` flag on `run_turn`, default off — every existing test unchanged); a `_run_subagent`
+  closure inside `run_turn` re-enters `run_turn` with `subagents=False` and accumulates ONLY the
+  final answer block (draft answers folded to thinking via `answer_to_think` are dropped);
+  dispatch handled in `_run_one_tool` (refuses cleanly when not enabled). Reuses the **frozen
+  event vocabulary** end-to-end — a subagent surfaces as an ordinary `tool` card
+  ("Delegating to subagent" → "Subagent finished") + `tool_result`/`tool_error`, so **zero new
+  event types and no frontend reducer change**. Wired on for the autonomous/agentic surfaces:
+  **Cowork** (a big background task fans work out), the **Code** tab (`subagents: true` option),
+  and the **CLI** (on unless `--no-tools`). Verified: 4 backend tests (delegate→answer with the
+  subagent's toolset asserted to EXCLUDE `spawn_subagent`; refused-when-disabled via H6
+  enablement; subagent-error → parent `tool_error` → recovery; final-block-only accumulation) —
+  the whole recursive delegation exercised with a fake `_stream_llm`, no LLM. Backend: 339
+  (4 new), ruff clean; frontend 95 vitest, tsc clean, build 113 KB gz.
 - **Status:** **all originally-scoped surfaces are now built and tested** — Chat, Projects,
   Memory, Artifacts (+versions +live streaming), MCP/Connectors (+OAuth), Plugins runtime,
-  Skills, Settings/BYOK, the **CLI**, the **Code** tab, and the **Cowork** tab, plus the
-  desktop shell (compiled). Nice-to-have left: a plugin-marketplace *browse* UI (the plugin
-  runtime already works). External-only (not code): maintainer sets CI signing secrets +
-  pushes a `v*` tag for the signed release; the OAuth browser round-trip and Cowork long-runs
+  Skills, Settings/BYOK, the **CLI**, the **Code** tab, the **Cowork** tab, and **subagents /
+  Task tool**, plus the desktop shell (compiled). Nice-to-have left: a plugin-marketplace
+  *browse* UI (the plugin runtime already works). External-only (not code): maintainer sets CI
+  signing secrets + pushes a `v*` tag for the signed release; the OAuth browser round-trip and
+  Cowork long-runs
   exercise against live models/servers.

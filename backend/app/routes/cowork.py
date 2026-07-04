@@ -28,11 +28,12 @@ async def start_task(body: CoworkStart, user: str = Depends(current_user)) -> di
 
     def gen_factory():
         # A fresh run_turn generator per launch; tools run without prompting (auto), and
-        # web/artifact tools are enabled so the delegated work is autonomous.
+        # web/artifact tools are enabled so the delegated work is autonomous. Subagents are
+        # on so a big background task can fan work out into isolated, self-contained subtasks.
         return agent.run_turn(
             body.goal, [], body.project_id, body.model,
             effort=body.effort, provider=body.provider, permission_mode="auto",
-            web_search=True, web_fetch=True, artifacts=True, memory=True,
+            web_search=True, web_fetch=True, artifacts=True, memory=True, subagents=True,
         )
 
     task = cowork.manager.start(body.goal, gen_factory)

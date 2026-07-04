@@ -52,7 +52,7 @@ async def agent_turn(req: AgentTurnRequest, user: str = Depends(current_user)):
                     research=o.research, extra_tools=extra_tools, web_fetch=o.web_fetch,
                     code_exec=o.code_exec, bash=o.bash, text_editor=o.text_editor, memory=o.memory,
                     provider=req.provider, turn_id=turn_id, permission_mode=req.permission_mode,
-                    artifacts=o.artifacts, user_profile=user_profile):
+                    artifacts=o.artifacts, user_profile=user_profile, subagents=o.subagents):
                 yield format_event(ev)
         except Exception as e:
             yield format_event({"type": "error", "text": str(e)})

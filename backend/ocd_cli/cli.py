@@ -95,7 +95,7 @@ async def _drive(goal: str, history: list[dict], cfg: dict, args, out) -> tuple[
         clean_goal, history, args.project, cfg["model"],
         effort=cfg["effort"], provider=cfg["provider"], permission_mode="auto",
         skill_instructions=skill_instr, web_search=tools_on, web_fetch=tools_on,
-        artifacts=tools_on, memory=tools_on,
+        artifacts=tools_on, memory=tools_on, subagents=tools_on,
     ):
         out.write(json_line(ev) if args.json else renderer.feed(ev))
         out.flush()

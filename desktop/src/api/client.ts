@@ -191,6 +191,8 @@ export const conversations = {
     api.put<ConversationDetail>(`/projects/${pid}/conversations/${cid}`, { messages, title }),
   rename: (pid: string, cid: string, title: string) =>
     api.patch<{ ok: boolean }>(`/projects/${pid}/conversations/${cid}`, { title }),
+  generateTitle: (firstMessage: string) =>
+    api.post<{ title: string }>("/conversations/title", { first_message: firstMessage }),
   setPinned: (pid: string, cid: string, pinned: boolean) =>
     api.patch<{ ok: boolean }>(`/projects/${pid}/conversations/${cid}`, { pinned }),
   del: (pid: string, cid: string) => api.del<{ ok: boolean }>(`/projects/${pid}/conversations/${cid}`),

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { fromBackend, toBackend } from "./persist";
+import { firstUserText, fromBackend, isFirstExchange, toBackend } from "./persist";
 import type { Message } from "./transcript";
 
 const sample: Message[] = [
@@ -78,5 +78,36 @@ describe("transcript persistence", () => {
     if (restored[0].role === "assistant") {
       expect(restored[0].blocks[0]).toEqual({ kind: "answer", text: "{not json", streaming: false });
     }
+  });
+});
+
+describe("firstUserText", () => {
+  it("returns the first user message text", () => {
+    expect(firstUserText(sample)).toBe("count rows");
+    expect(firstUserText([])).toBe("");
+  });
+});
+
+describe("isFirstExchange", () => {
+  it("is true after exactly one user + at least one assistant message", () => {
+    expect(isFirstExchange(sample)).toBe(true);
+  });
+
+  it("is false before the assistant has replied", () => {
+    expect(isFirstExchange([{ role: "user", text: "hi" }])).toBe(false);
+  });
+
+  it("is false once a second user message exists", () => {
+    expect(
+      isFirstExchange([
+        { role: "user", text: "q1" },
+        { role: "assistant", blocks: [] },
+        { role: "user", text: "q2" },
+      ]),
+    ).toBe(false);
+  });
+
+  it("is false for an empty transcript", () => {
+    expect(isFirstExchange([])).toBe(false);
   });
 });

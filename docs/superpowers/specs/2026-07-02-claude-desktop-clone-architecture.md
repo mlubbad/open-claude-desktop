@@ -597,6 +597,14 @@ adjust the roadmap ordering above:
   pin/unpin (★/☆) and rename (✎) actions beside delete; `useConversations.rename` /
   `togglePin` call the API and refresh so pinned chats sort to the top. Verified: frontend
   53 vitest (unchanged; UI wiring over already-tested pure helpers), tsc clean, build 108 KB gz.
+- **2026-07-03 — Auto-title conversations (complete):** chats now get a concise generated
+  title after their first exchange (Claude behavior), replacing the truncated-first-message
+  default. When a turn goes idle and `isFirstExchange(messages)` holds (exactly one user +
+  ≥1 assistant), `useConversations` calls the backend LLM titler once per conversation
+  (`POST /conversations/title`, which itself falls back to the truncated first message on
+  any error/keyless env) and renames. Guarded by a `titled` set so it fires exactly once.
+  Verified: 5 new vitest for the pure guards (`isFirstExchange` before/after reply, second
+  user message, empty; `firstUserText`). Frontend: 58 vitest, tsc clean, build 109 KB gz.
 - **Next (Phase 3 cont.):** interactive OAuth authorize on the Tauri host;
   true artifact token-streaming; finish the Tauri shell on a build host (tray, icons,
   signed updater, commit externalBin/sidecar spawn).

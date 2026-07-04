@@ -52,6 +52,14 @@ export function firstUserText(messages: Message[]): string {
   return u && u.role === "user" ? u.text : "";
 }
 
+// True right after the first user→assistant exchange completes: exactly one user
+// message and at least one assistant message. Used to auto-title a conversation once.
+export function isFirstExchange(messages: Message[]): boolean {
+  const users = messages.filter((m) => m.role === "user").length;
+  const assistants = messages.filter((m) => m.role === "assistant").length;
+  return users === 1 && assistants >= 1;
+}
+
 function finalizeBlock(b: Block): Block {
   if (b.kind === "answer" || b.kind === "thinking") return { ...b, streaming: false };
   return b;

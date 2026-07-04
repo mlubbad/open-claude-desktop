@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { type ConversationSummary, conversations as convApi, GENERAL_PROJECT } from "../api/client";
-import { fromBackend, toBackend } from "./persist";
+import { firstUserText, fromBackend, isFirstExchange, toBackend } from "./persist";
 import { type TurnConfig, useTranscript } from "./useTranscript";
 
 export function useConversations(config: TurnConfig) {
@@ -13,6 +13,7 @@ export function useConversations(config: TurnConfig) {
   const [list, setList] = useState<ConversationSummary[]>([]);
   const [current, setCurrent] = useState<{ cid: string; pid: string } | null>(null);
   const prevBusy = useRef(false);
+  const titled = useRef<Set<string>>(new Set());
 
   const refresh = useCallback(async () => {
     try {
@@ -45,13 +46,27 @@ export function useConversations(config: TurnConfig) {
     [current, chat, refresh, config.projectId],
   );
 
-  // Auto-save the transcript when a turn transitions from running -> idle.
+  // Auto-save the transcript when a turn transitions from running -> idle, and
+  // auto-title the conversation once, right after its first exchange completes.
   useEffect(() => {
     if (prevBusy.current && !chat.busy && current && chat.state.messages.length > 0) {
       convApi
         .save(current.pid, current.cid, toBackend(chat.state.messages))
         .then(() => refresh())
         .catch(() => {});
+
+      if (!titled.current.has(current.cid) && isFirstExchange(chat.state.messages)) {
+        titled.current.add(current.cid);
+        const seed = firstUserText(chat.state.messages);
+        if (seed) {
+          const { pid, cid } = current;
+          convApi
+            .generateTitle(seed)
+            .then(({ title }) => (title ? convApi.rename(pid, cid, title) : null))
+            .then(() => refresh())
+            .catch(() => {});
+        }
+      }
     }
     prevBusy.current = chat.busy;
   }, [chat.busy, current, chat.state.messages, refresh]);

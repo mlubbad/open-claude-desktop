@@ -10,6 +10,7 @@ import { ConnectorsPanel } from "./components/ConnectorsPanel";
 import { AssistantBubble, UserBubble } from "./components/Message";
 import { ProjectPanel } from "./components/ProjectPanel";
 import { Settings } from "./components/Settings";
+import { ShortcutsHelp } from "./components/ShortcutsHelp";
 import { Sidebar } from "./components/Sidebar";
 import { UsageMeter } from "./components/UsageMeter";
 import { exportSlug, toMarkdown } from "./state/exportConversation";
@@ -31,6 +32,7 @@ export default function App() {
   const [showProject, setShowProject] = useState(false);
   const [showConnectors, setShowConnectors] = useState(false);
   const [showPalette, setShowPalette] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
 
   const proj = useProjects();
   const connectors = useConnectors();
@@ -68,9 +70,10 @@ export default function App() {
   } = useConversations(config);
 
   useKeyboard({
-    onEscape: () => (busy ? stop() : closeArtifact()),
+    onEscape: () => (busy ? stop() : showHelp ? setShowHelp(false) : closeArtifact()),
     onNewChat: newChat,
     onPalette: () => setShowPalette(true),
+    onHelp: () => setShowHelp(true),
   });
 
   const commands: Command[] = useMemo(() => {
@@ -78,6 +81,7 @@ export default function App() {
       { label: "New chat", hint: "⌘⇧O", run: newChat },
       { label: "Open settings & providers", run: () => setShowSettings(true) },
       { label: "Open connectors (MCP)", run: () => setShowConnectors(true) },
+      { label: "Keyboard shortcuts", hint: "?", run: () => setShowHelp(true) },
     ];
     if (proj.active) actions.push({ label: "Manage current project", run: () => setShowProject(true) });
     const chats: Command[] = list.map((c) => ({
@@ -227,6 +231,8 @@ export default function App() {
       </div>
 
       {openDoc && <ArtifactPanel doc={openDoc} onClose={closeArtifact} />}
+
+      {showHelp && <ShortcutsHelp onClose={() => setShowHelp(false)} />}
 
       {showPalette && (
         <CommandPalette

@@ -632,6 +632,13 @@ adjust the roadmap ordering above:
   model. Pure `formatAttachments`/`withAttachments`/`clampContent`/`fenceLang` helpers.
   Verified: 8 vitest (clamp, lang mapping, block formatting, combine with/without text).
   Frontend: 68 vitest, tsc clean, build 110 KB gz.
+- **2026-07-03 — Keyboard shortcuts help modal (complete):** pressing `?` (ignored while
+  typing in any input/textarea/contenteditable — it's a printable char) opens a modal
+  listing the app's shortcuts (⌘K palette, ⌘⇧O new chat, Enter/⇧Enter, `/` skills, Esc,
+  `?`), also reachable from the command palette. Driven by a pure `SHORTCUTS` registry +
+  `isEditableTarget` guard. Verified: 4 vitest (registry well-formed + unique keys, palette
+  shortcuts present, editable-target detection true/false cases). Frontend: 72 vitest, tsc
+  clean, build 110 KB gz.
 - **Next (Phase 3 cont.):** interactive OAuth authorize on the Tauri host;
   true artifact token-streaming; finish the Tauri shell on a build host (tray, icons,
   signed updater, commit externalBin/sidecar spawn).

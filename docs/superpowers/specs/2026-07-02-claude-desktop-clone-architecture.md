@@ -836,12 +836,27 @@ adjust the roadmap ordering above:
   installed flag; install→live+runnable→uninstall; unknown rejected; built-in never deletable;
   bundled catalog well-formed) + the frontend `usePlugins` hook/panel. Backend 348 (5 new), ruff
   clean; frontend 95 vitest, tsc clean, build 114 KB gz.
+- **2026-07-04 — Scheduled Cowork tasks / automations, Phase 6 (complete):** delegate a goal on
+  a recurring schedule — the last headline Desktop feature. A **Schedule** is an INTERVAL
+  ("every N minutes") or a DAILY time ("HH:MM", UTC). Backend `ocd_core/scheduler.py`: the
+  schedule math (`is_due`) is **pure and clock-injected**; a `SchedulerService` with an
+  **injectable store + launcher** exposes `tick(now)` — each due+enabled schedule launches an
+  autonomous Cowork task (reusing `default_launch` → `cowork.manager.start`, subagents on) and
+  advances `last_run` (a failed launch doesn't advance, so it retries). Schedules persist to
+  `schedules.json`; a background ticker in the app lifespan (`run_loop`, sleeps first so startup
+  never fires, gated by `SCHEDULER_ENABLED`) drives it. Routes: `GET/POST /schedules`,
+  `DELETE /schedules/{id}`, `POST /schedules/{id}/enabled`. Frontend: a collapsible **⏰
+  Scheduled** section in the Cowork tab — add (goal + every-N-min or daily-at-HH:MM), enable
+  toggle, delete, cadence label. Verified: 13 backend tests (interval/daily/disabled due-logic
+  edges, cadence labels, CRUD round-trip, tick launches+advances+doesn't-refire, skips
+  not-due/disabled, no-advance-on-failed-launch — all clock-injected, no wall-clock or LLM) plus
+  a TestClient route smoke that exercises the lifespan ticker. Backend 361 (13 new), ruff clean;
+  frontend 95 vitest, tsc clean, build 115 KB gz.
 - **Status:** **all originally-scoped surfaces are now built and tested** — Chat, Projects,
   Memory, Artifacts (+versions +live streaming), MCP/Connectors (+OAuth), Plugins runtime **+
-  UI/marketplace**, Skills, Settings/BYOK, the **CLI**, the **Code** tab, the **Cowork** tab,
-  **subagents / Task tool**, and **plan mode**, plus the desktop shell (compiled). Optional
-  follow-ons (not requested): a scheduler for recurring Cowork tasks; a *remote* (git/URL)
-  plugin marketplace on top of the bundled one (needs sandboxing before running untrusted
-  code). External-only (not code): maintainer sets CI signing secrets + pushes a `v*` tag for
-  the signed release; the OAuth browser round-trip and Cowork long-runs exercise against live
-  models/servers.
+  UI/marketplace**, Skills, Settings/BYOK, the **CLI**, the **Code** tab, the **Cowork** tab
+  (**+ scheduled automations**), **subagents / Task tool**, and **plan mode**, plus the desktop
+  shell (compiled). Optional follow-on (not requested): a *remote* (git/URL) plugin marketplace
+  on top of the bundled one (needs sandboxing before running untrusted code). External-only (not
+  code): maintainer sets CI signing secrets + pushes a `v*` tag for the signed release; the
+  OAuth browser round-trip and Cowork long-runs exercise against live models/servers.

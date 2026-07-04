@@ -285,6 +285,37 @@ export const cowork = {
   cancel: (id: string) => api.post<{ cancelled: boolean }>(`/cowork/${id}/cancel`),
 };
 
+export interface Schedule {
+  id: string;
+  goal: string;
+  kind: "interval" | "daily";
+  every_seconds?: number | null;
+  at?: string | null;
+  enabled: boolean;
+  last_run?: string | null;
+  title: string;
+  cadence: string;
+}
+
+export interface AddScheduleBody {
+  goal: string;
+  kind: "interval" | "daily";
+  every_seconds?: number | null;
+  at?: string | null;
+  model?: string;
+  provider?: string | null;
+  effort?: string;
+  project_id?: string | null;
+}
+
+export const schedules = {
+  list: () => api.get<Schedule[]>("/schedules"),
+  add: (body: AddScheduleBody) => api.post<Schedule>("/schedules", body),
+  remove: (id: string) => api.del<{ ok: boolean }>(`/schedules/${id}`),
+  setEnabled: (id: string, enabled: boolean) =>
+    api.post<Schedule>(`/schedules/${id}/enabled`, { enabled }),
+};
+
 export interface CodeEntry {
   path: string;
   type: "file" | "dir";

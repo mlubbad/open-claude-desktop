@@ -29,6 +29,7 @@ import { useConversations } from "./state/useConversations";
 import { useKeyboard } from "./state/useKeyboard";
 import { usePlugins } from "./state/usePlugins";
 import { useProjects } from "./state/useProjects";
+import { useSchedules } from "./state/useSchedules";
 import { useSkills } from "./state/useSkills";
 import { useTheme } from "./state/useTheme";
 import { themeGlyph } from "./state/theme";
@@ -55,6 +56,10 @@ export default function App() {
   const theme = useTheme();
   const codeWs = useCode(proj.active ?? undefined, view === "code");
   const cowork = useCowork(
+    { model, provider, effort: "High", projectId: proj.active },
+    view === "cowork",
+  );
+  const sched = useSchedules(
     { model, provider, effort: "High", projectId: proj.active },
     view === "cowork",
   );
@@ -262,6 +267,7 @@ export default function App() {
             tasks={cowork.tasks}
             selected={cowork.selected}
             err={cowork.err}
+            sched={{ items: sched.items, err: sched.err, add: sched.add, remove: sched.remove, toggle: sched.toggle }}
             onStart={cowork.start}
             onOpen={cowork.open}
             onCancel={cowork.cancel}

@@ -84,6 +84,22 @@ body { margin: 0; background: var(--bg); color: var(--text); }
 .cowork-delegate { display: flex; flex-direction: column; gap: 8px; padding: 12px; border-bottom: 1px solid var(--border); }
 .cowork-delegate textarea { border: 1px solid var(--border); border-radius: 8px; padding: 8px; resize: none;
   background: var(--surface); color: var(--text); font: inherit; }
+.cowork-sched { border-bottom: 1px solid var(--border); }
+.cowork-sched-head { display: flex; align-items: center; gap: 8px; width: 100%; padding: 10px 12px;
+  background: none; border: none; color: var(--text); cursor: pointer; font-size: 13px; }
+.cowork-sched-count { background: var(--surface-2); border-radius: 999px; font-size: 11px; padding: 0 7px; color: var(--muted); }
+.cowork-sched-caret { margin-left: auto; color: var(--muted); }
+.cowork-sched-body { padding: 0 12px 12px; display: flex; flex-direction: column; gap: 8px; }
+.cowork-sched-goal { border: 1px solid var(--border); border-radius: 8px; padding: 7px; background: var(--surface); color: var(--text); }
+.cowork-sched-when { display: flex; align-items: center; gap: 6px; }
+.cowork-sched-when select, .cowork-sched-when input { border: 1px solid var(--border); border-radius: 6px;
+  padding: 5px; background: var(--surface); color: var(--text); }
+.cowork-sched-num { width: 56px; }
+.cowork-sched-unit { color: var(--muted); font-size: 12px; }
+.cowork-sched-item { display: flex; align-items: center; gap: 8px; font-size: 12px; padding: 4px 0; }
+.cowork-sched-item.off { opacity: 0.55; }
+.cowork-sched-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cowork-sched-cadence { color: var(--muted); white-space: nowrap; }
 .cowork-tasks { flex: 1; overflow: auto; padding: 6px; display: flex; flex-direction: column; gap: 2px; }
 .cowork-task { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 8px; cursor: pointer; font-size: 13px; }
 .cowork-task:hover { background: var(--surface-2); }

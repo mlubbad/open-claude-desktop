@@ -13,17 +13,18 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["tray-icon"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # Desktop-shell plugins. The Rust wiring is intentionally the minimal, high-confidence
-# subset (plugin init + single-instance); the tray is a documented follow-up. The
-# global-shortcut and notification surfaces are driven from the frontend (platform.ts)
-# via the plugins' JS APIs.
+# Desktop-shell plugins. The global-shortcut and notification surfaces are also driven
+# from the frontend (platform.ts) via the plugins' JS APIs; shell hosts the backend
+# sidecar spawned in lib.rs; updater powers the signed auto-update feed.
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-notification = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-os = "2"
+tauri-plugin-shell = "2"
 tauri-plugin-updater = "2"
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]

@@ -679,6 +679,23 @@ adjust the roadmap ordering above:
   changes (keyed effect, so it never clobbers in-progress typing), clearing on send. Verified:
   4 vitest (get/empty, immutable set, blank pruning, other-keys intact). Frontend: 85 vitest,
   tsc clean, build 111 KB gz.
-- **Next (Phase 3 cont.):** interactive OAuth authorize on the Tauri host;
-  true artifact token-streaming; finish the Tauri shell on a build host (tray, icons,
-  signed updater, commit externalBin/sidecar spawn).
+- **2026-07-04 — Tauri shell finished + REALLY built (complete):** installed the WebView
+  toolchain (webkit2gtk-4.1/gtk-3/soup-3) and **compiled the desktop shell for real** — not
+  just `cargo fetch`. `cargo check` **and a full `cargo build` succeed**, producing a 301 MB
+  runnable ELF. Added: (1) **original app icons** — a brand-neutral indigo→violet speech-bubble
+  mark rendered with Pillow (`make_icon.py`) into the full platform set (32/128/@2x PNGs,
+  multi-res `.ico`, `.icns`, Windows Store logos) via `make_icon_set.py`; (2) a **system tray**
+  (Show/Hide, New Chat→emits `tray://new-chat`, Quit; left-click toggles) behind the
+  `tray-icon` feature; (3) **backend sidecar spawn** — `tauri-plugin-shell` launches the
+  bundled `ocd-backend` sidecar on startup (env OCD_HOST/PORT), streaming its stdout/stderr to
+  the log, no-op in dev; `externalBin: ["binaries/ocd-backend"]` wired; (4) **signed updater**
+  — generated a real minisign keypair, embedded the **public key** in `tauri.conf.json` (private
+  key gitignored → CI secrets); (5) frontend `onTrayNewChat` listener. Backend freeze switched
+  to **PyInstaller onefile** so the sidecar ships as one self-contained file; the release CI
+  builds the triple-named sidecar, signs, and publishes `latest.json` (`includeUpdaterJson`).
+  Verified: real `cargo build` (exit 0, ELF produced), spec parses, frontend 85 vitest + tsc +
+  vite build all green. *(The PyInstaller onefile freeze + per-OS signing run on the GH Actions
+  matrix — the maintainer sets `TAURI_SIGNING_PRIVATE_KEY(_PASSWORD)` secrets and pushes a `v*`
+  tag.)*
+- **Next:** interactive MCP OAuth authorize (loopback + browser + connect-retry — host pieces
+  done/tested, needs a live OAuth MCP server to E2E); true artifact token-streaming.

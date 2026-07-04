@@ -20,13 +20,13 @@ fi
 EXE_SUFFIX=""
 case "$TRIPLE" in *windows*) EXE_SUFFIX=".exe" ;; esac
 
-echo "Freezing backend → dist/ocd-backend (triple: $TRIPLE)"
+echo "Freezing backend → dist/ocd-backend (onefile; triple: $TRIPLE)"
 ( cd "$BACKEND" && pyinstaller ocd-backend.spec --noconfirm --clean )
 
 mkdir -p "$OUT_DIR"
-cp "$BACKEND/dist/ocd-backend/ocd-backend$EXE_SUFFIX" "$OUT_DIR/ocd-backend-$TRIPLE$EXE_SUFFIX"
-# Ship the onedir support files alongside the binary.
-cp -R "$BACKEND/dist/ocd-backend/." "$OUT_DIR/ocd-backend-support/"
+# Onefile build: dist/ocd-backend is a single self-contained executable.
+cp "$BACKEND/dist/ocd-backend$EXE_SUFFIX" "$OUT_DIR/ocd-backend-$TRIPLE$EXE_SUFFIX"
+chmod +x "$OUT_DIR/ocd-backend-$TRIPLE$EXE_SUFFIX" 2>/dev/null || true
 
 echo "Sidecar ready: $OUT_DIR/ocd-backend-$TRIPLE$EXE_SUFFIX"
-echo "Add to tauri.conf.json:  \"bundle\": { \"externalBin\": [\"binaries/ocd-backend\"] }"
+echo "externalBin already wired in tauri.conf.json as \"binaries/ocd-backend\"."

@@ -49,11 +49,13 @@ jobs:
         run: npm ci
 
       # tauri-action builds the frontend + shell and uploads installers to the release.
-      # Provide externalBin via a build arg or a committed config in the release branch.
+      # externalBin ("binaries/ocd-backend") is committed in tauri.conf.json; the freeze
+      # step above drops the triple-named sidecar into desktop/src-tauri/binaries/.
+      # The updater public key is committed in tauri.conf.json; the matching private key
+      # + password come from repo secrets (set them once with `tauri signer generate`).
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Updater signing (generate with `tauri signer generate`):
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
@@ -61,4 +63,6 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: "Open Claude Desktop ${{ github.ref_name }}"
           releaseDraft: true
-          args: ${{ matrix.os == 'ubuntu-latest' && '--bundles deb,appimage' || '' }}
+          # Emit the updater manifest (latest.json) so the app's updater endpoint resolves.
+          includeUpdaterJson: true
+          args: ${{ matrix.os == 'ubuntu-latest' && '--bundles deb,appimage,updater' || '' }}

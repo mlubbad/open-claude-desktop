@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { conversations } from "./api/client";
-import { notify, registerSummonHotkey, unregisterSummonHotkey } from "./platform";
+import { notify, onTrayNewChat, registerSummonHotkey, unregisterSummonHotkey } from "./platform";
 import { ApprovalPrompt } from "./components/ApprovalPrompt";
 import { ArtifactPanel } from "./components/ArtifactPanel";
 import { type Command, CommandPalette } from "./components/CommandPalette";
@@ -103,6 +103,13 @@ export default function App() {
     const accel = "CmdOrControl+Shift+Space";
     void registerSummonHotkey(accel, () => newChatRef.current());
     return () => void unregisterSummonHotkey(accel);
+  }, []);
+
+  // Tray "New Chat" menu item (desktop only; no-op on web).
+  useEffect(() => {
+    let unlisten = () => {};
+    void onTrayNewChat(() => newChatRef.current()).then((fn) => (unlisten = fn));
+    return () => unlisten();
   }, []);
 
   // Notify when a response finishes while the window is in the background.

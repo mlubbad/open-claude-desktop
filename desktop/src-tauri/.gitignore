@@ -1,4 +1,15 @@
 /target
 /gen/schemas
-# Built PyInstaller backend sidecar (produced by scripts/build-backend-sidecar.sh)
-/binaries
+
+# Updater signing key — NEVER commit the private key. The public key is embedded
+# in tauri.conf.json; the private key + password go into CI secrets.
+.tauri-signing-key
+.tauri-signing-key.pub
+
+# Local icon source + generators are fine to keep; the generated set lives in icons/.
+
+# Built PyInstaller backend sidecar artifacts (binaries/ocd-backend-<triple>) are
+# produced by CI; keep only the dir's README + its .gitignore.
+/binaries/*
+!/binaries/README.md
+!/binaries/.gitignore

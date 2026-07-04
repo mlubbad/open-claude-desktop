@@ -13,9 +13,14 @@ interface TauriNotification {
   sendNotification(options: { title: string; body?: string } | string): void;
 }
 
+interface TauriEvent {
+  listen(event: string, handler: (e: unknown) => void): Promise<() => void>;
+}
+
 interface TauriGlobal {
   globalShortcut?: TauriGlobalShortcut;
   notification?: TauriNotification;
+  event?: TauriEvent;
 }
 
 function tauri(): TauriGlobal | null {
@@ -50,6 +55,18 @@ export async function unregisterSummonHotkey(accelerator: string): Promise<void>
     await t.globalShortcut.unregister(accelerator);
   } catch {
     /* ignore */
+  }
+}
+
+// Listen for the tray's "New Chat" menu action (desktop only). Returns an unlisten
+// function; a no-op unlisten in a browser. The Rust tray emits `tray://new-chat`.
+export async function onTrayNewChat(handler: () => void): Promise<() => void> {
+  const t = tauri();
+  if (!t?.event) return () => {};
+  try {
+    return await t.event.listen("tray://new-chat", () => handler());
+  } catch {
+    return () => {};
   }
 }
 

@@ -1,0 +1,5 @@
+# Backend sidecar binaries are build artifacts (PyInstaller output).
+# CI populates them per target triple; keep the dir + README only.
+*
+!README.md
+!.gitignore

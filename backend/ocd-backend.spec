@@ -1,7 +1,7 @@
 # PyInstaller spec — freeze the FastAPI backend as a self-contained desktop sidecar.
 # Build:  cd backend && pyinstaller ocd-backend.spec --noconfirm --clean
-# Produces dist/ocd-backend/ocd-backend (onedir). The Tauri build script renames it to
-# the target-triple form Tauri's externalBin expects.
+# Produces a SINGLE self-contained dist/ocd-backend (onefile) so Tauri's externalBin can
+# bundle it as one file. The Tauri build script renames it to the target-triple form.
 from PyInstaller.utils.hooks import collect_all, collect_submodules
 
 datas, binaries, hiddenimports = [], [], []
@@ -43,13 +43,17 @@ a = Analysis(
     noarchive=False,
 )
 pyz = PYZ(a.pure)
+# One-file build: fold binaries + datas into a single self-contained executable so it
+# ships as one Tauri sidecar file (no support directory to bundle alongside).
 exe = EXE(
     pyz,
     a.scripts,
+    a.binaries,
+    a.datas,
     [],
-    exclude_binaries=True,
     name="ocd-backend",
     console=True,
+    upx=False,
+    strip=False,
     disable_windowed_traceback=False,
 )
-coll = COLLECT(exe, a.binaries, a.datas, strip=False, upx=False, name="ocd-backend")

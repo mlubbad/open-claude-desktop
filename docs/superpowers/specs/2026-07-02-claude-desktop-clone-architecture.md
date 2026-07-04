@@ -621,6 +621,10 @@ adjust the roadmap ordering above:
   classifier by status and by name, retryable-then-success, non-retryable-raises-immediately,
   exhaustion, and fall-back-after-retries. Backend: 283 (5 new), ruff clean. *(Covers the
   non-streaming planning/verification passes; streaming-path retry is future work.)*
+- **2026-07-03 — Empty-state starter prompts (complete):** a fresh chat now offers curated,
+  model-agnostic suggestion chips (draft email, explain, debug, chart, summarize, brainstorm);
+  clicking one sends it. `STARTER_PROMPTS` is a pure export (2 vitest: well-formed + unique
+  labels). Frontend: 60 vitest, tsc clean, build 109 KB gz.
 - **Next (Phase 3 cont.):** interactive OAuth authorize on the Tauri host;
   true artifact token-streaming; finish the Tauri shell on a build host (tray, icons,
   signed updater, commit externalBin/sidecar spawn).

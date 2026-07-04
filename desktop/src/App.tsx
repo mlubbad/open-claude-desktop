@@ -14,6 +14,7 @@ import { Sidebar } from "./components/Sidebar";
 import { UsageMeter } from "./components/UsageMeter";
 import { exportSlug, toMarkdown } from "./state/exportConversation";
 import { conversationsForProject } from "./state/projectFilter";
+import { STARTER_PROMPTS } from "./state/starters";
 import { findArtifact } from "./state/transcript";
 import { useConnectors } from "./state/useConnectors";
 import { useConversations } from "./state/useConversations";
@@ -185,6 +186,19 @@ export default function App() {
             <div className="empty">
               <h1>How can I help?</h1>
               <p>Bring your own model — pick a provider and key in settings.</p>
+              <div className="starters">
+                {STARTER_PROMPTS.map((s) => (
+                  <button
+                    key={s.label}
+                    className="starter"
+                    disabled={busy}
+                    onClick={() => send(s.prompt)}
+                  >
+                    <span className="starter-icon">{s.icon}</span>
+                    {s.label}
+                  </button>
+                ))}
+              </div>
             </div>
           )}
           {state.messages.map((m, i) =>

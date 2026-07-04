@@ -672,6 +672,13 @@ adjust the roadmap ordering above:
   script/style/head/nav/footer/svg) so the article survives and the chrome doesn't. Verified:
   5 tests (boilerplate + comment removal, entity decoding, block-tag→newline, whitespace
   collapse) while preserving the main text. Backend: 294 (5 new), ruff clean.
+- **2026-07-03 — Composer draft persistence (complete):** unsent composer text is now
+  remembered per conversation (and the new-chat slot), so switching chats no longer loses a
+  draft. Pure `drafts` store (`getDraft`/`setDraft`, immutable, prunes blank entries); the
+  Composer mirrors every keystroke to the store and reloads the saved draft when `draftKey`
+  changes (keyed effect, so it never clobbers in-progress typing), clearing on send. Verified:
+  4 vitest (get/empty, immutable set, blank pruning, other-keys intact). Frontend: 85 vitest,
+  tsc clean, build 111 KB gz.
 - **Next (Phase 3 cont.):** interactive OAuth authorize on the Tauri host;
   true artifact token-streaming; finish the Tauri shell on a build host (tray, icons,
   signed updater, commit externalBin/sidecar spawn).

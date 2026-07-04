@@ -1,4 +1,4 @@
-import { type KeyboardEvent, useMemo, useRef, useState } from "react";
+import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import type { SkillSummary } from "../api/client";
 import { type Attachment, clampContent, withAttachments } from "../state/attachments";
@@ -9,13 +9,19 @@ export function Composer({
   onSend,
   onStop,
   skills = [],
+  draftKey = "new",
+  initialText = "",
+  onTextChange,
 }: {
   busy: boolean;
   onSend: (text: string) => void;
   onStop: () => void;
   skills?: SkillSummary[];
+  draftKey?: string;
+  initialText?: string;
+  onTextChange?: (text: string) => void;
 }) {
-  const [text, setText] = useState("");
+  const [text, setTextState] = useState(initialText);
   const [sel, setSel] = useState(0);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -23,6 +29,22 @@ export function Composer({
   const open = suggestions.length > 0;
   const active = Math.min(sel, Math.max(0, suggestions.length - 1));
   const canSend = (text.trim().length > 0 || attachments.length > 0) && !busy;
+
+  // Wrap setText so every change is mirrored to the per-conversation draft store.
+  const setText = (t: string) => {
+    setTextState(t);
+    onTextChange?.(t);
+  };
+
+  // Load the saved draft when the conversation switches (keyed on draftKey only, so it
+  // doesn't clobber in-progress typing).
+  const initialRef = useRef(initialText);
+  initialRef.current = initialText;
+  useEffect(() => {
+    setTextState(initialRef.current);
+    setAttachments([]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftKey]);
 
   function submit() {
     if (!canSend) return;

@@ -14,6 +14,7 @@ import { ShortcutsHelp } from "./components/ShortcutsHelp";
 import { Sidebar } from "./components/Sidebar";
 import { UsageMeter } from "./components/UsageMeter";
 import { exportSlug, toMarkdown } from "./state/exportConversation";
+import { type Drafts, getDraft, setDraft } from "./state/drafts";
 import { useAutoScroll } from "./state/useAutoScroll";
 import { conversationsForProject } from "./state/projectFilter";
 import { STARTER_PROMPTS } from "./state/starters";
@@ -34,6 +35,7 @@ export default function App() {
   const [showConnectors, setShowConnectors] = useState(false);
   const [showPalette, setShowPalette] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+  const [drafts, setDrafts] = useState<Drafts>({});
 
   const proj = useProjects();
   const connectors = useConnectors();
@@ -236,7 +238,15 @@ export default function App() {
         )}
 
         <footer className="footer">
-          <Composer busy={busy} onSend={send} onStop={stop} skills={skills} />
+          <Composer
+            busy={busy}
+            onSend={send}
+            onStop={stop}
+            skills={skills}
+            draftKey={current?.cid ?? "new"}
+            initialText={getDraft(drafts, current?.cid ?? "new")}
+            onTextChange={(t) => setDrafts((d) => setDraft(d, current?.cid ?? "new", t))}
+          />
         </footer>
       </div>
 

@@ -1003,7 +1003,13 @@ def _iso_now() -> str:
 
 def _html_to_text(html_src: str) -> str:
     import html as _h
-    s = re.sub(r"(?is)<(script|style|head|nav|footer|svg)[^>]*>.*?</\1>", " ", html_src)
+    # Drop non-content boilerplate wholesale (with their inner text) so the model sees
+    # the article, not the chrome: scripts/styles, page head, nav/header/footer/aside,
+    # forms/buttons, embedded frames, and no-JS fallbacks.
+    s = re.sub(r"(?s)<!--.*?-->", " ", html_src)  # HTML comments
+    s = re.sub(
+        r"(?is)<(script|style|head|nav|header|footer|aside|form|button|iframe|noscript|"
+        r"template|svg)[^>]*>.*?</\1>", " ", s)
     s = re.sub(r"(?is)<br\s*/?>", "\n", s)
     s = re.sub(r"(?is)</(p|div|h[1-6]|li|tr|section|article)>", "\n", s)
     s = re.sub(r"(?s)<[^>]+>", " ", s)

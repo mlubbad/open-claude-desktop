@@ -666,6 +666,12 @@ adjust the roadmap ordering above:
   a per-provider **Test** button showing ✓/✕ + detail. Verified with a mocked client:
   probe success/error/no-model (no-connect) + the route. Backend: 289 (4 new), ruff clean;
   frontend 81 vitest, tsc clean, build 111 KB gz.
+- **2026-07-03 — Web-fetch extraction quality (complete):** `web_fetch` now feeds the model
+  cleaner page content. `_html_to_text` additionally strips HTML comments and more non-content
+  boilerplate (header/aside/form/button/iframe/noscript/template, on top of the existing
+  script/style/head/nav/footer/svg) so the article survives and the chrome doesn't. Verified:
+  5 tests (boilerplate + comment removal, entity decoding, block-tag→newline, whitespace
+  collapse) while preserving the main text. Backend: 294 (5 new), ruff clean.
 - **Next (Phase 3 cont.):** interactive OAuth authorize on the Tauri host;
   true artifact token-streaming; finish the Tauri shell on a build host (tray, icons,
   signed updater, commit externalBin/sidecar spawn).

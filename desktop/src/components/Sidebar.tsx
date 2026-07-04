@@ -66,7 +66,7 @@ export function Sidebar({
 
       <nav className="side-nav">
         <button className="side-row primary" onClick={onNew}>
-          <span className="side-ic accent">✎</span> New chat
+          <span className="side-ic accent">✎</span> {view === "cowork" ? "New task" : "New chat"}
         </button>
         <button
           className="side-row"

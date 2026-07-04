@@ -8,11 +8,9 @@ import { CodePanel } from "./components/CodePanel";
 import { CoworkPanel } from "./components/CoworkPanel";
 import { type Command, CommandPalette } from "./components/CommandPalette";
 import { Composer } from "./components/Composer";
-import { ConnectorsPanel } from "./components/ConnectorsPanel";
 import { AssistantBubble, UserBubble } from "./components/Message";
-import { PluginsPanel } from "./components/PluginsPanel";
 import { ProjectPanel } from "./components/ProjectPanel";
-import { Settings } from "./components/Settings";
+import { SettingsModal, type SettingsPage } from "./components/SettingsModal";
 import { ShortcutsHelp } from "./components/ShortcutsHelp";
 import { Sidebar } from "./components/Sidebar";
 import { UsageMeter } from "./components/UsageMeter";
@@ -38,10 +36,9 @@ export default function App() {
   const [provider, setProvider] = useState<string>("zhipu");
   const [model, setModel] = useState<string>("glm-4-plus");
   const [effort, setEffort] = useState<string>("High");
-  const [showSettings, setShowSettings] = useState(false);
+  // One unified Settings modal; non-null = open at that page (deep-linkable).
+  const [settingsPage, setSettingsPage] = useState<SettingsPage | null>(null);
   const [showProject, setShowProject] = useState(false);
-  const [showConnectors, setShowConnectors] = useState(false);
-  const [showPlugins, setShowPlugins] = useState(false);
   const [showPalette, setShowPalette] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [drafts, setDrafts] = useState<Drafts>({});
@@ -103,7 +100,18 @@ export default function App() {
   } = useConversations(config);
 
   useKeyboard({
-    onEscape: () => (busy ? stop() : showHelp ? setShowHelp(false) : closeArtifact()),
+    // Escape closes the topmost open layer first; stopping generation comes after
+    // dismissals so a stray Esc while a modal is open never kills the turn.
+    onEscape: () =>
+      settingsPage
+        ? setSettingsPage(null)
+        : showProject
+          ? setShowProject(false)
+          : showHelp
+            ? setShowHelp(false)
+            : busy
+              ? stop()
+              : closeArtifact(),
     onNewChat: newChat,
     onPalette: () => setShowPalette(true),
     onHelp: () => setShowHelp(true),
@@ -112,8 +120,10 @@ export default function App() {
   const commands: Command[] = useMemo(() => {
     const actions: Command[] = [
       { label: "New chat", hint: "⌘⇧O", run: newChat },
-      { label: "Open settings & providers", run: () => setShowSettings(true) },
-      { label: "Open connectors (MCP)", run: () => setShowConnectors(true) },
+      { label: "Settings: models & keys", run: () => setSettingsPage("providers") },
+      { label: "Settings: connectors (MCP)", run: () => setSettingsPage("connectors") },
+      { label: "Settings: plugins", run: () => setSettingsPage("plugins") },
+      { label: "Settings: skills", run: () => setSettingsPage("skills") },
       { label: "Keyboard shortcuts", hint: "?", run: () => setShowHelp(true) },
     ];
     if (proj.active) actions.push({ label: "Manage current project", run: () => setShowProject(true) });
@@ -208,7 +218,7 @@ export default function App() {
         onDelete={remove}
         onRename={rename}
         onTogglePin={togglePin}
-        onCustomize={() => setShowSettings(true)}
+        onCustomize={() => setSettingsPage("general")}
         modelLabel={`${provider} · ${model}`}
       />
 
@@ -247,11 +257,11 @@ export default function App() {
                 ⬇
               </button>
             )}
-            <button className="icon-btn" title="Connectors (MCP)" onClick={() => setShowConnectors(true)}>
+            <button className="icon-btn" title="Connectors (MCP)" onClick={() => setSettingsPage("connectors")}>
               Connectors
               {connectors.enabled.length > 0 && <span className="badge">{connectors.enabled.length}</span>}
             </button>
-            <button className="icon-btn" title="Plugins" onClick={() => setShowPlugins(true)}>
+            <button className="icon-btn" title="Plugins" onClick={() => setSettingsPage("plugins")}>
               Plugins
               {pluginMgr.enabled.length > 0 && <span className="badge">{pluginMgr.enabled.length}</span>}
             </button>
@@ -264,13 +274,16 @@ export default function App() {
             selected={cowork.selected}
             err={cowork.err}
             sched={{ items: sched.items, err: sched.err, add: sched.add, remove: sched.remove, toggle: sched.toggle }}
+            projectName={proj.active ? activeProjectName : "General"}
             onStart={cowork.start}
             onOpen={cowork.open}
+            onBack={cowork.close}
             onCancel={cowork.cancel}
           />
         ) : (
-        <div className={`workarea ${view === "code" ? "with-code" : ""}`}>
-          {view === "code" && (
+        <div className={`workarea ${view === "code" && state.messages.length > 0 ? "with-code" : ""}`}>
+          {/* Code home is composer-forward (hero); the tree+viewer appears once work starts. */}
+          {view === "code" && state.messages.length > 0 && (
             <CodePanel
               tree={codeWs.tree}
               selected={codeWs.selected}
@@ -299,7 +312,7 @@ export default function App() {
                   onTextChange={(t) => setDrafts((d) => setDraft(d, current?.cid ?? "new", t))}
                   placeholder="How can I help you today?"
                   modelLabel={`${provider} · ${model}`}
-                  onModelClick={() => setShowSettings(true)}
+                  onModelClick={() => setSettingsPage("providers")}
                   effort={effort}
                   onEffort={setEffort}
                 />
@@ -371,7 +384,7 @@ export default function App() {
               initialText={getDraft(drafts, current?.cid ?? "new")}
               onTextChange={(t) => setDrafts((d) => setDraft(d, current?.cid ?? "new", t))}
               modelLabel={`${provider} · ${model}`}
-              onModelClick={() => setShowSettings(true)}
+              onModelClick={() => setSettingsPage("providers")}
               effort={effort}
               onEffort={setEffort}
             />
@@ -405,44 +418,39 @@ export default function App() {
         />
       )}
 
-      {showSettings && (
-        <Settings
+      {settingsPage && (
+        <SettingsModal
+          page={settingsPage}
+          onPage={setSettingsPage}
+          onClose={() => setSettingsPage(null)}
           active={{ provider, model }}
           onPick={(p, m) => {
             setProvider(p);
             setModel(m);
           }}
-          onClose={() => setShowSettings(false)}
-        />
-      )}
-
-      {showConnectors && (
-        <ConnectorsPanel
-          servers={connectors.servers}
-          enabled={connectors.enabled}
-          err={connectors.err}
-          onAdd={(body) => void connectors.add(body)}
-          onAddDemo={() => void connectors.addDemo()}
-          onInstall={(file) => void connectors.install(file)}
-          onAddOAuth={(name, url) => void connectors.addOAuth(name, url)}
-          onAuthorize={(sid) => void connectors.authorize(sid)}
-          onRemove={(sid) => void connectors.remove(sid)}
-          onToggle={connectors.toggle}
-          onClose={() => setShowConnectors(false)}
-        />
-      )}
-
-      {showPlugins && (
-        <PluginsPanel
-          installed={pluginMgr.installed}
-          market={pluginMgr.market}
-          enabled={pluginMgr.enabled}
-          err={pluginMgr.err}
-          busy={pluginMgr.busy}
-          onToggle={pluginMgr.toggle}
-          onInstall={(name) => void pluginMgr.install(name)}
-          onUninstall={(name) => void pluginMgr.uninstall(name)}
-          onClose={() => setShowPlugins(false)}
+          skills={skills}
+          conn={{
+            servers: connectors.servers,
+            enabled: connectors.enabled,
+            err: connectors.err,
+            onAdd: (body) => void connectors.add(body),
+            onAddDemo: () => void connectors.addDemo(),
+            onInstall: (file) => void connectors.install(file),
+            onAddOAuth: (name, url) => void connectors.addOAuth(name, url),
+            onAuthorize: (sid) => void connectors.authorize(sid),
+            onRemove: (sid) => void connectors.remove(sid),
+            onToggle: connectors.toggle,
+          }}
+          plug={{
+            installed: pluginMgr.installed,
+            market: pluginMgr.market,
+            enabled: pluginMgr.enabled,
+            err: pluginMgr.err,
+            busy: pluginMgr.busy,
+            onToggle: pluginMgr.toggle,
+            onInstall: (name) => void pluginMgr.install(name),
+            onUninstall: (name) => void pluginMgr.uninstall(name),
+          }}
         />
       )}
 

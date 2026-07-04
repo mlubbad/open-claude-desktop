@@ -75,6 +75,12 @@ export function useCowork(config: CoworkConfig, active: boolean) {
     }
   }, []);
 
+  // Leave the task Review view (back to the Cowork home).
+  const close = useCallback(() => {
+    selectedId.current = null;
+    setSelected(null);
+  }, []);
+
   const cancel = useCallback(
     async (id: string) => {
       try {
@@ -87,5 +93,5 @@ export function useCowork(config: CoworkConfig, active: boolean) {
     [refresh],
   );
 
-  return { tasks, selected, err, refresh, start, open, cancel };
+  return { tasks, selected, err, refresh, start, open, close, cancel };
 }

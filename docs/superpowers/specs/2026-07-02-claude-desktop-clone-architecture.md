@@ -651,6 +651,13 @@ adjust the roadmap ordering above:
   Qwen / Ollama expanded (incl. QwQ, deepseek-r1). Added a catalog-integrity test: every
   hosted provider offers a model list containing its default_model. The Settings picker
   renders these automatically. Backend: 285 (2 new), ruff clean.
+- **2026-07-03 — Sidebar recency grouping (complete):** the chat list is now grouped into
+  Pinned / Today / Yesterday / Previous 7 Days / Older sections (Claude behavior) via a pure
+  `groupByRecency(convs, nowMs)` using `updated_at` and calendar-day boundaries; pinned chats
+  get their own top section, empty sections are omitted, and unparseable timestamps fall to
+  Older. The Sidebar renders section headers. Verified: 5 vitest (calendar bucketing,
+  pinned-section, empty-section omission, bad-timestamp, empty list). Frontend: 81 vitest,
+  tsc clean, build 111 KB gz.
 - **Next (Phase 3 cont.):** interactive OAuth authorize on the Tauri host;
   true artifact token-streaming; finish the Tauri shell on a build host (tray, icons,
   signed updater, commit externalBin/sidecar spawn).

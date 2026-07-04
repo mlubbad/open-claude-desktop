@@ -1,4 +1,5 @@
 import type { ConversationSummary, Project } from "../api/client";
+import { groupByRecency } from "../state/grouping";
 
 export function Sidebar({
   projects,
@@ -58,54 +59,59 @@ export function Sidebar({
       </button>
 
       <nav className="conv-list">
-        {list.map((c) => {
-          const pid = c.project_id ?? "general";
-          return (
-            <div
-              key={c.id}
-              className={`conv-item ${c.id === currentId ? "active" : ""}`}
-              onClick={() => onOpen(c.id, pid)}
-            >
-              <span className="conv-title" title={c.title}>
-                {c.pinned ? "★ " : ""}
-                {c.title || "Untitled"}
-              </span>
-              <span className="conv-actions">
-                <button
-                  className="conv-act"
-                  title={c.pinned ? "Unpin" : "Pin"}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onTogglePin(c.id, pid, !c.pinned);
-                  }}
+        {groupByRecency(list, Date.now()).map((group) => (
+          <div key={group.label} className="conv-group">
+            <div className="conv-group-label">{group.label}</div>
+            {group.items.map((c) => {
+              const pid = c.project_id ?? "general";
+              return (
+                <div
+                  key={c.id}
+                  className={`conv-item ${c.id === currentId ? "active" : ""}`}
+                  onClick={() => onOpen(c.id, pid)}
                 >
-                  {c.pinned ? "★" : "☆"}
-                </button>
-                <button
-                  className="conv-act"
-                  title="Rename"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    const next = window.prompt("Rename conversation", c.title || "");
-                    if (next?.trim()) onRename(c.id, pid, next.trim());
-                  }}
-                >
-                  ✎
-                </button>
-                <button
-                  className="conv-act conv-del"
-                  title="Delete"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onDelete(c.id, pid);
-                  }}
-                >
-                  ✕
-                </button>
-              </span>
-            </div>
-          );
-        })}
+                  <span className="conv-title" title={c.title}>
+                    {c.pinned ? "★ " : ""}
+                    {c.title || "Untitled"}
+                  </span>
+                  <span className="conv-actions">
+                    <button
+                      className="conv-act"
+                      title={c.pinned ? "Unpin" : "Pin"}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onTogglePin(c.id, pid, !c.pinned);
+                      }}
+                    >
+                      {c.pinned ? "★" : "☆"}
+                    </button>
+                    <button
+                      className="conv-act"
+                      title="Rename"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const next = window.prompt("Rename conversation", c.title || "");
+                        if (next?.trim()) onRename(c.id, pid, next.trim());
+                      }}
+                    >
+                      ✎
+                    </button>
+                    <button
+                      className="conv-act conv-del"
+                      title="Delete"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onDelete(c.id, pid);
+                      }}
+                    >
+                      ✕
+                    </button>
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        ))}
         {list.length === 0 && <div className="conv-empty">No conversations yet</div>}
       </nav>
     </aside>

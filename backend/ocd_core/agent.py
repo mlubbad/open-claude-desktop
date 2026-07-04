@@ -155,6 +155,18 @@ TASK_TOOL = {"type": "function", "function": {
                                   "including all context it needs and exactly what to return."}},
         "required": ["description", "prompt"]}}}
 
+PLAN_TOOL = {"type": "function", "function": {
+    "name": "exit_plan_mode",
+    "description": "Call this ONLY in plan mode, once you have a complete, concrete plan. "
+                   "Presents the plan to the user for approval; on approval you leave plan "
+                   "mode and may implement it. Do NOT call it to ask a question or before you "
+                   "have finished researching — investigate read-only first.",
+    "parameters": {"type": "object", "properties": {
+        "plan": {"type": "string",
+                 "description": "The plan to carry out, as concise Markdown (steps / files "
+                                "to change / what will be verified)."}},
+        "required": ["plan"]}}}
+
 MEMORY_TOOL = {"type": "function", "function": {
     "name": "memory",
     "description": "Persistent cross-conversation memory under /memories. Commands: view, "
@@ -170,6 +182,16 @@ MEMORY_TOOL = {"type": "function", "function": {
         "new_path": {"type": "string"},
         "view_range": {"type": "array", "items": {"type": "integer"}}},
         "required": ["command"]}}}
+
+PLAN_MODE_SECTION = (
+    "## Plan mode\n"
+    "You are in PLAN MODE. Investigate the task using READ-ONLY tools only (searching, "
+    "fetching, reading files). You MUST NOT modify files, run shell commands, execute "
+    "code, run SQL, or change any state yet — those tools are blocked. When you have a "
+    "concrete, complete plan, call the `exit_plan_mode` tool with the plan as Markdown so "
+    "the user can approve it; only after approval may you make changes. If the task is a "
+    "plain question that needs no changes, answer it directly instead of planning."
+)
 
 # Effort -> behaviour. `steps` is the tool-loop iteration cap; `plan`/`verify` add
 # explicit thinking passes; `temp` raises exploration at higher effort.
@@ -409,6 +431,7 @@ TOOL_LABELS = {
     "create_artifact": ("Creating artifact", "Created artifact", "file-code"),
     "update_artifact": ("Updating artifact", "Updated artifact", "file-code"),
     "spawn_subagent": ("Delegating to subagent", "Subagent finished", "users"),
+    "exit_plan_mode": ("Preparing plan", "Plan ready for review", "clipboard-list"),
 }
 
 
@@ -451,6 +474,8 @@ def _tool_input(name: str, args: dict) -> str:
         desc = (args.get("description") or "subtask").strip()
         prompt = (args.get("prompt") or "").strip().replace("\n", " ")
         return (f"{desc} — {prompt}" if prompt else desc)[:300]
+    if name == "exit_plan_mode":
+        return (args.get("plan") or "").strip()[:2000]
     return json.dumps(args, default=str)[:300]
 
 
@@ -649,9 +674,14 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
     # HITL gate is active only with a turn_id (a reply channel) and a non-auto mode.
     perm_mode = (permission_mode or config.PERMISSION_MODE)
     gate_on = bool(turn_id) and perm_mode != "auto"
+    # Plan mode: research read-only, present a plan, and only mutate after approval. It
+    # needs an interactive reply channel (turn_id); without one it degrades to no-op.
+    plan_mode = bool(turn_id) and perm_mode == "plan"
 
     bq_on = bigquery_tools.enabled()
     extra_sections = []
+    if plan_mode:
+        extra_sections.append(PLAN_MODE_SECTION)
     if bq_on:
         extra_sections.append(bigquery_tools.system_prompt_section())
     if artifacts:
@@ -686,6 +716,8 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
         tools.append(MEMORY_TOOL)
     if subagents:
         tools.append(TASK_TOOL)
+    if plan_mode:
+        tools.append(PLAN_TOOL)
     if extra_tools:
         tools.extend(extra_tools)
     # H6: enforce tool enablement at DISPATCH, not just by which schemas we send.
@@ -829,6 +861,39 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
             yield {"type": "tool", "id": tc.id, "name": name,
                    "input": _tool_input(name, args), "label_running": run_lbl,
                    "label_done": done_lbl, "icon": icon}
+            # Plan mode: `exit_plan_mode` presents the plan for approval; approving LEAVES
+            # plan mode (the rest of this turn runs under the normal HITL gate). Every other
+            # state-changing tool is blocked until then.
+            if plan_mode and name == "exit_plan_mode":
+                yield {"type": "approval_required", "turn_id": turn_id, "id": tc.id,
+                       "name": name, "input": _tool_input(name, args)}
+                approved = await permissions.registry.wait(
+                    turn_id, tc.id, config.PERMISSION_TIMEOUT_SEC)
+                if approved:
+                    plan_mode = False
+                    perm_mode, gate_on = "ask", True   # mutations now prompt, not blocked
+                    yield {"type": "tool_result", "id": tc.id, "name": name,
+                           "summary": "Plan approved — implementing"}
+                    blocked_outcomes.append({"id": tc.id, "name": name, "ok": True,
+                        "result": ("The user APPROVED the plan. Plan mode is now OFF — carry "
+                                   "it out. Sensitive actions will still ask for confirmation.")})
+                else:
+                    yield {"type": "tool_result", "id": tc.id, "name": name,
+                           "summary": "Kept planning"}
+                    blocked_outcomes.append({"id": tc.id, "name": name, "ok": True,
+                        "result": ("The user did NOT approve the plan and wants to keep "
+                                   "planning. Do not make any changes; refine the plan "
+                                   "(ask what to adjust if unclear) and call exit_plan_mode "
+                                   "again.")})
+                continue
+            if plan_mode and permissions.is_sensitive(name):
+                yield {"type": "tool_error", "id": tc.id, "name": name,
+                       "text": "Blocked in plan mode — research only, then present a plan."}
+                blocked_outcomes.append({"id": tc.id, "name": name, "ok": False,
+                    "result": (f"BLOCKED: '{name}' cannot run in PLAN MODE. Do not modify "
+                               "anything yet. Finish researching read-only, then call "
+                               "exit_plan_mode with your plan for the user to approve.")})
+                continue
             # HITL: suspend for a user decision before running a sensitive tool.
             if gate_on and permissions.requires_approval(name, perm_mode):
                 yield {"type": "approval_required", "turn_id": turn_id, "id": tc.id,

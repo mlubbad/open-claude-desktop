@@ -41,6 +41,9 @@ export default function App() {
   const [showHelp, setShowHelp] = useState(false);
   const [drafts, setDrafts] = useState<Drafts>({});
   const [view, setView] = useState<"chat" | "code" | "cowork">("chat");
+  // Plan mode: the agent researches read-only and proposes a plan to approve before it
+  // changes anything. Only meaningful in the interactive Chat/Code views.
+  const [planMode, setPlanMode] = useState(false);
 
   const proj = useProjects();
   const connectors = useConnectors();
@@ -57,7 +60,7 @@ export default function App() {
       provider,
       model,
       effort: "High",
-      permissionMode: "ask" as const,
+      permissionMode: planMode ? "plan" : "ask",
       projectId: proj.active,
       enabledMcp: connectors.enabled,
       // In Code mode, give the agent its file + shell tools over the workspace, plus
@@ -67,7 +70,7 @@ export default function App() {
           ? { text_editor: true, bash: true, code_exec: true, subagents: true }
           : undefined,
     }),
-    [provider, model, proj.active, connectors.enabled, view],
+    [provider, model, proj.active, connectors.enabled, view, planMode],
   );
   const {
     state,
@@ -210,6 +213,20 @@ export default function App() {
             </span>
           </div>
           <div className="topbar-right">
+            {view !== "cowork" && (
+              <button
+                className={`icon-btn plan-toggle ${planMode ? "active" : ""}`}
+                title={
+                  planMode
+                    ? "Plan mode ON — the agent proposes a plan before changing anything"
+                    : "Plan mode OFF — turn on to review a plan before any changes"
+                }
+                aria-pressed={planMode}
+                onClick={() => setPlanMode((p) => !p)}
+              >
+                📋 Plan
+              </button>
+            )}
             {state.usage && <UsageMeter usage={state.usage} />}
             <button
               className="icon-btn"
@@ -290,7 +307,16 @@ export default function App() {
           )}
           {state.error && <div className="turn-error">{state.error}</div>}
           {state.pendingApproval && (
-            <ApprovalPrompt pending={state.pendingApproval} onDecide={resolveApproval} />
+            <ApprovalPrompt
+              pending={state.pendingApproval}
+              onDecide={(d) => {
+                // Approving a plan leaves plan mode (matching the backend for that turn).
+                if (d === "approve" && state.pendingApproval?.name === "exit_plan_mode") {
+                  setPlanMode(false);
+                }
+                resolveApproval(d);
+              }}
+            />
           )}
         </main>
 

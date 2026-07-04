@@ -799,10 +799,29 @@ adjust the roadmap ordering above:
   enablement; subagent-error → parent `tool_error` → recovery; final-block-only accumulation) —
   the whole recursive delegation exercised with a fake `_stream_llm`, no LLM. Backend: 339
   (4 new), ruff clean; frontend 95 vitest, tsc clean, build 113 KB gz.
+- **2026-07-04 — Plan mode, Phase 6 (complete):** the iconic Claude Code workflow — the agent
+  investigates READ-ONLY, proposes a plan, and only changes things after the user approves.
+  Backend: `permission_mode="plan"` (needs an interactive `turn_id`; degrades to no-op without
+  one) adds a `PLAN_MODE_SECTION` to the system prompt and an `exit_plan_mode` tool. During
+  plan mode every state-changing tool (`permissions.is_sensitive` — bash/code/editor/SQL and all
+  external MCP/plugin/connector tools) is **blocked at dispatch** with a message steering the
+  model to finish researching and present a plan; read-only tools (search/fetch/research/schema/
+  memory) stay available. `exit_plan_mode` **reuses the existing HITL machinery** — it emits the
+  frozen `approval_required` event and awaits `permissions.registry`, so the reply endpoint and
+  the whole approval channel are unchanged. **Approving LEAVES plan mode** (the rest of the turn
+  runs under the normal `ask` gate); declining keeps it on so the model refines and re-presents.
+  Zero new event types. Frontend: a header **📋 Plan** toggle (Chat/Code only) drives
+  `permissionMode`; `ApprovalPrompt` renders a purpose-built plan card ("Ready to go? Review the
+  plan…" · *Keep planning* / *Approve & run*) when the pending approval is `exit_plan_mode`;
+  approving the plan also clears the toggle client-side to match the backend. Verified: 4 backend
+  tests (sensitive tool blocked + `exit_plan_mode` offered; approve → plan mode left → next tool
+  executes; decline → still blocked; tool absent outside plan mode) — all via a fake `_stream_llm`
+  with `registry.wait` monkeypatched for the decision. Backend 343 (4 new), ruff clean; frontend
+  95 vitest, tsc clean, build 114 KB gz.
 - **Status:** **all originally-scoped surfaces are now built and tested** — Chat, Projects,
   Memory, Artifacts (+versions +live streaming), MCP/Connectors (+OAuth), Plugins runtime,
-  Skills, Settings/BYOK, the **CLI**, the **Code** tab, the **Cowork** tab, and **subagents /
-  Task tool**, plus the desktop shell (compiled). Nice-to-have left: a plugin-marketplace
+  Skills, Settings/BYOK, the **CLI**, the **Code** tab, the **Cowork** tab, **subagents /
+  Task tool**, and **plan mode**, plus the desktop shell (compiled). Nice-to-have left: a plugin-marketplace
   *browse* UI (the plugin runtime already works). External-only (not code): maintainer sets CI
   signing secrets + pushes a `v*` tag for the signed release; the OAuth browser round-trip and
   Cowork long-runs

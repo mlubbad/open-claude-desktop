@@ -727,6 +727,28 @@ adjust the roadmap ordering above:
   unicode, unordered keys) + 3 integration tests (live open/delta ordering through `_stream_llm`,
   completion suppression, explicit-id create) + a frontend reducer test. Backend: 311 (13 new),
   ruff clean; frontend 86 vitest, tsc clean, build 111 KB gz.
-- **Status:** every roadmap item that is verifiable in-container is now done and tested. The only
-  remainders are external by nature (maintainer sets CI signing secrets + pushes a `v*` tag for
-  the signed release; the OAuth browser round-trip runs against a real OAuth-protected MCP server).
+- **2026-07-04 — `ocd` CLI, Phase 6 (complete):** the terminal front-end lands as a new
+  `ocd_cli` package (`[project.scripts] ocd = "ocd_cli.cli:main"`) driving the SAME
+  `ocd_core.run_turn` + frozen event vocabulary as the desktop app — no duplicate agent
+  logic. Dependency-free (stdlib + ANSI): a pure `Renderer` turns each event into terminal
+  text (think/answer streaming, tool cards, tables, sources, artifacts, usage/cost) and is
+  fully unit-testable without a TTY; `--json` emits the raw events as JSONL. Headless
+  `ocd -p "prompt"` (also a bare prompt arg) runs one turn; `ocd` with no prompt opens an
+  interactive REPL with slash-commands (`/model`, `/provider`, `/effort`, `/project`,
+  `/new`, `/help`, `/quit`; a `/name` that isn't a command flows to the agent so skills
+  resolve). Flags: `-m/--model`, `--provider`, `-e/--effort`, `--project`, `-c/--continue`,
+  `--resume ID`, `--no-tools`, `--no-color`, `--version`. Reuses BYOK keys, providers,
+  skills, and conversation persistence verbatim. *Ideas (session verbs, headless/JSON,
+  in-TUI slash-commands, provider config) were adapted from a review of the third-party
+  `Gitlawb/openclaude` — but NONE of its code: that repo's LICENSE admits it redistributes
+  Anthropic's proprietary Claude Code without authorization, so reusing it would violate
+  this project's original-implementation IP rule; our CLI is written fresh over `ocd_core`.*
+  Verified: 10 tests (pure renderer for answer/think/tool/table/artifact/usage, ANSI gating,
+  JSONL round-trip, arg parsing, history mapping, REPL command parser) + a real end-to-end
+  run (`ocd -p` → clean keyless error, exit 1; `ocd --version`; `--help`). Backend: 321
+  (10 new), ruff clean; the `ocd` console script resolves after install.
+- **Status:** every roadmap item that is verifiable in-container is now done and tested,
+  **including the Phase-6 CLI**. Remaining scoped surfaces: the **Code** and **Cowork** tabs
+  (desktop UIs over the existing tools/engine) and a plugin-marketplace UI. External-only:
+  maintainer sets CI signing secrets + pushes a `v*` tag for the signed release; the OAuth
+  browser round-trip runs against a real OAuth-protected MCP server.

@@ -22,6 +22,7 @@ from .routes import (  # noqa: E402
     bigquery,
     code,
     conversations,
+    cowork,
     health,
     integrations,
     knowledge,
@@ -64,3 +65,4 @@ app.include_router(sql.router)
 app.include_router(bigquery.router)
 app.include_router(providers.router)
 app.include_router(code.router)
+app.include_router(cowork.router)

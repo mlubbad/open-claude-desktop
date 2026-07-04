@@ -78,6 +78,28 @@ body { margin: 0; background: var(--bg); color: var(--text); }
 .code-view-body { flex: 1; overflow: auto; margin: 0; padding: 12px; font-family: var(--mono); font-size: 12.5px; line-height: 1.5; }
 .code-empty { color: var(--muted); padding: 16px; font-size: 13px; }
 
+/* Cowork tab: delegate form + task list + task transcript. */
+.cowork { flex: 1; display: flex; min-height: 0; }
+.cowork-list { width: 320px; flex-shrink: 0; display: flex; flex-direction: column; border-right: 1px solid var(--border); min-height: 0; }
+.cowork-delegate { display: flex; flex-direction: column; gap: 8px; padding: 12px; border-bottom: 1px solid var(--border); }
+.cowork-delegate textarea { border: 1px solid var(--border); border-radius: 8px; padding: 8px; resize: none;
+  background: var(--surface); color: var(--text); font: inherit; }
+.cowork-tasks { flex: 1; overflow: auto; padding: 6px; display: flex; flex-direction: column; gap: 2px; }
+.cowork-task { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 8px; cursor: pointer; font-size: 13px; }
+.cowork-task:hover { background: var(--surface-2); }
+.cowork-task.active { background: var(--surface-2); border: 1px solid var(--border); }
+.cowork-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cowork-status { flex-shrink: 0; }
+.cowork-status.running { color: var(--accent); }
+.cowork-status.done { color: var(--ok); }
+.cowork-status.error { color: var(--danger); }
+.cowork-status.cancelled { color: var(--muted); }
+.cowork-detail { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.cowork-transcript { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.cowork-detail-head { padding: 10px 16px; border-bottom: 1px solid var(--border); font-size: 13px; color: var(--muted); }
+.cowork-err { color: var(--danger); }
+.cowork-scroll { flex: 1; overflow: auto; }
+
 .jump-latest { position: absolute; left: 50%; transform: translateX(-50%); bottom: 84px;
   width: 34px; height: 34px; border-radius: 999px; border: 1px solid var(--border);
   background: var(--surface); color: var(--text); cursor: pointer; font-size: 16px;

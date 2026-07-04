@@ -5,6 +5,7 @@ import { notify, onTrayNewChat, registerSummonHotkey, unregisterSummonHotkey } f
 import { ApprovalPrompt } from "./components/ApprovalPrompt";
 import { ArtifactPanel } from "./components/ArtifactPanel";
 import { CodePanel } from "./components/CodePanel";
+import { CoworkPanel } from "./components/CoworkPanel";
 import { type Command, CommandPalette } from "./components/CommandPalette";
 import { Composer } from "./components/Composer";
 import { ConnectorsPanel } from "./components/ConnectorsPanel";
@@ -21,6 +22,7 @@ import { conversationsForProject } from "./state/projectFilter";
 import { STARTER_PROMPTS } from "./state/starters";
 import { findArtifact } from "./state/transcript";
 import { useCode } from "./state/useCode";
+import { useCowork } from "./state/useCowork";
 import { useConnectors } from "./state/useConnectors";
 import { useConversations } from "./state/useConversations";
 import { useKeyboard } from "./state/useKeyboard";
@@ -38,13 +40,17 @@ export default function App() {
   const [showPalette, setShowPalette] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [drafts, setDrafts] = useState<Drafts>({});
-  const [view, setView] = useState<"chat" | "code">("chat");
+  const [view, setView] = useState<"chat" | "code" | "cowork">("chat");
 
   const proj = useProjects();
   const connectors = useConnectors();
   const skills = useSkills();
   const theme = useTheme();
   const codeWs = useCode(proj.active ?? undefined, view === "code");
+  const cowork = useCowork(
+    { model, provider, effort: "High", projectId: proj.active },
+    view === "cowork",
+  );
 
   const config = useMemo(
     () => ({
@@ -194,6 +200,9 @@ export default function App() {
               <button className={view === "code" ? "active" : ""} onClick={() => setView("code")}>
                 Code
               </button>
+              <button className={view === "cowork" ? "active" : ""} onClick={() => setView("cowork")}>
+                Cowork
+              </button>
             </span>
           </div>
           <div className="topbar-right">
@@ -219,6 +228,16 @@ export default function App() {
           </div>
         </header>
 
+        {view === "cowork" ? (
+          <CoworkPanel
+            tasks={cowork.tasks}
+            selected={cowork.selected}
+            err={cowork.err}
+            onStart={cowork.start}
+            onOpen={cowork.open}
+            onCancel={cowork.cancel}
+          />
+        ) : (
         <div className={`workarea ${view === "code" ? "with-code" : ""}`}>
           {view === "code" && (
             <CodePanel
@@ -290,6 +309,7 @@ export default function App() {
         </footer>
           </div>
         </div>
+        )}
       </div>
 
       {openDoc && <ArtifactPanel doc={openDoc} onClose={closeArtifact} />}

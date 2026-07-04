@@ -762,7 +762,27 @@ adjust the roadmap ordering above:
   the two routes incl. route-level traversal jail) + 5 frontend tests (nesting, dir-before-
   file ordering, synthesized intermediate dirs, empty, lang map). Backend: 327 (6 new), ruff
   clean; frontend 91 vitest, tsc clean, build 112 KB gz.
-- **Status:** every roadmap item that is verifiable in-container is now done and tested,
-  **including the Phase-6 CLI and Code tab**. Remaining scoped surface: the **Cowork** tab,
-  plus a plugin-marketplace UI. External-only: maintainer sets CI signing secrets + pushes a
-  `v*` tag for the signed release; the OAuth browser round-trip runs against a real OAuth MCP server.
+- **2026-07-04 — Cowork surface, Phase 6 (complete):** delegate a task and the agent works
+  on it autonomously in the background while you do something else. Backend
+  `ocd_core.cowork.CoworkManager` runs an agent event-generator as a background asyncio task,
+  accumulating its events with status (running→done/error/cancelled); it's transport-agnostic
+  (the route wires `run_turn` with `permission_mode="auto"` — no human to answer HITL prompts —
+  and web/artifact/memory tools on; tests wire a fake generator, so the full lifecycle is
+  verifiable without an LLM). Routes: `POST /cowork` (delegate → immediate summary),
+  `GET /cowork` (list, newest-first), `GET /cowork/{id}` (detail incl. the event transcript +
+  reassembled answer), `POST /cowork/{id}/cancel`. Frontend: a **Cowork** tab (third view
+  toggle) with a delegate form, a live task list (polled while any task runs) with status
+  badges + cancel, and a detail pane that **replays the task's stored events through the same
+  transcript reducer** the live chat uses — identical rendering, zero duplicate logic
+  (`replayEvents`). Verified: 8 backend tests (running→done + event capture, error-event and
+  raised-exception paths, cancel + unknown-cancel, newest-first list, routes plumbing with a
+  fake runner) + 4 frontend (replay rebuilds the transcript, empty events, status badges,
+  running detection). Backend: 335 (8 new), ruff clean; frontend 95 vitest, tsc clean, build
+  113 KB gz.
+- **Status:** **all originally-scoped surfaces are now built and tested** — Chat, Projects,
+  Memory, Artifacts (+versions +live streaming), MCP/Connectors (+OAuth), Plugins runtime,
+  Skills, Settings/BYOK, the **CLI**, the **Code** tab, and the **Cowork** tab, plus the
+  desktop shell (compiled). Nice-to-have left: a plugin-marketplace *browse* UI (the plugin
+  runtime already works). External-only (not code): maintainer sets CI signing secrets +
+  pushes a `v*` tag for the signed release; the OAuth browser round-trip and Cowork long-runs
+  exercise against live models/servers.

@@ -261,6 +261,30 @@ async function postForm<T>(path: string, form: FormData): Promise<T> {
   return (await resp.json()) as T;
 }
 
+export interface CoworkTask {
+  id: string;
+  title: string;
+  status: "running" | "done" | "error" | "cancelled";
+  created_at: string;
+  updated_at: string;
+  events: number;
+}
+
+export interface CoworkDetail extends CoworkTask {
+  goal: string;
+  error: string | null;
+  event_list: import("./events").AgentEvent[];
+  answer: string;
+}
+
+export const cowork = {
+  list: () => api.get<CoworkTask[]>("/cowork"),
+  start: (body: { goal: string; model: string; provider?: string | null; effort?: string; project_id?: string | null }) =>
+    api.post<CoworkTask>("/cowork", body),
+  get: (id: string) => api.get<CoworkDetail>(`/cowork/${id}`),
+  cancel: (id: string) => api.post<{ cancelled: boolean }>(`/cowork/${id}/cancel`),
+};
+
 export interface CodeEntry {
   path: string;
   type: "file" | "dir";

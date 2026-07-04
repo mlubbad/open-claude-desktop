@@ -116,7 +116,10 @@ function buildSrcDoc(doc: ArtifactDoc): string {
   const csp =
     '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; ' +
     "script-src 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'unsafe-inline'; " +
-    "img-src data: https:; font-src data: https:\">";
+    "img-src data: https:; font-src data: https:\">" +
+    // The preview canvas is deliberately light regardless of app theme; tell the UA so
+    // form controls/scrollbars inside the sandbox match.
+    '<meta name="color-scheme" content="light">';
   if (doc.kind === "html") {
     // If the model already returned a full document, trust its own structure but keep
     // it inside the sandboxed iframe.

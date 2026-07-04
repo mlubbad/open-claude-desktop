@@ -8,6 +8,7 @@ import { CodePanel } from "./components/CodePanel";
 import { CoworkPanel } from "./components/CoworkPanel";
 import { type Command, CommandPalette } from "./components/CommandPalette";
 import { Composer } from "./components/Composer";
+import { Icon } from "./components/Icon";
 import { AssistantBubble, UserBubble } from "./components/Message";
 import { ProjectPanel } from "./components/ProjectPanel";
 import { SettingsModal, type SettingsPage } from "./components/SettingsModal";
@@ -188,9 +189,8 @@ export default function App() {
     URL.revokeObjectURL(url);
   }
 
-  async function newProject() {
-    const name = window.prompt("New project name");
-    if (name?.trim()) {
+  async function newProject(name: string) {
+    if (name.trim()) {
       await proj.create(name.trim());
       newChat();
     }
@@ -209,7 +209,7 @@ export default function App() {
           proj.setActive(pid);
           newChat();
         }}
-        onNewProject={newProject}
+        onNewProject={(name) => void newProject(name)}
         onManageProject={() => setShowProject(true)}
         list={scopedList}
         currentId={current?.cid ?? null}
@@ -250,11 +250,11 @@ export default function App() {
               aria-label={`Theme: ${themeGlyph(theme.pref).label}`}
               onClick={theme.cycle}
             >
-              <span aria-hidden="true">{themeGlyph(theme.pref).icon}</span>
+              <Icon name={themeGlyph(theme.pref).icon} />
             </button>
             {state.messages.length > 0 && (
-              <button className="icon-btn" title="Export chat as Markdown" onClick={exportChat}>
-                ⬇
+              <button className="icon-btn" title="Export chat as Markdown" aria-label="Export chat as Markdown" onClick={exportChat}>
+                <Icon name="download" />
               </button>
             )}
             <button className="icon-btn" title="Connectors (MCP)" onClick={() => setSettingsPage("connectors")}>
@@ -328,7 +328,7 @@ export default function App() {
                     disabled={busy}
                     onClick={() => send(s.prompt)}
                   >
-                    <span className="chip-icon">{s.icon}</span>
+                    <span className="chip-icon"><Icon name={s.icon} size={14} /></span>
                     {s.label}
                   </button>
                 ))}

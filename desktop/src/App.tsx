@@ -14,6 +14,7 @@ import { ShortcutsHelp } from "./components/ShortcutsHelp";
 import { Sidebar } from "./components/Sidebar";
 import { UsageMeter } from "./components/UsageMeter";
 import { exportSlug, toMarkdown } from "./state/exportConversation";
+import { useAutoScroll } from "./state/useAutoScroll";
 import { conversationsForProject } from "./state/projectFilter";
 import { STARTER_PROMPTS } from "./state/starters";
 import { findArtifact } from "./state/transcript";
@@ -111,6 +112,9 @@ export default function App() {
     prevBusy.current = busy;
   }, [busy]);
 
+  // Follow streaming content; state.messages changes on each token so this stays pinned.
+  const scroll = useAutoScroll<HTMLElement>([state.messages]);
+
   const lastAssistantIdx = state.messages.reduce((acc, m, i) => (m.role === "assistant" ? i : acc), -1);
   const openDoc = findArtifact(state, state.openArtifactId);
   const scopedList = conversationsForProject(list, proj.active);
@@ -185,7 +189,7 @@ export default function App() {
           </div>
         </header>
 
-        <main className="transcript">
+        <main className="transcript" ref={scroll.ref}>
           {state.messages.length === 0 && (
             <div className="empty">
               <h1>How can I help?</h1>
@@ -224,6 +228,12 @@ export default function App() {
             <ApprovalPrompt pending={state.pendingApproval} onDecide={resolveApproval} />
           )}
         </main>
+
+        {scroll.showJump && (
+          <button className="jump-latest" title="Jump to latest" onClick={scroll.jumpToBottom}>
+            ↓
+          </button>
+        )}
 
         <footer className="footer">
           <Composer busy={busy} onSend={send} onStop={stop} skills={skills} />

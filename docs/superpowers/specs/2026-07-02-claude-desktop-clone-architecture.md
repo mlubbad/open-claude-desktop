@@ -639,6 +639,12 @@ adjust the roadmap ordering above:
   `isEditableTarget` guard. Verified: 4 vitest (registry well-formed + unique keys, palette
   shortcuts present, editable-target detection true/false cases). Frontend: 72 vitest, tsc
   clean, build 110 KB gz.
+- **2026-07-03 — Auto-scroll transcript + jump-to-latest (complete):** the transcript now
+  follows streaming content instead of stranding the user mid-answer. `useAutoScroll` (pure
+  `isNearBottom` helper) keeps the view pinned to the bottom as messages/tokens stream while
+  the user is already near the bottom, and surfaces a floating ↓ jump-to-latest button when
+  they've scrolled up to read. Verified: 4 vitest (`isNearBottom` at bottom / within / beyond
+  threshold, custom threshold). Frontend: 76 vitest, tsc clean, build 110 KB gz.
 - **Next (Phase 3 cont.):** interactive OAuth authorize on the Tauri host;
   true artifact token-streaming; finish the Tauri shell on a build host (tray, icons,
   signed updater, commit externalBin/sidecar spawn).

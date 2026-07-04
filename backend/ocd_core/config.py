@@ -13,6 +13,8 @@ KNOWLEDGE_DIR = Path(os.getenv("KNOWLEDGE_DIR", str(REPO_ROOT / "knowledge")))
 CHROMA_PATH = os.getenv("CHROMA_PATH", str(REPO_ROOT / "chroma_db"))
 SKILLS_DIR = Path(os.getenv("SKILLS_DIR", str(REPO_ROOT / "skills")))
 PLUGINS_DIR = Path(os.getenv("PLUGINS_DIR", str(REPO_ROOT / "plugins")))
+# Bundled, vetted plugin catalog the marketplace installs FROM (into PLUGINS_DIR).
+MARKETPLACE_DIR = Path(os.getenv("MARKETPLACE_DIR", str(REPO_ROOT / "content" / "marketplace")))
 
 # --- BigQuery (optional connector, Phase 2) ---
 PROJECT_ID = os.getenv("GCP_PROJECT_ID", "")

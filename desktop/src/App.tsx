@@ -10,6 +10,7 @@ import { type Command, CommandPalette } from "./components/CommandPalette";
 import { Composer } from "./components/Composer";
 import { ConnectorsPanel } from "./components/ConnectorsPanel";
 import { AssistantBubble, UserBubble } from "./components/Message";
+import { PluginsPanel } from "./components/PluginsPanel";
 import { ProjectPanel } from "./components/ProjectPanel";
 import { Settings } from "./components/Settings";
 import { ShortcutsHelp } from "./components/ShortcutsHelp";
@@ -26,6 +27,7 @@ import { useCowork } from "./state/useCowork";
 import { useConnectors } from "./state/useConnectors";
 import { useConversations } from "./state/useConversations";
 import { useKeyboard } from "./state/useKeyboard";
+import { usePlugins } from "./state/usePlugins";
 import { useProjects } from "./state/useProjects";
 import { useSkills } from "./state/useSkills";
 import { useTheme } from "./state/useTheme";
@@ -37,6 +39,7 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [showProject, setShowProject] = useState(false);
   const [showConnectors, setShowConnectors] = useState(false);
+  const [showPlugins, setShowPlugins] = useState(false);
   const [showPalette, setShowPalette] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [drafts, setDrafts] = useState<Drafts>({});
@@ -47,6 +50,7 @@ export default function App() {
 
   const proj = useProjects();
   const connectors = useConnectors();
+  const pluginMgr = usePlugins();
   const skills = useSkills();
   const theme = useTheme();
   const codeWs = useCode(proj.active ?? undefined, view === "code");
@@ -63,6 +67,7 @@ export default function App() {
       permissionMode: planMode ? "plan" : "ask",
       projectId: proj.active,
       enabledMcp: connectors.enabled,
+      enabledPlugins: pluginMgr.enabled,
       // In Code mode, give the agent its file + shell tools over the workspace, plus
       // subagents so it can fan out isolated subtasks (reading many files, focused analysis).
       options:
@@ -70,7 +75,7 @@ export default function App() {
           ? { text_editor: true, bash: true, code_exec: true, subagents: true }
           : undefined,
     }),
-    [provider, model, proj.active, connectors.enabled, view, planMode],
+    [provider, model, proj.active, connectors.enabled, pluginMgr.enabled, view, planMode],
   );
   const {
     state,
@@ -243,6 +248,9 @@ export default function App() {
             <button className="icon-btn" title="Connectors (MCP)" onClick={() => setShowConnectors(true)}>
               🔌{connectors.enabled.length > 0 && <span className="badge">{connectors.enabled.length}</span>}
             </button>
+            <button className="icon-btn" title="Plugins" onClick={() => setShowPlugins(true)}>
+              🧩{pluginMgr.enabled.length > 0 && <span className="badge">{pluginMgr.enabled.length}</span>}
+            </button>
             <button className="model-pill" onClick={() => setShowSettings(true)}>
               {provider} · {model}
             </button>
@@ -389,6 +397,20 @@ export default function App() {
           onRemove={(sid) => void connectors.remove(sid)}
           onToggle={connectors.toggle}
           onClose={() => setShowConnectors(false)}
+        />
+      )}
+
+      {showPlugins && (
+        <PluginsPanel
+          installed={pluginMgr.installed}
+          market={pluginMgr.market}
+          enabled={pluginMgr.enabled}
+          err={pluginMgr.err}
+          busy={pluginMgr.busy}
+          onToggle={pluginMgr.toggle}
+          onInstall={(name) => void pluginMgr.install(name)}
+          onUninstall={(name) => void pluginMgr.uninstall(name)}
+          onClose={() => setShowPlugins(false)}
         />
       )}
 

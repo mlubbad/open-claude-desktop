@@ -5,7 +5,7 @@ import tempfile
 from pathlib import Path
 
 from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, UploadFile
-from ocd_core import integrations, skills
+from ocd_core import integrations, marketplace, skills
 from ocd_core.integrations import McpbError
 from pydantic import BaseModel
 
@@ -13,6 +13,10 @@ from ..deps import current_user
 from ..schemas import GithubImportRequest
 
 router = APIRouter()
+
+
+class PluginName(BaseModel):
+    name: str
 
 
 class ConnectorBody(BaseModel):
@@ -36,6 +40,28 @@ class McpBody(BaseModel):
 @router.get("/plugins")
 def list_plugins(user: str = Depends(current_user)) -> list[dict]:
     return integrations.list_plugins()
+
+
+@router.get("/marketplace")
+def marketplace_catalog(user: str = Depends(current_user)) -> list[dict]:
+    """Browse the bundled plugin catalog (each flagged `installed`)."""
+    return marketplace.catalog()
+
+
+@router.post("/marketplace/install")
+def marketplace_install(body: PluginName, user: str = Depends(current_user)) -> dict:
+    res = marketplace.install(body.name)
+    if not res.get("ok"):
+        raise HTTPException(status_code=400, detail=res.get("detail", "install failed"))
+    return res
+
+
+@router.post("/marketplace/uninstall")
+def marketplace_uninstall(body: PluginName, user: str = Depends(current_user)) -> dict:
+    res = marketplace.uninstall(body.name)
+    if not res.get("ok"):
+        raise HTTPException(status_code=400, detail=res.get("detail", "uninstall failed"))
+    return res
 
 
 @router.get("/skills")

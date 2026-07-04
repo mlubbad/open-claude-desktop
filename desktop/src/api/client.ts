@@ -322,6 +322,28 @@ export const skills = {
   list: () => api.get<SkillSummary[]>("/skills"),
 };
 
+export interface PluginSummary {
+  name: string;
+  description?: string;
+  tool?: unknown;
+}
+
+export interface MarketplacePlugin {
+  name: string;
+  description: string;
+  category: string;
+  filename: string;
+  installed: boolean;
+}
+
+export const plugins = {
+  list: () => api.get<PluginSummary[]>("/plugins"),
+  marketplace: () => api.get<MarketplacePlugin[]>("/marketplace"),
+  install: (name: string) => api.post<{ ok: boolean; name: string }>("/marketplace/install", { name }),
+  uninstall: (name: string) =>
+    api.post<{ ok: boolean; name: string }>("/marketplace/uninstall", { name }),
+};
+
 export const mcp = {
   list: () => api.get<McpServer[]>("/mcp-servers"),
   add: (body: AddMcpBody) => api.post<McpServer>("/mcp-servers", body),

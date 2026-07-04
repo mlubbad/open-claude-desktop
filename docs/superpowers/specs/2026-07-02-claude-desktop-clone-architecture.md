@@ -818,11 +818,30 @@ adjust the roadmap ordering above:
   executes; decline → still blocked; tool absent outside plan mode) — all via a fake `_stream_llm`
   with `registry.wait` monkeypatched for the decision. Backend 343 (4 new), ruff clean; frontend
   95 vitest, tsc clean, build 114 KB gz.
+- **2026-07-04 — Plugins UI + marketplace, Phase 5/6 (complete):** the plugin runtime already
+  worked (plugins/*.py exposing `TOOL`+`run`, dispatched as agent tools) but was **unreachable
+  from the UI** — `enabled_plugins` was always empty. Closed that end-to-end: a **🧩 Plugins**
+  panel lists installed plugins with per-session **enable toggles** (fed into every turn as
+  `enabled_plugins`, wired through `TurnConfig`→request), and a **marketplace** section to browse
+  a bundled, vetted catalog and install/uninstall. Backend `ocd_core/marketplace.py`:
+  `catalog()` (each entry flagged `installed`), `install(name)` (copies a catalog file into
+  `PLUGINS_DIR`, then verifies it loads as a real plugin — rolls back if not), `uninstall(name)`
+  (removes a catalog file, with a path-jail; **can never delete a built-in** that isn't in the
+  catalog). Routes `GET /marketplace`, `POST /marketplace/{install,uninstall}` on the existing
+  integrations router. Security: only the **bundled** catalog is installable — installing
+  arbitrary remote code would be a code-execution risk, so remote/URL marketplaces are
+  intentionally out of scope. Ships 4 original, offline, deterministic example plugins
+  (`word_count`, `base64_tool`, `roman_numeral`, `color_convert`) under `content/marketplace/`
+  (same data-dir convention as `plugins/`+`skills/`). Verified: 5 backend tests (catalog +
+  installed flag; install→live+runnable→uninstall; unknown rejected; built-in never deletable;
+  bundled catalog well-formed) + the frontend `usePlugins` hook/panel. Backend 348 (5 new), ruff
+  clean; frontend 95 vitest, tsc clean, build 114 KB gz.
 - **Status:** **all originally-scoped surfaces are now built and tested** — Chat, Projects,
-  Memory, Artifacts (+versions +live streaming), MCP/Connectors (+OAuth), Plugins runtime,
-  Skills, Settings/BYOK, the **CLI**, the **Code** tab, the **Cowork** tab, **subagents /
-  Task tool**, and **plan mode**, plus the desktop shell (compiled). Nice-to-have left: a plugin-marketplace
-  *browse* UI (the plugin runtime already works). External-only (not code): maintainer sets CI
-  signing secrets + pushes a `v*` tag for the signed release; the OAuth browser round-trip and
-  Cowork long-runs
-  exercise against live models/servers.
+  Memory, Artifacts (+versions +live streaming), MCP/Connectors (+OAuth), Plugins runtime **+
+  UI/marketplace**, Skills, Settings/BYOK, the **CLI**, the **Code** tab, the **Cowork** tab,
+  **subagents / Task tool**, and **plan mode**, plus the desktop shell (compiled). Optional
+  follow-ons (not requested): a scheduler for recurring Cowork tasks; a *remote* (git/URL)
+  plugin marketplace on top of the bundled one (needs sandboxing before running untrusted
+  code). External-only (not code): maintainer sets CI signing secrets + pushes a `v*` tag for
+  the signed release; the OAuth browser round-trip and Cowork long-runs exercise against live
+  models/servers.

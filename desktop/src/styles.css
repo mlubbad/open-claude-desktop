@@ -152,6 +152,10 @@ body { margin: 0; background: var(--bg); color: var(--text); }
   color: var(--text); border-radius: 999px; padding: 5px 10px; cursor: pointer; font-size: 13px; }
 .icon-btn .badge { position: absolute; top: -4px; right: -4px; background: var(--accent);
   color: var(--accent-fg); border-radius: 999px; font-size: 10px; padding: 0 5px; }
+.plugins-section { margin: 14px 0 4px; font-size: 13px; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.04em; }
+.plugins-note { margin: 0 0 6px; font-size: 12px; color: var(--muted); }
+.plugin-installed { font-size: 12px; color: var(--muted); white-space: nowrap; }
 .plan-toggle { font-size: 12px; }
 .plan-toggle.active { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
 .approval-plan { border-color: var(--accent); }

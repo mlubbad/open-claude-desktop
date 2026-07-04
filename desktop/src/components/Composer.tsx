@@ -3,6 +3,7 @@ import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react"
 import type { SkillSummary } from "../api/client";
 import { type Attachment, clampContent, withAttachments } from "../state/attachments";
 import { applySlash, slashSuggestions } from "../state/slashCommands";
+import { Icon } from "./Icon";
 
 export const EFFORT_LEVELS = ["Low", "Medium", "High", "Max"] as const;
 
@@ -41,7 +42,9 @@ export function Composer({
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
   const suggestions = useMemo(() => slashSuggestions(skills, text), [skills, text]);
-  const open = suggestions.length > 0;
+  // Escape hides the menu without erasing the draft; typing re-arms it.
+  const [dismissed, setDismissed] = useState(false);
+  const open = suggestions.length > 0 && !dismissed;
   const active = Math.min(sel, Math.max(0, suggestions.length - 1));
   const canSend = (text.trim().length > 0 || attachments.length > 0) && !busy;
 
@@ -108,7 +111,7 @@ export function Composer({
       }
       if (e.key === "Escape") {
         e.preventDefault();
-        setText(""); // clear the in-progress slash to dismiss the menu
+        setDismissed(true); // hide the menu; keep the draft
         return;
       }
     }
@@ -148,10 +151,13 @@ export function Composer({
         }}
       />
       {open && (
-        <ul className="slash-menu">
+        <ul className="slash-menu" id="slash-listbox" role="listbox" aria-label="Skills">
           {suggestions.map((s, i) => (
             <li
               key={s.name}
+              id={`slash-opt-${i}`}
+              role="option"
+              aria-selected={i === active}
               className={i === active ? "active" : ""}
               onMouseEnter={() => setSel(i)}
               onClick={() => accept(s)}
@@ -167,19 +173,25 @@ export function Composer({
         onChange={(e) => {
           setText(e.target.value);
           setSel(0);
+          setDismissed(false);
         }}
         onKeyDown={onKey}
         placeholder={placeholder}
         rows={1}
+        role="combobox"
+        aria-expanded={open}
+        aria-controls={open ? "slash-listbox" : undefined}
+        aria-activedescendant={open ? `slash-opt-${active}` : undefined}
       />
       <div className="composer-row">
         <button
           className="composer-ghost attach"
           title="Attach a text file"
+          aria-label="Attach a text file"
           disabled={busy}
           onClick={() => fileRef.current?.click()}
         >
-          ＋
+          <Icon name="plus" />
         </button>
         {modelLabel && (
           <button className="composer-pill model" title="Change model" onClick={onModelClick}>

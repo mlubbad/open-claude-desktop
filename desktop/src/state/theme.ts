@@ -14,12 +14,12 @@ export function nextTheme(pref: ThemePref): ThemePref {
   return pref === "system" ? "light" : pref === "light" ? "dark" : "system";
 }
 
-// A short glyph + label for the toggle, reflecting the *preference* (not the resolved
+// Icon name + label for the toggle, reflecting the *preference* (not the resolved
 // value) so the user can tell they're on "system".
-export function themeGlyph(pref: ThemePref): { icon: string; label: string } {
-  if (pref === "light") return { icon: "☀", label: "Light" };
-  if (pref === "dark") return { icon: "☾", label: "Dark" };
-  return { icon: "◐", label: "System" };
+export function themeGlyph(pref: ThemePref): { icon: "sun" | "moon" | "half"; label: string } {
+  if (pref === "light") return { icon: "sun", label: "Light" };
+  if (pref === "dark") return { icon: "moon", label: "Dark" };
+  return { icon: "half", label: "System" };
 }
 
 export function isThemePref(v: unknown): v is ThemePref {

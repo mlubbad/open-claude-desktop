@@ -120,7 +120,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-
 .code-tree-body { flex: 1; overflow: auto; padding: 4px 0; font-size: 13px; }
 .code-node { padding: 3px 8px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .code-node:hover { background: var(--surface-2); }
-.code-file.active { background: var(--surface-2); color: var(--text); font-weight: 550; }
+.code-file.active { background: var(--surface-2); color: var(--text); font-weight: 500; }
 .code-chev { color: var(--muted); font-size: 10px; }
 .code-view { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .code-view-head { display: flex; gap: 8px; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--border); font-size: 13px; }
@@ -179,7 +179,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-
 .side-tabs { display: flex; gap: 3px; background: var(--surface-2); padding: 3px; border-radius: 10px;
   margin-bottom: 6px; }
 .side-tab { flex: 1; border: none; background: transparent; color: var(--muted); cursor: pointer;
-  font: inherit; font-size: 12.5px; font-weight: 550; padding: 6px 0; border-radius: 8px; }
+  font: inherit; font-size: 12.5px; font-weight: 500; padding: 6px 0; border-radius: 8px; }
 .side-tab.active { background: var(--surface); color: var(--text);
   box-shadow: var(--shadow-1); }
 .side-nav { display: flex; flex-direction: column; gap: 1px; }
@@ -203,7 +203,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-
 .project-row.new, .project-row.manage { color: var(--accent); }
 .side-recents { flex: 1; overflow-y: auto; min-height: 0; display: flex; flex-direction: column; gap: 1px;
   margin-top: 6px; }
-.side-label { font-size: 11px; letter-spacing: 0.04em; color: var(--faint); font-weight: 550;
+.side-label { font-size: 11px; letter-spacing: 0.04em; color: var(--faint); font-weight: 500;
   padding: 6px 10px 4px; }
 .side-foot { display: flex; align-items: center; gap: 10px; border: none; border-top: 1px solid var(--border);
   background: transparent; color: var(--text); cursor: pointer; font: inherit; text-align: left;
@@ -275,7 +275,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-
 .conn-tabs { display: flex; gap: 6px; align-items: center; }
 .conn-tabs button { border: 1px solid var(--border); background: var(--surface-2); color: var(--text);
   border-radius: 8px; padding: 4px 10px; cursor: pointer; font-size: 13px; }
-.conn-tabs button.active { background: var(--surface-2); color: var(--text); border-color: var(--border-strong); font-weight: 550; }
+.conn-tabs button.active { background: var(--surface-2); color: var(--text); border-color: var(--border-strong); font-weight: 500; }
 .conn-tabs .conn-demo { margin-left: auto; }
 .conn-add input, .conn-add select { border: 1px solid var(--border); border-radius: 8px; padding: 7px 8px;
   background: var(--bg); color: var(--text); font: inherit; }
@@ -313,7 +313,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-
 .chip:disabled { opacity: 0.5; cursor: default; }
 .chip-icon { font-size: 14px; }
 
-.msg { max-width: 760px; margin: 0 auto; padding: 6px 20px; }
+.msg { max-width: 760px; margin: 0 auto; padding: 12px 20px; }
 .msg.user { display: flex; justify-content: flex-end; }
 .msg.user { flex-direction: column; align-items: flex-end; }
 .msg.user .bubble {
@@ -333,7 +333,8 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-
 .msg.user:hover .user-edit { opacity: 1; }
 .msg.assistant .answer :first-child { margin-top: 0; }
 .answer { line-height: 1.6; }
-.answer pre { background: var(--surface-2); padding: 12px; border-radius: 8px; overflow-x: auto; }
+.answer pre { background: var(--surface-2); padding: 12px; border-radius: 8px; overflow-x: auto;
+  font-size: 13.5px; line-height: 1.6; }
 .answer code { font-family: var(--mono); }
 .answer table { border-collapse: collapse; }
 .answer th, .answer td { border: 1px solid var(--border); padding: 4px 8px; }
@@ -404,7 +405,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-
   border-radius: 6px; padding: 3px 8px; font-size: 12px; cursor: pointer; }
 .artifact-tabs { display: flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
 .artifact-tabs button { border: none; border-radius: 0; }
-.artifact-tabs button.active { background: var(--surface-2); color: var(--text); font-weight: 550; }
+.artifact-tabs button.active { background: var(--surface-2); color: var(--text); font-weight: 500; }
 .artifact-body { flex: 1; overflow: auto; }
 .artifact-preview { width: 100%; height: 100%; border: none; background: #fff; }
 .artifact-code { margin: 0; padding: 12px; font-family: var(--mono); font-size: 12px;
@@ -520,7 +521,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-
 .model-row { display: flex; flex-wrap: wrap; gap: 6px; }
 .model-row .model { border: 1px solid var(--border); background: var(--surface-2); color: var(--text);
   border-radius: 999px; padding: 4px 10px; cursor: pointer; font-size: 12px; }
-.model-row .model.active { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); font-weight: 550; }
+.model-row .model.active { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); font-weight: 500; }
 .model-row .model:disabled { opacity: 0.4; cursor: default; }
 
 .field-label { display: block; font-size: 13px; font-weight: 600; margin: 12px 0 4px; }
@@ -580,14 +581,14 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-
 .filter-chip { border: none; background: transparent; color: var(--muted); cursor: pointer;
   font: inherit; font-size: 13px; padding: 6px 12px; border-radius: 8px; }
 .filter-chip:hover { color: var(--text); }
-.filter-chip.active { background: var(--surface-2); color: var(--text); font-weight: 550; }
+.filter-chip.active { background: var(--surface-2); color: var(--text); font-weight: 500; }
 
 /* Settings tables (Skills / Connectors / Plugins) */
 .stable { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .stable th { text-align: left; font-size: 12px; font-weight: 500; color: var(--muted);
   padding: 8px 10px; border-bottom: 1px solid var(--border); }
 .stable td { padding: 10px; border-bottom: 1px solid var(--border); vertical-align: middle; }
-.stable-name { font-weight: 550; white-space: nowrap; }
+.stable-name { font-weight: 500; white-space: nowrap; }
 .stable-name .conn-badge { margin-left: 6px; }
 .stable-check { width: 32px; }
 .stable-actions { text-align: right; white-space: nowrap; }
@@ -616,12 +617,12 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-
   background: var(--surface); border: 1px solid var(--border); margin-bottom: 6px; }
 .cw-row.off { opacity: 0.55; }
 .cw-row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-.cw-row-title { font-size: 13.5px; font-weight: 550; overflow: hidden; text-overflow: ellipsis;
+.cw-row-title { font-size: 13.5px; font-weight: 500; overflow: hidden; text-overflow: ellipsis;
   white-space: nowrap; }
 .cw-row-meta { font-size: 12px; color: var(--muted); }
 .cw-clock { color: var(--muted); font-size: 15px; }
 .cw-review { border: 1px solid var(--border-strong); background: var(--surface); color: var(--text);
-  border-radius: 8px; padding: 6px 14px; cursor: pointer; font: inherit; font-size: 12.5px; font-weight: 550; }
+  border-radius: 8px; padding: 6px 14px; cursor: pointer; font: inherit; font-size: 12.5px; font-weight: 500; }
 .cw-review:hover { border-color: var(--accent); color: var(--accent); }
 .cw-cancel { border: none; background: none; color: var(--muted); cursor: pointer; font-size: 13px; }
 .cw-cancel:hover { color: var(--danger); }
@@ -636,3 +637,16 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-
 .cw-sched-num { width: 64px; }
 .cw-sched-unit { color: var(--muted); font-size: 12px; }
 .cowork-detail-head { display: flex; align-items: center; gap: 8px; }
+
+
+/* Inline SVG icon alignment inside rows, chips, and small action buttons. */
+.side-ic { display: inline-flex; align-items: center; justify-content: center; }
+.conv-act, .cw-cancel, .chip-icon, .cw-clock { display: inline-flex; align-items: center; }
+.msg-action { display: inline-flex; align-items: center; gap: 5px; }
+.conv-pin { display: inline-flex; align-items: center; color: var(--accent); flex: none; }
+
+/* Inline editors (rename a chat, name a new project) — replace window.prompt. */
+.conv-rename-input, .project-new-input { flex: 1; min-width: 0; border: 1px solid var(--accent);
+  border-radius: 6px; padding: 3px 7px; background: var(--surface); color: var(--text);
+  font: inherit; font-size: 13px; }
+.project-new-input { margin: 2px 0; }

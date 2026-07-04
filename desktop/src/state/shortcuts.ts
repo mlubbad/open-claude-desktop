@@ -1,20 +1,30 @@
-// The app's keyboard shortcuts, as a pure registry for the help modal. `keys` uses ⌘
-// on mac and shows the same glyphs everywhere (Ctrl maps to ⌘ visually for brevity).
+// The app's keyboard shortcuts, as a pure registry for the help modal. The modifier
+// glyphs are platform-aware: ⌘/⇧ on macOS, Ctrl+/Shift+ elsewhere (the handlers
+// already accept both metaKey and ctrlKey).
 
 export interface Shortcut {
   keys: string;
   action: string;
 }
 
-export const SHORTCUTS: Shortcut[] = [
-  { keys: "⌘K", action: "Open the command palette / search chats" },
-  { keys: "⌘⇧O", action: "Start a new chat" },
-  { keys: "Enter", action: "Send the message" },
-  { keys: "⇧Enter", action: "New line in the message" },
-  { keys: "/", action: "Show skills (at the start of a message)" },
-  { keys: "Esc", action: "Stop generating / close a panel" },
-  { keys: "?", action: "Show this shortcuts list" },
-];
+export function shortcutsFor(isMac: boolean): Shortcut[] {
+  const mod = isMac ? "⌘" : "Ctrl+";
+  const shift = isMac ? "⇧" : "Shift+";
+  return [
+    { keys: `${mod}K`, action: "Open the command palette / search chats" },
+    { keys: `${mod}${shift}O`, action: "Start a new chat" },
+    { keys: "Enter", action: "Send the message" },
+    { keys: `${shift}Enter`, action: "New line in the message" },
+    { keys: "/", action: "Show skills (at the start of a message)" },
+    { keys: "Esc", action: "Stop generating / close a panel" },
+    { keys: "?", action: "Show this shortcuts list" },
+  ];
+}
+
+export const IS_MAC =
+  typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform ?? "");
+
+export const SHORTCUTS: Shortcut[] = shortcutsFor(IS_MAC);
 
 // Whether a keyboard event originated from an editable field, where printable-character
 // shortcuts (like "?") must NOT fire.

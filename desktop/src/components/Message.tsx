@@ -2,6 +2,7 @@ import { type ReactNode, useRef, useState } from "react";
 import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
+import { Icon } from "./Icon";
 import {
   type ArtifactBlock,
   answerText,
@@ -77,7 +78,7 @@ export function AssistantBubble({
           <CopyButton getText={() => answer} label="Copy" />
           {isLast && onRetry && (
             <button className="msg-action" onClick={onRetry} disabled={busy} title="Regenerate">
-              ↻ Retry
+              <Icon name="retry" size={13} /> Retry
             </button>
           )}
         </div>
@@ -160,7 +161,7 @@ function Thinking({ block }: { block: ThinkingBlock }) {
   const label = block.streaming ? "Thinking…" : `Thought${block.elapsed ? ` for ${block.elapsed}s` : ""}`;
   return (
     <div className={`thinking ${block.streaming ? "streaming" : ""}`}>
-      <button className="thinking-toggle" onClick={() => setOpen((o) => !o)}>
+      <button className="thinking-toggle" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
         <span className="chev">{open ? "▾" : "▸"}</span> {label}
       </button>
       {open && <div className="thinking-body">{block.text}</div>}

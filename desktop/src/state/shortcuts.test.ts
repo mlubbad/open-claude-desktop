@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { isEditableTarget, SHORTCUTS } from "./shortcuts";
+import { isEditableTarget, SHORTCUTS, shortcutsFor } from "./shortcuts";
 
 describe("SHORTCUTS", () => {
   it("lists well-formed shortcuts with unique keys", () => {
@@ -13,10 +13,13 @@ describe("SHORTCUTS", () => {
     expect(new Set(keys).size).toBe(keys.length);
   });
 
-  it("documents the palette and new-chat shortcuts", () => {
-    const keys = SHORTCUTS.map((s) => s.keys);
-    expect(keys).toContain("⌘K");
-    expect(keys).toContain("⌘⇧O");
+  it("documents the palette and new-chat shortcuts, platform-aware", () => {
+    const mac = shortcutsFor(true).map((s) => s.keys);
+    expect(mac).toContain("⌘K");
+    expect(mac).toContain("⌘⇧O");
+    const win = shortcutsFor(false).map((s) => s.keys);
+    expect(win).toContain("Ctrl+K");
+    expect(win).toContain("Ctrl+Shift+O");
   });
 });
 

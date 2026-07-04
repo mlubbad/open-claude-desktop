@@ -3,6 +3,7 @@ import { useState } from "react";
 import type { CoworkDetail, CoworkTask, Schedule } from "../api/client";
 import { AssistantBubble, UserBubble } from "./Message";
 import { replayEvents, statusBadge } from "../state/coworkView";
+import { Icon } from "./Icon";
 
 export interface SchedControls {
   items: Schedule[];
@@ -136,7 +137,7 @@ function CoworkHome({
                     aria-label={`Cancel ${t.title}`}
                     onClick={() => onCancel(t.id)}
                   >
-                    ✕
+                    <Icon name="x" size={13} />
                   </button>
                 )}
                 <button className="cw-review" onClick={() => onOpen(t.id)}>
@@ -168,7 +169,7 @@ function CoworkHome({
           )}
           {sched.items.map((s) => (
             <div key={s.id} className={`cw-row ${s.enabled ? "" : "off"}`}>
-              <span className="cw-clock" aria-hidden="true">◷</span>
+              <span className="cw-clock" aria-hidden="true"><Icon name="clock" size={15} /></span>
               <span className="cw-row-main">
                 <span className="cw-row-title" title={s.goal}>{s.title}</span>
                 <span className="cw-row-meta">{s.cadence}</span>
@@ -185,7 +186,7 @@ function CoworkHome({
                 aria-label={`Delete schedule: ${s.title}`}
                 onClick={() => sched.remove(s.id)}
               >
-                ✕
+                <Icon name="x" size={13} />
               </button>
             </div>
           ))}

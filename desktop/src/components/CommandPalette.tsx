@@ -73,6 +73,9 @@ export function CommandPalette({
     return (
       <li
         key={i}
+        id={`palette-opt-${i}`}
+        role="option"
+        aria-selected={i === active}
         className={i === active ? "active" : ""}
         onMouseEnter={() => setSel(i)}
         onClick={() => run(c)}
@@ -88,11 +91,21 @@ export function CommandPalette({
 
   return (
     <div className="palette-overlay" onClick={onClose}>
-      <div className="palette" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="palette"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Command palette"
+        onClick={(e) => e.stopPropagation()}
+      >
         <input
           autoFocus
           className="palette-input"
           placeholder="Type a command or search chats…"
+          role="combobox"
+          aria-expanded={all.length > 0}
+          aria-controls="palette-listbox"
+          aria-activedescendant={all.length > 0 ? `palette-opt-${active}` : undefined}
           value={query}
           onChange={(e) => {
             setQuery(e.target.value);
@@ -100,9 +113,9 @@ export function CommandPalette({
           }}
           onKeyDown={onKey}
         />
-        <ul className="palette-list">
+        <ul className="palette-list" id="palette-listbox" role="listbox" aria-label="Commands">
           {local.slice(0, 50).map((c, i) => item(c, i))}
-          {remote.length > 0 && <li className="palette-section">In chats</li>}
+          {remote.length > 0 && <li className="palette-section" role="presentation">In chats</li>}
           {remote.slice(0, 50).map((c, i) => item(c, local.length + i))}
           {all.length === 0 && <li className="palette-empty">No matches</li>}
         </ul>

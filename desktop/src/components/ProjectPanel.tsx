@@ -27,10 +27,16 @@ export function ProjectPanel({
 
   return (
     <div className="settings-overlay" onClick={onClose}>
-      <div className="settings project-panel" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="settings project-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="project-title"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="settings-head">
-          <h2>{name}</h2>
-          <button onClick={onClose}>✕</button>
+          <h2 id="project-title">{name}</h2>
+          <button onClick={onClose} aria-label="Close" title="Close">✕</button>
         </div>
 
         <label className="field-label">Custom instructions</label>

@@ -24,10 +24,34 @@ import threading
 _DEFAULT_TIMEOUT = float(__import__("os").getenv("MCP_CALL_TIMEOUT_SEC", "60"))
 
 
+def _transport_of(cfg: dict) -> str:
+    """Which transport this server uses: 'stdio' (a local command), 'sse' (legacy
+    remote SSE), or 'http' (remote Streamable HTTP — the default for a url)."""
+    if cfg.get("url"):
+        t = (cfg.get("transport") or "http").strip().lower()
+        return "sse" if t in ("sse", "sse-legacy") else "http"
+    return "stdio"
+
+
 def _server_key(cfg: dict) -> tuple:
-    """Identity of a server: its id plus the exact command+args it launches."""
-    return (cfg.get("id") or cfg.get("command"),
-            cfg.get("command"), tuple(cfg.get("args", [])))
+    """Identity of a server: its id plus the connection details it opens."""
+    ident = cfg.get("id") or cfg.get("url") or cfg.get("command")
+    if cfg.get("url"):
+        return (ident, cfg.get("url"), _transport_of(cfg))
+    return (ident, cfg.get("command"), tuple(cfg.get("args", [])))
+
+
+def _stdio_env(env: dict | None) -> dict | None:
+    """Merge explicit env vars onto the MCP SDK's safe default environment (so a
+    server sees PATH etc. plus its configured keys); None -> inherit the default."""
+    if not env:
+        return None
+    base: dict = {}
+    with contextlib.suppress(Exception):
+        from mcp.client.stdio import get_default_environment
+        base = dict(get_default_environment())
+    base.update({k: str(v) for k, v in env.items()})
+    return base
 
 
 def _render(res) -> str:
@@ -98,14 +122,31 @@ class MCPRegistry:
         return lock
 
     async def _open_session(self, cfg: dict) -> _Session:
-        from mcp import ClientSession, StdioServerParameters
-        from mcp.client.stdio import stdio_client
+        from mcp import ClientSession
 
+        transport = _transport_of(cfg)
         stack = contextlib.AsyncExitStack()
         try:
-            params = StdioServerParameters(
-                command=cfg["command"], args=list(cfg.get("args", [])), env=None)
-            read, write = await stack.enter_async_context(stdio_client(params))
+            if transport == "http":
+                # streamablehttp_client accepts headers= directly (the newer
+                # streamable_http_client takes a pre-built httpx client instead).
+                # An OAuth 2.1 provider (httpx.Auth) rides in via cfg["auth_provider"];
+                # the registry stays protocol-agnostic — integrations builds it.
+                from mcp.client.streamable_http import streamablehttp_client
+                read, write, _ = await stack.enter_async_context(
+                    streamablehttp_client(cfg["url"], headers=cfg.get("headers") or None,
+                                          auth=cfg.get("auth_provider")))
+            elif transport == "sse":
+                from mcp.client.sse import sse_client
+                read, write = await stack.enter_async_context(
+                    sse_client(cfg["url"], headers=cfg.get("headers") or None))
+            else:
+                from mcp import StdioServerParameters
+                from mcp.client.stdio import stdio_client
+                params = StdioServerParameters(
+                    command=cfg["command"], args=list(cfg.get("args", [])),
+                    env=_stdio_env(cfg.get("env")))
+                read, write = await stack.enter_async_context(stdio_client(params))
             session = await stack.enter_async_context(ClientSession(read, write))
             await session.initialize()
             return _Session(session, stack)
@@ -152,6 +193,67 @@ class MCPRegistry:
                                  or {"type": "object", "properties": {}})}
                 for t in resp.tools]
 
+    async def _list_resources(self, cfg: dict, timeout: float) -> list[dict]:
+        sess = await self._get_session(cfg)
+        try:
+            resp = await asyncio.wait_for(sess.session.list_resources(), timeout=timeout)
+        except BaseException:
+            await self._close(_server_key(cfg))
+            raise
+        return [{"uri": str(r.uri), "name": r.name or "",
+                 "description": r.description or "",
+                 "mimeType": getattr(r, "mimeType", "") or ""}
+                for r in resp.resources]
+
+    async def _read_resource(self, cfg: dict, uri: str, timeout: float) -> str:
+        from pydantic import AnyUrl
+        sess = await self._get_session(cfg)
+        try:
+            resp = await asyncio.wait_for(
+                sess.session.read_resource(AnyUrl(uri)), timeout=timeout)
+        except BaseException:
+            await self._close(_server_key(cfg))
+            raise
+        parts: list[str] = []
+        for c in resp.contents:
+            text = getattr(c, "text", None)
+            if text is not None:
+                parts.append(text)
+            elif getattr(c, "blob", None) is not None:
+                mime = getattr(c, "mimeType", "") or "application/octet-stream"
+                parts.append(f"(binary content · {mime})")
+        return "\n".join(parts) or "(empty)"
+
+    async def _list_prompts(self, cfg: dict, timeout: float) -> list[dict]:
+        sess = await self._get_session(cfg)
+        try:
+            resp = await asyncio.wait_for(sess.session.list_prompts(), timeout=timeout)
+        except BaseException:
+            await self._close(_server_key(cfg))
+            raise
+        return [{"name": p.name, "description": p.description or "",
+                 "arguments": [{"name": a.name, "description": a.description or "",
+                                "required": bool(getattr(a, "required", False))}
+                               for a in (p.arguments or [])]}
+                for p in resp.prompts]
+
+    async def _get_prompt(self, cfg: dict, name: str, args: dict, timeout: float) -> dict:
+        sess = await self._get_session(cfg)
+        try:
+            resp = await asyncio.wait_for(
+                sess.session.get_prompt(name, args or {}), timeout=timeout)
+        except BaseException:
+            await self._close(_server_key(cfg))
+            raise
+        msgs = []
+        for m in resp.messages:
+            content = m.content
+            text = getattr(content, "text", None)
+            if text is None:
+                text = str(getattr(content, "data", content))
+            msgs.append({"role": str(m.role), "content": text})
+        return {"description": resp.description or "", "messages": msgs}
+
     # ---- public, synchronous API --------------------------------------- #
     def call(self, cfg: dict, tool: str, args: dict,
              timeout: float = _DEFAULT_TIMEOUT) -> str:
@@ -159,6 +261,19 @@ class MCPRegistry:
 
     def discover(self, cfg: dict, timeout: float = _DEFAULT_TIMEOUT) -> list[dict]:
         return self._submit(self._discover(cfg, timeout), timeout)
+
+    def list_resources(self, cfg: dict, timeout: float = _DEFAULT_TIMEOUT) -> list[dict]:
+        return self._submit(self._list_resources(cfg, timeout), timeout)
+
+    def read_resource(self, cfg: dict, uri: str, timeout: float = _DEFAULT_TIMEOUT) -> str:
+        return self._submit(self._read_resource(cfg, uri, timeout), timeout)
+
+    def list_prompts(self, cfg: dict, timeout: float = _DEFAULT_TIMEOUT) -> list[dict]:
+        return self._submit(self._list_prompts(cfg, timeout), timeout)
+
+    def get_prompt(self, cfg: dict, name: str, args: dict,
+                   timeout: float = _DEFAULT_TIMEOUT) -> dict:
+        return self._submit(self._get_prompt(cfg, name, args, timeout), timeout)
 
     def drop(self, cfg: dict):
         """Forget a server (e.g. on remove/refresh) so its process is killed."""

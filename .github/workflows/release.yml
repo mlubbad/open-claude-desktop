@@ -1,0 +1,68 @@
+name: Release
+
+# Build the desktop app (Tauri) with the PyInstaller-frozen FastAPI backend bundled
+# as a sidecar, for macOS / Windows / Linux, and publish to GitHub Releases.
+# Triggered by pushing a version tag (e.g. v0.1.0).
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  release:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+          - os: ubuntu-latest
+          - os: windows-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: dtolnay/rust-toolchain@stable
+
+      # Linux needs the Tauri WebView system libraries.
+      - name: Install Linux WebView deps
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libsoup-3.0-dev \
+            build-essential curl wget file libxdo-dev libssl-dev \
+            libayatana-appindicator3-dev librsvg2-dev
+
+      - name: Freeze the backend sidecar
+        run: |
+          python -m pip install --upgrade pip
+          pip install ./backend pyinstaller
+          bash desktop/scripts/build-backend-sidecar.sh
+
+      - name: Install client deps
+        working-directory: desktop
+        run: npm ci
+
+      # tauri-action builds the frontend + shell and uploads installers to the release.
+      # externalBin ("binaries/ocd-backend") is committed in tauri.conf.json; the freeze
+      # step above drops the triple-named sidecar into desktop/src-tauri/binaries/.
+      # The updater public key is committed in tauri.conf.json; the matching private key
+      # + password come from repo secrets (set them once with `tauri signer generate`).
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: desktop
+          tagName: ${{ github.ref_name }}
+          releaseName: "Open Claude Desktop ${{ github.ref_name }}"
+          releaseDraft: true
+          # Emit the updater manifest (latest.json) so the app's updater endpoint resolves.
+          includeUpdaterJson: true
+          args: ${{ matrix.os == 'ubuntu-latest' && '--bundles deb,appimage,updater' || '' }}

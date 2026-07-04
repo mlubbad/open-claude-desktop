@@ -6,7 +6,7 @@ on:
   pull_request:
 
 jobs:
-  test:
+  backend:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -14,16 +14,49 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-      - name: Install (app extras + dev)
-        run: pip install -e ".[chainlit,reflex,dev]"
-      - name: Run tests
+      - name: Install backend (+ dev)
+        run: pip install -e ./backend[dev]
+      - name: Run backend tests
+        # Run from the repo root; tests import the installed package as `app` /
+        # `ocd_core` (the editable install exposes those top-level, not `backend`).
+        run: pytest backend/tests
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install frontend deps
+        run: pip install -r frontend/requirements.txt respx pytest pytest-asyncio
+      - name: Run frontend tests
+        working-directory: frontend
         run: pytest
+
+  desktop:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - name: Install client deps
+        working-directory: desktop
+        run: npm ci
+      - name: Typecheck + test + build
+        working-directory: desktop
+        run: |
+          npm run typecheck
+          npm run test
+          npm run build
 
   lint:
     runs-on: ubuntu-latest
-    # Advisory until the legacy code is driven to zero lint findings, then
-    # remove continue-on-error to make it blocking.
-    continue-on-error: true
+    # Blocking: the repo is ruff-clean (lint debt burned down 2026-07-03).
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -35,6 +68,11 @@ jobs:
 
   secrets:
     runs-on: ubuntu-latest
+    # gitleaks-action fetches the PR's commit list to scan the PR range, so the job
+    # token needs read access to contents + pull requests (else GitHub returns 403).
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
       - uses: actions/checkout@v4
         with:

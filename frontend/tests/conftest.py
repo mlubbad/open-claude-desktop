@@ -1,6 +1,5 @@
-import pytest
-
 import aj360_app.api_client as api_client
+import pytest
 
 
 @pytest.fixture(autouse=True)

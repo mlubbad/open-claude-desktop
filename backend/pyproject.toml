@@ -6,15 +6,12 @@ build-backend = "setuptools.build_meta"
 name = "ocd-backend"
 version = "0.3.0"
 requires-python = ">=3.12"
+license = "MIT"
 dependencies = [
-  # zhipuai MUST be the v2 SDK (>=2.x exposes the `ZhipuAI` class that
-  # ocd_core/llm.py imports). zhipuai 2.x pins pyjwt<2.9, which conflicts with
-  # mcp's pyjwt[crypto]>=2.10.1 — so an UNPINNED resolve silently drops zhipuai
-  # to the broken v1.0.7 (no `ZhipuAI`). Install the pinned versions from
-  # requirements.txt (zhipuai==2.1.5.20250825 + PyJWT==2.8.0), e.g. after the
-  # editable install:  pip install --no-deps zhipuai==2.1.5.20250825 PyJWT==2.8.0
-  # tests/test_llm_client.py guards against the regression.
-  "zhipuai",
+  # Phase 1: a single OpenAI-compatible client drives every provider (OpenAI,
+  # Zhipu/GLM, DeepSeek, Qwen, OpenRouter, Ollama, vLLM, …). This replaces the
+  # hard-coded zhipuai SDK and removes its pyjwt<2.9 conflict with mcp.
+  "openai",
   "google-cloud-bigquery",
   "google-auth",
   "chromadb",
@@ -30,15 +27,24 @@ dependencies = [
   "sse-starlette",
   "httpx",
   "python-multipart",
+  # C3: secrets go to the OS keychain (keyring) with an encrypted-file fallback
+  # (cryptography/Fernet) for headless installs. Never plaintext in tracked files.
+  "keyring",
+  "cryptography",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest", "ruff", "mypy"]
+dev = ["pytest", "ruff", "mypy", "respx"]
+
+# The terminal client. Same engine (ocd_core) as the desktop app — no duplicate
+# agent logic — exposed as the `ocd` command.
+[project.scripts]
+ocd = "ocd_cli.cli:main"
 
 [tool.setuptools]
 # Flat package: all ocd_core/*.py modules (config, integrations, agent, …) ship
 # under this one entry. A future cleanup may split integrations into a subpackage.
-packages = ["ocd_core", "ocd_core.db", "app", "app.routes"]
+packages = ["ocd_core", "ocd_core.db", "ocd_core.llm", "app", "app.routes", "ocd_cli"]
 package-dir = {"" = "."}
 
 [tool.pytest.ini_options]

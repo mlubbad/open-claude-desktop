@@ -31,6 +31,10 @@ def get_settings() -> dict:
 
 def save_settings(values: dict) -> dict:
     s = get_settings()
+    values = dict(values)
+    if "profile" in values:
+        from . import profile
+        values["profile"] = profile.sanitize(values.get("profile"))
     s.update({k: v for k, v in values.items() if k in config.DEFAULT_SETTINGS})
     try:
         config.SETTINGS_FILE.write_text(json.dumps(s, ensure_ascii=False, indent=2),

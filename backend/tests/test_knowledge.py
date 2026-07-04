@@ -92,3 +92,46 @@ def test_kb_ingest_search_roundtrip(tmp_path, monkeypatch):
     assert n >= 1
     hit = know.search_project_kb("p3", "revenue")
     assert "revenue" in hit.lower()
+    # Cited: the passage is attributed to its source file + chunk index.
+    assert "[doc.txt" in hit
+    # Structured variant carries source + text (+ a score when distances are reported).
+    srcs = know.search_project_kb_sources("p3", "revenue")
+    assert srcs and srcs[0]["source"] == "doc.txt"
+    assert "revenue" in srcs[0]["text"].lower()
+
+
+def test_chunk_text_short_text_is_one_chunk(tmp_path, monkeypatch):
+    _cfg, know = _reload(tmp_path, monkeypatch)
+    assert know.chunk_text("hello world") == ["hello world"]
+    assert know.chunk_text("") == []
+    assert know.chunk_text("   ") == []
+
+
+def test_chunk_text_respects_size_and_overlaps(tmp_path, monkeypatch):
+    _cfg, know = _reload(tmp_path, monkeypatch)
+    # Many short paragraphs -> multiple chunks, each within size.
+    text = "\n\n".join(f"Paragraph number {i} with some filler words here." for i in range(60))
+    chunks = know.chunk_text(text, size=300, overlap=60)
+    assert len(chunks) > 1
+    assert all(len(c) <= 300 for c in chunks)  # never exceeds size
+    # Consecutive chunks share a tail/prefix (overlap) -> boundary context preserved.
+    assert any(chunks[i][-20:] and chunks[i][-20:] in chunks[i + 1] for i in range(len(chunks) - 1))
+
+
+def test_chunk_text_hard_splits_a_giant_paragraph(tmp_path, monkeypatch):
+    _cfg, know = _reload(tmp_path, monkeypatch)
+    giant = "x" * 5000  # one paragraph, no sentence breaks
+    chunks = know.chunk_text(giant, size=1000, overlap=100)
+    assert len(chunks) >= 5
+    assert all(len(c) <= 1000 for c in chunks)
+
+
+def test_chunk_text_prefers_paragraph_boundaries(tmp_path, monkeypatch):
+    _cfg, know = _reload(tmp_path, monkeypatch)
+    a = "A" * 200
+    b = "B" * 200
+    chunks = know.chunk_text(f"{a}\n\n{b}", size=250, overlap=0)
+    # Two ~200-char paragraphs don't fit together in 250, so they land in separate chunks
+    # without cutting either paragraph in half.
+    assert a in "".join(chunks) and b in "".join(chunks)
+    assert any(a in c and b not in c for c in chunks)

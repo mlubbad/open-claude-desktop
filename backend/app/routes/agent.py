@@ -1,11 +1,23 @@
 from __future__ import annotations
 
+import uuid
+
 from fastapi import APIRouter, Depends, HTTPException, status
-from ocd_core import agent, commands, integrations, observability, projects, skills
+from ocd_core import (
+    agent,
+    commands,
+    integrations,
+    observability,
+    permissions,
+    profile,
+    projects,
+    settings,
+    skills,
+)
 from sse_starlette.sse import EventSourceResponse
 
 from ..deps import current_user
-from ..schemas import AgentTurnRequest
+from ..schemas import AgentTurnRequest, PermissionReply
 from ..sse import format_event
 
 router = APIRouter()
@@ -26,17 +38,40 @@ async def agent_turn(req: AgentTurnRequest, user: str = Depends(current_user)):
 
     o = req.options
     history = [m.model_dump() for m in req.history]
+    turn_id = uuid.uuid4().hex
+    user_profile = profile.render(settings.get_settings().get("profile") or {})
 
     async def stream():
+        # First frame carries the turn_id so the client can reply to permission prompts
+        # (and, later, cancel the turn).
+        yield format_event({"type": "turn_start", "turn_id": turn_id})
         try:
             async for ev in agent.run_turn(
                     goal, history, req.project_id, req.model, proj_instr,
                     effort=req.effort, web_search=o.web_search, skill_instructions=skill_instr,
                     research=o.research, extra_tools=extra_tools, web_fetch=o.web_fetch,
-                    code_exec=o.code_exec, bash=o.bash, text_editor=o.text_editor, memory=o.memory):
+                    code_exec=o.code_exec, bash=o.bash, text_editor=o.text_editor, memory=o.memory,
+                    provider=req.provider, turn_id=turn_id, permission_mode=req.permission_mode,
+                    artifacts=o.artifacts, user_profile=user_profile, subagents=o.subagents):
                 yield format_event(ev)
         except Exception as e:
             yield format_event({"type": "error", "text": str(e)})
         yield format_event({"type": "done"})
 
     return EventSourceResponse(stream())
+
+
+@router.post("/agent/turn/{turn_id}/permission")
+async def agent_turn_permission(turn_id: str, reply: PermissionReply,
+                                user: str = Depends(current_user)) -> dict:
+    """Resolve a pending `approval_required` prompt for a running turn."""
+    if reply.decision not in ("approve", "decline"):
+        raise HTTPException(422, "decision must be 'approve' or 'decline'")
+    resolved = permissions.registry.resolve(
+        turn_id, reply.tool_call_id, reply.decision == "approve")
+    if not resolved:
+        raise HTTPException(status.HTTP_404_NOT_FOUND,
+                            "no pending approval for this turn/tool_call_id")
+    observability.audit({"event": "tool_permission", "user": user, "turn": turn_id,
+                         "tool_call_id": reply.tool_call_id, "decision": reply.decision})
+    return {"resolved": True, "decision": reply.decision}

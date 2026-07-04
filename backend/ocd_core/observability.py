@@ -15,7 +15,7 @@ import os
 import sys
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from . import config
 
@@ -32,7 +32,7 @@ if not _logger.handlers:
 
 def observe(event: str, **fields):
     """Emit a structured log record to stderr. Non-blocking, best-effort."""
-    record = {"event": event, "ts": datetime.now(timezone.utc).isoformat(), **fields}
+    record = {"event": event, "ts": datetime.now(UTC).isoformat(), **fields}
     _logger.info(json.dumps(record, default=str))
 
 
@@ -66,7 +66,7 @@ class Audit:
 
     def write(self, event: dict):
         try:
-            event = {"ts": datetime.now(timezone.utc).isoformat(), **event}
+            event = {"ts": datetime.now(UTC).isoformat(), **event}
             self._logger.info(json.dumps(event, default=str))
         except Exception as e:
             print(f"[AUDIT] write failed: {e} | event={event.get('event')}",
@@ -107,6 +107,9 @@ class RateLimiter:
 # --------------------------------------------------------------------------- #
 audit_log = Audit()
 rate_limiter = RateLimiter()
+# H1: a separate, stricter limiter for authentication attempts, keyed by client.
+login_limiter = RateLimiter(limit=config.LOGIN_RATE_LIMIT,
+                            window_sec=config.LOGIN_RATE_WINDOW_SEC)
 
 
 def audit(event: dict):
@@ -117,3 +120,8 @@ def audit(event: dict):
 def check_rate_limit(user_id: str) -> bool:
     """Sliding-window rate check against the default limiter."""
     return rate_limiter.check(user_id)
+
+
+def check_login_rate_limit(client_key: str) -> bool:
+    """Sliding-window rate check for login attempts. True if allowed."""
+    return login_limiter.check(client_key or "unknown")

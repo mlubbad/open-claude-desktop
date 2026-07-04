@@ -18,7 +18,7 @@ async def _fake_run_turn(*args, **kwargs):
 def client(monkeypatch):
     from ocd_core import agent
     monkeypatch.setattr(agent, "run_turn", _fake_run_turn)
-    from backend.app.main import app
+    from app.main import app
     return TestClient(app)
 
 
@@ -45,7 +45,8 @@ def test_agent_turn_streams_events(client, db):
     assert r.status_code == 200
     evs = _read_sse(r)
     types = [e["event"] for e in evs]
-    assert types[:4] == ["think_open", "delta", "think_close", "answer_open"]
+    assert types[0] == "turn_start"
+    assert types[1:5] == ["think_open", "delta", "think_close", "answer_open"]
     assert "table" in types and types[-1] == "done"
     delta = next(e for e in evs if e["event"] == "delta")
     assert delta["data"]["text"] in ("planning…", "Hello")
@@ -55,7 +56,7 @@ def test_agent_turn_rate_limited(monkeypatch, db):
     from ocd_core import agent, observability
     monkeypatch.setattr(agent, "run_turn", _fake_run_turn)
     monkeypatch.setattr(observability, "check_rate_limit", lambda user: False)  # always block
-    from backend.app.main import app
+    from app.main import app
     c = TestClient(app)
     r = c.post("/agent/turn", json={"project_id": None, "goal": "hi", "history": [],
                                     "model": "m", "effort": "Low", "options": {},

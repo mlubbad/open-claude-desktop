@@ -1,4 +1,5 @@
 import pathlib
+
 from alembic import command
 from alembic.config import Config
 from sqlalchemy import create_engine, inspect
@@ -14,3 +15,7 @@ def test_initial_migration_creates_tables(tmp_path, monkeypatch):
     insp = inspect(create_engine(f"sqlite:///{db_file}"))
     tables = set(insp.get_table_names())
     assert {"project", "conversation"} <= tables
+    # Phase 1b multi-user seams present on both tables.
+    for table in ("project", "conversation"):
+        cols = {c["name"] for c in insp.get_columns(table)}
+        assert {"owner_id", "workspace_id"} <= cols

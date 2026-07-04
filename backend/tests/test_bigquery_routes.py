@@ -4,7 +4,7 @@ from __future__ import annotations
 from app.routes import bigquery as bq_route
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from ocd_core import bigquery
+from ocd_core import bigquery, config
 
 
 def _client() -> TestClient:
@@ -14,11 +14,13 @@ def _client() -> TestClient:
 
 
 def test_status_connected(monkeypatch):
+    # PROJECT_ID no longer ships a hardcoded default (C7); the user configures it.
+    monkeypatch.setattr(config, "PROJECT_ID", "test-project")
     monkeypatch.setattr(bigquery, "_dry_run", lambda sql: (True, "SELECT", 0, [], None))
     body = _client().get("/bigquery/status").json()
     assert body["connected"] is True
     assert body["auth_expired"] is False
-    assert body["project"]  # non-empty project id
+    assert body["project"] == "test-project"
 
 
 def test_status_auth_expired_self_heals(monkeypatch):

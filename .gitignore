@@ -18,6 +18,7 @@ ajgc-*.json
 # ── Virtualenvs ────────────────────────────────────────────────────
 venv/
 venv312/
+.venv/
 
 # ── Local data stores / caches / logs / sandboxes ──────────────────
 logs/
@@ -39,6 +40,7 @@ projects/
 projects.backup-*/
 .files/
 knowledge/
+extensions/
 aj360.md
 aj360-*.md
 *.csv
@@ -60,3 +62,6 @@ dist/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
+
+# Stray root node_modules (created if a tool runs from repo root)
+node_modules/

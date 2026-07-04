@@ -8,7 +8,7 @@ def client(db, monkeypatch):
     from ocd_core import schema_catalog
     monkeypatch.setattr(schema_catalog, "search_schema",
                         lambda q, active_project=None, top_k=6: f"results for {q}")
-    from backend.app.main import app
+    from app.main import app
     return TestClient(app)
 
 

@@ -13,9 +13,16 @@ KNOWLEDGE_DIR = Path(os.getenv("KNOWLEDGE_DIR", str(REPO_ROOT / "knowledge")))
 CHROMA_PATH = os.getenv("CHROMA_PATH", str(REPO_ROOT / "chroma_db"))
 SKILLS_DIR = Path(os.getenv("SKILLS_DIR", str(REPO_ROOT / "skills")))
 PLUGINS_DIR = Path(os.getenv("PLUGINS_DIR", str(REPO_ROOT / "plugins")))
+# Bundled, vetted plugin catalog the marketplace installs FROM (into PLUGINS_DIR).
+MARKETPLACE_DIR = Path(os.getenv("MARKETPLACE_DIR", str(REPO_ROOT / "content" / "marketplace")))
 
-# --- BigQuery ---
-PROJECT_ID = os.getenv("GCP_PROJECT_ID", "ajgc-dig-jjc-prod-jawacloud-01")
+# --- BigQuery (optional connector, Phase 2) ---
+PROJECT_ID = os.getenv("GCP_PROJECT_ID", "")
+# Explicit BIGQUERY_ENABLED wins; otherwise auto-on when a GCP project is set, so
+# existing analytics deployments keep working and a fresh install is a pure assistant.
+_bq_env = os.getenv("BIGQUERY_ENABLED")
+BIGQUERY_ENABLED = (_bq_env.strip().lower() in ("1", "true", "yes")
+                    if _bq_env is not None else bool(PROJECT_ID))
 _GB = 1024 ** 3
 MAX_BYTES_BILLED = int(float(os.getenv("MAX_BYTES_BILLED_GB", "100")) * _GB)
 QUERY_TIMEOUT_SEC = int(os.getenv("QUERY_TIMEOUT_SEC", "300"))
@@ -54,7 +61,14 @@ EFFORT_DESCRIPTIONS = {
     "High": "Plans before answering",
     "Max": "Plans, then self-verifies",
 }
-DEFAULT_SETTINGS = {"model": AGENT_MODEL, "effort": "High", "theme": "light"}
+DEFAULT_SETTINGS = {"model": AGENT_MODEL,
+                    "provider": os.getenv("LLM_PROVIDER", "zhipu"),
+                    "effort": "High", "theme": "light", "profile": {},
+                    # Web-search backend. "searxng" (privacy-respecting, self-hostable,
+                    # JSON API — the recommended free/open-source option; set searxng_url)
+                    # falls back to the keyless "ddg" HTML endpoint when unset/unreachable.
+                    "search_provider": os.getenv("SEARCH_PROVIDER", "ddg"),
+                    "searxng_url": os.getenv("SEARXNG_URL", "")}
 SETTINGS_FILE = REPO_ROOT / "settings.json"
 
 # --- projects / conversations ---
@@ -66,6 +80,9 @@ GENERAL_NAME = "General"
 # --- rate limiting (salvaged from app.py) ---
 RATE_LIMIT_QUERIES = int(os.getenv("RATE_LIMIT_QUERIES", "20"))
 RATE_LIMIT_WINDOW_SEC = int(os.getenv("RATE_LIMIT_WINDOW_SEC", "60"))
+# H1: throttle login attempts (per client) to stop unlimited password brute force.
+LOGIN_RATE_LIMIT = int(os.getenv("LOGIN_RATE_LIMIT", "8"))
+LOGIN_RATE_WINDOW_SEC = int(os.getenv("LOGIN_RATE_WINDOW_SEC", "300"))
 
 # --- audit log (salvaged from app.py) ---
 AUDIT_LOG = os.getenv("AUDIT_LOG", "./logs/agent_audit.jsonl")
@@ -74,3 +91,8 @@ AUDIT_LOG_BACKUPS = int(os.getenv("AUDIT_LOG_BACKUPS", "5"))
 
 # --- write posture (kept; intentionally aj360-prefixed per project memory) ---
 ALLOW_WRITES = os.getenv("AJ360_ALLOW_WRITES", "false").strip().lower() in ("1", "true", "yes")
+
+# --- interactive tool permissions (HITL) ---
+# auto = no prompts (default), ask = prompt for sensitive tools, strict = prompt for all.
+PERMISSION_MODE = os.getenv("PERMISSION_MODE", "auto").strip().lower()
+PERMISSION_TIMEOUT_SEC = int(os.getenv("PERMISSION_TIMEOUT_SEC", "300"))

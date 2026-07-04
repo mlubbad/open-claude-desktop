@@ -17,7 +17,7 @@ def test_split_frontmatter_fenced():
 def test_split_frontmatter_bare():
     front, body = skills.split_frontmatter(
         "name: hero\ntriggers: hero\n# Heading\ntext")
-    assert any(l.startswith("name:") for l in front)
+    assert any(line.startswith("name:") for line in front)
     assert body.startswith("# Heading")
 
 

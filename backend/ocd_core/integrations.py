@@ -6,17 +6,15 @@ asyncio.to_thread). Keeps the composer's "+" menu features out of core.py.
 """
 from __future__ import annotations
 
+import contextlib
+import json
 import os
 import re
-import json
+import shutil
+import zipfile
 from pathlib import Path
 
-from . import config
-from . import bigquery
-from . import chroma
-from . import knowledge
-from . import llm
-from . import mcp_registry
+from . import bigquery, chroma, config, knowledge, llm, mcp_registry
 
 SKILLS_DIR = Path(os.getenv("SKILLS_DIR", str(config.REPO_ROOT / "skills")))
 
@@ -32,12 +30,6 @@ SKILLS_DIR = Path(os.getenv("SKILLS_DIR", str(config.REPO_ROOT / "skills")))
 #  The returned dicts are a superset of the old ones (they additionally carry
 #  file_triggers + references), which is backward-compatible for callers.
 # --------------------------------------------------------------------------- #
-from .skills import (  # noqa: E402
-    split_frontmatter as _split_frontmatter,
-    list_skills,
-    get_skill,
-    matching_skill,
-)
 
 
 # --------------------------------------------------------------------------- #
@@ -121,24 +113,51 @@ def _slug(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "_", (text or "").lower()).strip("_") or "rest"
 
 
+def _connector_secret_key(cid: str) -> str:
+    return f"connector:{cid}:auth"
+
+
+def _connector_header_value(u: dict) -> str:
+    """Resolve a connector's auth header value.
+
+    Prefers the secret store (C3). Falls back to any legacy inline ``header_value``
+    for back-compat with connectors saved before secrets were externalized.
+    """
+    if u.get("has_secret"):
+        from . import secrets
+        return secrets.get_secret_store().get(_connector_secret_key(u["id"])) or ""
+    return u.get("header_value", "")
+
+
 def add_connector(name: str, base_url: str, header_key: str = "",
                   header_value: str = "") -> dict:
     items = _load_user_connectors()
     cid = _slug(name)
-    n, base = cid, cid
+    base = cid
     i = 2
     while any(it["id"] == cid for it in items):
         cid = f"{base}_{i}"
         i += 1
     item = {"id": cid, "name": name.strip() or cid, "type": "rest",
             "base_url": base_url.strip().rstrip("/"),
-            "header_key": header_key.strip(), "header_value": header_value.strip()}
+            "header_key": header_key.strip(), "has_secret": False}
+    # C3: the secret value goes to the OS keychain / encrypted store, never to the
+    # git-ignored-but-plaintext connectors.json.
+    secret = (header_value or "").strip()
+    if secret:
+        from . import secrets
+        secrets.get_secret_store().set(_connector_secret_key(cid), secret)
+        item["has_secret"] = True
     items.append(item)
     _save_user_connectors(items)
     return item
 
 
 def remove_connector(cid: str):
+    for it in _load_user_connectors():
+        if it["id"] == cid and it.get("has_secret"):
+            from . import secrets
+            secrets.get_secret_store().delete(_connector_secret_key(cid))
     _save_user_connectors([i for i in _load_user_connectors() if i["id"] != cid])
 
 
@@ -147,16 +166,56 @@ def _http_get(url: str, headers: dict, timeout: int = 15):
     return httpx.get(url, headers=headers, timeout=timeout, follow_redirects=True)
 
 
+class ConnectorBlocked(Exception):
+    """Raised when a connector URL targets a blocked host or unsupported scheme."""
+
+
+def _safe_outbound_get(url: str, headers: dict, auth_header: str = "",
+                       timeout: int = 15, max_redirects: int = 4):
+    """SSRF-guarded GET for user-configured connectors (review finding H2).
+
+    Unlike ``_http_get`` this: (1) rejects non-http(s) schemes and private/internal
+    hosts via ``_blocked_host`` BEFORE connecting, (2) follows redirects MANUALLY so
+    each hop is re-validated against ``_blocked_host`` (closing the redirect-to-
+    internal SSRF), and (3) DROPS the connector's custom auth header on any
+    cross-origin redirect so a hostile endpoint can't harvest the user's API key by
+    bouncing the request elsewhere.
+    """
+    from urllib.parse import urljoin, urlparse
+
+    import httpx
+    cur = (url or "").strip()
+    hdrs = dict(headers)
+    with httpx.Client(timeout=timeout, follow_redirects=False) as client:
+        for _ in range(max_redirects + 1):
+            p = urlparse(cur)
+            if p.scheme not in ("http", "https") or not p.netloc:
+                raise ConnectorBlocked("unsupported URL scheme (http/https only)")
+            if _blocked_host(p.hostname or ""):
+                raise ConnectorBlocked("target host is private/internal and blocked")
+            r = client.get(cur, headers=hdrs)
+            if r.status_code in (301, 302, 303, 307, 308) and r.headers.get("location"):
+                nxt = urljoin(cur, r.headers["location"])
+                if auth_header and urlparse(nxt).hostname != (p.hostname or ""):
+                    hdrs.pop(auth_header, None)  # never leak the key cross-origin
+                cur = nxt
+                continue
+            return r
+    raise ConnectorBlocked("too many redirects")
+
+
 def test_connector(cid: str) -> str:
     u = next((x for x in _load_user_connectors() if x["id"] == cid), None)
     if not u:
         return "Connector not found."
     headers = {"User-Agent": _UA}
     if u.get("header_key"):
-        headers[u["header_key"]] = u.get("header_value", "")
+        headers[u["header_key"]] = _connector_header_value(u)
     try:
-        r = _http_get(u["base_url"], headers)
+        r = _safe_outbound_get(u["base_url"], headers, auth_header=u.get("header_key", ""))
         return f"OK — HTTP {r.status_code} from {u['base_url']}"
+    except ConnectorBlocked as e:
+        return f"Blocked: {e}"
     except Exception as e:
         return f"Failed: {str(e)[:120]}"
 
@@ -220,10 +279,12 @@ def call_connector(cid: str, path: str) -> str:
     url = u["base_url"] + path
     headers = {"User-Agent": _UA, "Accept": "application/json, text/*"}
     if u.get("header_key"):
-        headers[u["header_key"]] = u.get("header_value", "")
+        headers[u["header_key"]] = _connector_header_value(u)
     try:
-        r = _http_get(url, headers, timeout=20)
+        r = _safe_outbound_get(url, headers, auth_header=u.get("header_key", ""), timeout=20)
         return f"HTTP {r.status_code} {url}\n{r.text[:3000]}"
+    except ConnectorBlocked as e:
+        return f"Connector '{cid}' blocked: {e}"
     except Exception as e:
         return f"Connector '{cid}' request failed: {str(e)[:160]}"
 
@@ -240,6 +301,9 @@ def call_connector(cid: str, path: str) -> str:
 #  reused across calls, with per-call timeouts + clean shutdown).
 # --------------------------------------------------------------------------- #
 MCP_FILE = config.REPO_ROOT / "mcp_servers.json"
+# One-click desktop-extension bundles (.mcpb / legacy .dxt) unpack here, one dir
+# per installed extension. Kept out of the repo tree via .gitignore.
+EXTENSIONS_DIR = config.REPO_ROOT / "extensions"
 
 
 def _load_mcp_servers() -> list[dict]:
@@ -266,9 +330,14 @@ def _save_mcp_servers(items: list[dict]):
 # server (reused across calls) with per-call timeouts and clean shutdown.
 
 
+def _mcp_auth_key(sid: str) -> str:
+    return f"mcp:{sid}:auth_token"
+
+
 def _resolve_cfg(cfg: dict) -> dict:
-    """Resolve portable placeholders (${PYTHON}, ${REPO_ROOT}) in an MCP server
-    cfg at call time, so mcp_servers.json never stores machine-absolute paths."""
+    """Resolve a stored MCP server cfg for connection: expand portable placeholders
+    (${PYTHON}, ${REPO_ROOT}) for stdio, and inject the auth Bearer header (from the
+    keychain, never mcp_servers.json) for remote servers."""
     import sys
     repl = {"${PYTHON}": sys.executable, "${REPO_ROOT}": str(config.REPO_ROOT)}
 
@@ -279,19 +348,45 @@ def _resolve_cfg(cfg: dict) -> dict:
         return s
 
     out = dict(cfg)
-    out["command"] = _sub(cfg.get("command", ""))
-    out["args"] = [_sub(a) for a in cfg.get("args", [])]
+    out["env"] = cfg.get("env") or None
+    if cfg.get("url"):
+        headers = dict(cfg.get("headers") or {})
+        if cfg.get("auth"):
+            from . import secrets
+            token = secrets.get_secret_store().get(_mcp_auth_key(cfg["id"]))
+            if token:
+                headers["Authorization"] = f"Bearer {token}"
+        out["headers"] = headers or None
+        # OAuth 2.1 connectors attach an httpx.Auth provider that adds the stored token
+        # and refreshes it silently (raising ReauthorizationRequired if re-login needed).
+        if cfg.get("auth_mode") == "oauth":
+            from . import mcp_oauth
+            out["auth_provider"] = mcp_oauth.background_provider(cfg["id"], cfg["url"])
+    else:
+        out["command"] = _sub(cfg.get("command", ""))
+        out["args"] = [_sub(a) for a in cfg.get("args", [])]
     return out
 
 
-def add_mcp_server(name: str, command: str, args: list[str] | None = None) -> dict:
-    """Register an MCP (stdio) server and cache its tool specs. Discovery happens
-    now so the agent tool list can be assembled synchronously later."""
-    args = args or []
+def add_mcp_server(name: str, command: str = "", args: list[str] | None = None, *,
+                   url: str = "", transport: str = "", env: dict | None = None,
+                   headers: dict | None = None, auth_token: str = "") -> dict:
+    """Register an MCP server (stdio command OR a remote Streamable-HTTP/SSE url) and
+    cache its tool specs. A remote auth token is stored in the OS keychain, never in
+    mcp_servers.json. Discovery happens now so the tool list assembles synchronously."""
     sid = _slug(name)
     items = [s for s in _load_mcp_servers() if s["id"] != sid]
-    item = {"id": sid, "name": name.strip() or sid, "transport": "stdio",
-            "command": command.strip(), "args": args}
+    if url.strip():
+        item = {"id": sid, "name": name.strip() or sid,
+                "transport": (transport.strip().lower() or "http"),
+                "url": url.strip(), "env": env or {},
+                "headers": headers or {}, "auth": bool(auth_token)}
+    else:
+        item = {"id": sid, "name": name.strip() or sid, "transport": "stdio",
+                "command": command.strip(), "args": args or [], "env": env or {}}
+    if auth_token:
+        from . import secrets
+        secrets.get_secret_store().set(_mcp_auth_key(sid), auth_token)
     try:
         item["tools"] = mcp_registry.registry.discover(_resolve_cfg(item))
         item["status"] = "connected"
@@ -305,6 +400,77 @@ def add_mcp_server(name: str, command: str, args: list[str] | None = None) -> di
     return item
 
 
+def add_oauth_mcp_server(name: str, url: str, transport: str = "http") -> dict:
+    """Register a remote MCP server that authenticates via OAuth 2.1. Discovery is
+    deferred until the user completes the interactive authorize (``authorize_mcp_oauth``),
+    since it requires a browser round-trip. The server starts in an 'unauthorized' state."""
+    sid = _slug(name)
+    items = [s for s in _load_mcp_servers() if s["id"] != sid]
+    item = {"id": sid, "name": name.strip() or sid,
+            "transport": (transport.strip().lower() or "http"),
+            "url": url.strip(), "env": {}, "headers": {},
+            "auth": False, "auth_mode": "oauth",
+            "tools": [], "status": "unauthorized",
+            "detail": "Authorize to connect."}
+    items.append(item)
+    _save_mcp_servers(items)
+    return item
+
+
+def authorize_mcp_oauth(sid: str, open_url=None) -> dict:
+    """Drive the interactive OAuth 2.1 authorize for an ``auth_mode=oauth`` server:
+    start a loopback listener, open the provider's authorize URL in the browser, wait for
+    the redirect, let the SDK exchange the code (tokens land in the keychain), then
+    discover the server's tools. The loopback listener and the MCP session share one event
+    loop, so the callback resolves in-band. Returns the updated server record.
+
+    NOTE: the browser round-trip is exercised against a live OAuth MCP server; here we
+    verify the wiring (provider construction, registration, status) with unit tests.
+    """
+    import asyncio
+
+    from . import mcp_oauth
+    s = _find_mcp(sid)
+    if not s or not s.get("url") or s.get("auth_mode") != "oauth":
+        raise ValueError("Not an OAuth MCP server.")
+    opener = open_url or mcp_oauth.open_in_browser
+
+    async def _run() -> tuple[list[dict], str]:
+        from mcp import ClientSession
+        from mcp.client.streamable_http import streamablehttp_client
+
+        catcher = mcp_oauth.LoopbackAuthCatcher()
+        redirect_uri = await catcher.start()
+        provider = mcp_oauth.interactive_provider(
+            sid, s["url"], redirect_uri, open_url=opener, callback=catcher.wait)
+        try:
+            async with streamablehttp_client(s["url"], auth=provider) as (read, write, _):
+                async with ClientSession(read, write) as session:
+                    await session.initialize()  # triggers the OAuth flow on a 401
+                    resp = await session.list_tools()
+                    tools = [{"name": t.name, "description": t.description or "",
+                              "inputSchema": getattr(t, "inputSchema", None) or {}}
+                             for t in resp.tools]
+            return tools, ""
+        finally:
+            await catcher.close()
+
+    items = _load_mcp_servers()
+    server = next((x for x in items if x["id"] == sid), None)
+    try:
+        tools, _ = asyncio.run(_run())
+        if server is not None:
+            server["tools"] = tools
+            server["status"] = "connected"
+            server["detail"] = f"{len(tools)} tools"
+    except Exception as e:
+        if server is not None:
+            server["status"] = "error"
+            server["detail"] = str(e)[:140]
+    _save_mcp_servers(items)
+    return next((x for x in _load_mcp_servers() if x["id"] == sid), server or {})
+
+
 def add_demo_mcp_server() -> dict:
     """Register the bundled demo MCP server (mcp_servers/demo_server.py) using the
     current Python interpreter — no node, no network, no secrets."""
@@ -312,11 +478,188 @@ def add_demo_mcp_server() -> dict:
                           ["${REPO_ROOT}/mcp_servers/demo_server.py"])
 
 
+# --------------------------------------------------------------------------- #
+#  Desktop extension bundles (.mcpb / legacy .dxt)
+#
+#  A bundle is a plain zip with a manifest.json at its root describing a bundled
+#  MCP server (Claude Desktop's one-click-install format). We validate + unpack it
+#  and register the server through the normal MCP path so its tools join the
+#  agent's toolset. The manifest schema is an open, documented convention — this is
+#  an original parser, not vendored code.
+# --------------------------------------------------------------------------- #
+class McpbError(Exception):
+    """Raised when a .mcpb/.dxt bundle is malformed, unsafe, or missing config."""
+
+
+_MCPB_VAR = re.compile(r"\$\{([^}]+)\}")
+
+
+def _mcpb_read_manifest(zf: zipfile.ZipFile) -> dict:
+    try:
+        raw = zf.read("manifest.json")
+    except KeyError:
+        raise McpbError("bundle has no manifest.json at its root") from None
+    try:
+        m = json.loads(raw.decode("utf-8"))
+    except Exception as e:  # noqa: BLE001 - report any parse failure as a clean error
+        raise McpbError(f"manifest.json is not valid JSON: {e}") from e
+    if not isinstance(m, dict):
+        raise McpbError("manifest.json must be a JSON object")
+    return m
+
+
+def _mcpb_resolve_user_config(manifest: dict, provided: dict) -> dict:
+    """Merge caller-provided user_config over manifest defaults and enforce that
+    every `required` field ends up with a value. Returns the effective mapping."""
+    spec = manifest.get("user_config")
+    if not isinstance(spec, dict):
+        return dict(provided)
+    final = dict(provided)
+    for key, s in spec.items():
+        if key not in final and isinstance(s, dict) and "default" in s:
+            final[key] = s["default"]
+    missing = [k for k, s in spec.items()
+               if isinstance(s, dict) and s.get("required") and final.get(k) in (None, "")]
+    if missing:
+        raise McpbError("missing required user_config: " + ", ".join(sorted(missing)))
+    return final
+
+
+def _mcpb_subst(value, dirname: str, user_values: dict):
+    """Expand ${__dirname}, ${user_config.<key>}, and ${HOME} in a string / list of
+    strings / string-valued dict. Unknown placeholders are left intact."""
+    def one(s: str) -> str:
+        def repl(m: re.Match) -> str:
+            key = m.group(1).strip()
+            if key == "__dirname":
+                return dirname
+            if key.startswith("user_config."):
+                return str(user_values.get(key[len("user_config."):], ""))
+            if key == "HOME":
+                return os.path.expanduser("~")
+            return m.group(0)
+        return _MCPB_VAR.sub(repl, s)
+
+    if isinstance(value, str):
+        return one(value)
+    if isinstance(value, list):
+        return [one(x) if isinstance(x, str) else x for x in value]
+    if isinstance(value, dict):
+        return {k: (one(v) if isinstance(v, str) else v) for k, v in value.items()}
+    return value
+
+
+def _mcpb_safe_extract(zf: zipfile.ZipFile, dest: Path) -> None:
+    """Extract every member under ``dest``, rejecting path-traversal ("zip slip")
+    entries (absolute paths or ``..`` escapes) BEFORE writing anything to disk."""
+    root = dest.resolve()
+    for info in zf.infolist():
+        name = info.filename
+        if not name or name.endswith("/"):
+            continue  # directory entries are created implicitly on member extract
+        target = (dest / name).resolve()
+        if target != root and root not in target.parents:
+            raise McpbError(f"unsafe path in bundle: {name}")
+    zf.extractall(dest)  # safe: every member validated against dest above
+
+
+def mcpb_manifest_info(path: str | Path) -> dict:
+    """Read a bundle's manifest without installing — lets a UI collect user_config
+    up front. Returns name/version/description/author and the raw user_config spec."""
+    src = Path(path)
+    if not src.is_file():
+        raise McpbError(f"bundle not found: {src}")
+    try:
+        with zipfile.ZipFile(src) as zf:
+            m = _mcpb_read_manifest(zf)
+    except zipfile.BadZipFile:
+        raise McpbError("not a valid .mcpb/.dxt archive (bad zip)") from None
+    return {"name": str(m.get("name") or ""), "version": str(m.get("version") or ""),
+            "description": str(m.get("description") or "")[:400],
+            "author": m.get("author") or {}, "user_config": m.get("user_config") or {}}
+
+
+def install_mcpb(path: str | Path, user_values: dict | None = None) -> dict:
+    """Install a Claude-Desktop-style extension bundle (.mcpb / legacy .dxt).
+
+    Validates the manifest and required user_config, unpacks the (path-traversal-
+    checked) archive under extensions/<name>/, resolves the server launch config
+    (${__dirname}, ${user_config.*}), then registers it via ``add_mcp_server`` so
+    its tools become available to the agent. Returns the persisted server record.
+    """
+    src = Path(path)
+    if not src.is_file():
+        raise McpbError(f"bundle not found: {src}")
+    try:
+        zf = zipfile.ZipFile(src)
+    except zipfile.BadZipFile:
+        raise McpbError("not a valid .mcpb/.dxt archive (bad zip)") from None
+
+    with zf:
+        manifest = _mcpb_read_manifest(zf)
+        name = str(manifest.get("name") or "").strip()
+        if not name:
+            raise McpbError("manifest.json is missing 'name'")
+        server = manifest.get("server")
+        if not isinstance(server, dict):
+            raise McpbError("manifest.json is missing a 'server' object")
+        mcp_config = server.get("mcp_config")
+        if not isinstance(mcp_config, dict) or not mcp_config.get("command"):
+            raise McpbError("manifest server.mcp_config.command is required")
+        # Fail fast on missing config BEFORE we touch the filesystem.
+        resolved_uc = _mcpb_resolve_user_config(manifest, user_values or {})
+
+        dest = EXTENSIONS_DIR / _slug(name)
+        if dest.exists():
+            shutil.rmtree(dest, ignore_errors=True)
+        dest.mkdir(parents=True, exist_ok=True)
+        _mcpb_safe_extract(zf, dest)
+
+    dirname = str(dest.resolve())
+    command = _mcpb_subst(mcp_config["command"], dirname, resolved_uc)
+    args = _mcpb_subst(mcp_config.get("args") or [], dirname, resolved_uc)
+    env = _mcpb_subst(mcp_config.get("env") or {}, dirname, resolved_uc)
+    # Prefer the app's bundled/frozen interpreter over whatever "python" resolves to
+    # on PATH — the packaged desktop app ships without a system Python.
+    if command in ("python", "python3"):
+        command = "${PYTHON}"
+
+    item = add_mcp_server(name, command, list(args), env=env or None)
+
+    # Tag the persisted record so uninstall can reclaim the unpacked files and the
+    # UI can show manifest metadata / an update path.
+    items = _load_mcp_servers()
+    for s in items:
+        if s["id"] == item["id"]:
+            s["source"] = "mcpb"
+            s["dir"] = dirname
+            s["version"] = str(manifest.get("version") or "")
+            s["description"] = str(manifest.get("description") or "")[:200]
+            item = s
+            break
+    _save_mcp_servers(items)
+    return item
+
+
 def remove_mcp_server(sid: str):
     items = _load_mcp_servers()
     for s in items:
         if s["id"] == sid:
-            mcp_registry.registry.drop(_resolve_cfg(s))  # terminate the persistent subprocess
+            mcp_registry.registry.drop(_resolve_cfg(s))  # terminate the persistent session
+            if s.get("auth"):
+                from . import secrets
+                with contextlib.suppress(Exception):
+                    secrets.get_secret_store().delete(_mcp_auth_key(sid))
+            # Forget any OAuth tokens + dynamic client registration for this connector.
+            if s.get("auth_mode") == "oauth":
+                from . import mcp_oauth
+                mcp_oauth.clear_oauth(sid)
+            # Reclaim a .mcpb extension's unpacked files, but only if the recorded
+            # dir really lives under EXTENSIONS_DIR (never rmtree an arbitrary path).
+            if s.get("source") == "mcpb" and s.get("dir"):
+                d = Path(s["dir"]).resolve()
+                if EXTENSIONS_DIR.resolve() in d.parents:
+                    shutil.rmtree(d, ignore_errors=True)
     _save_mcp_servers([s for s in items if s["id"] != sid])
 
 
@@ -337,13 +680,70 @@ def refresh_mcp_server(sid: str) -> dict:
     return {}
 
 
+def _find_mcp(sid: str) -> dict | None:
+    for s in _load_mcp_servers():
+        if s["id"] == sid:
+            return s
+    return None
+
+
+def mcp_resources(sid: str) -> list[dict]:
+    """List an MCP server's resources ([] if it declares none / doesn't support them)."""
+    s = _find_mcp(sid)
+    if not s:
+        return []
+    with contextlib.suppress(Exception):
+        return mcp_registry.registry.list_resources(_resolve_cfg(s))
+    return []
+
+
+def mcp_read_resource(sid: str, uri: str) -> str:
+    s = _find_mcp(sid)
+    if not s:
+        return ""
+    return mcp_registry.registry.read_resource(_resolve_cfg(s), uri)
+
+
+def mcp_prompts(sid: str) -> list[dict]:
+    """List an MCP server's prompts ([] if it declares none / doesn't support them)."""
+    s = _find_mcp(sid)
+    if not s:
+        return []
+    with contextlib.suppress(Exception):
+        return mcp_registry.registry.list_prompts(_resolve_cfg(s))
+    return []
+
+
+def mcp_get_prompt(sid: str, name: str, args: dict | None = None) -> dict:
+    s = _find_mcp(sid)
+    if not s:
+        return {"messages": []}
+    return mcp_registry.registry.get_prompt(_resolve_cfg(s), name, args or {})
+
+
+def _oauth_authorized(s: dict) -> bool:
+    if s.get("auth_mode") != "oauth":
+        return False
+    from . import mcp_oauth
+    return mcp_oauth.has_tokens(s["id"])
+
+
 def list_mcp_servers() -> list[dict]:
     """Registered MCP servers (without the verbose cached tool schemas)."""
     return [{"id": s["id"], "name": s["name"], "transport": s.get("transport", "stdio"),
              "command": s.get("command", ""), "args": s.get("args", []),
+             "url": s.get("url", ""), "auth": bool(s.get("auth")),
+             "auth_mode": s.get("auth_mode", ""), "authorized": _oauth_authorized(s),
+             "source": s.get("source", ""), "version": s.get("version", ""),
              "status": s.get("status", "unknown"), "detail": s.get("detail", ""),
              "tool_count": len(s.get("tools", []))}
             for s in _load_mcp_servers()]
+
+
+def mcp_oauth_status(sid: str) -> dict:
+    """OAuth authorization status for a connector (never returns the token itself)."""
+    from . import mcp_oauth
+    return mcp_oauth.summarize_tokens(sid)
 
 
 def mcp_tools(enabled_ids: list[str]) -> list[dict]:
@@ -393,7 +793,15 @@ def run_tool(name: str, args: dict) -> str:
 
 
 # --------------------------------------------------------------------------- #
-#  Web search — keyless DuckDuckGo HTML endpoint
+#  Web search — pluggable provider
+#
+#  Two backends behind one seam so the agent's research quality never depends on a
+#  single scraped endpoint:
+#    * "searxng" — a privacy-respecting metasearch engine with a clean JSON API,
+#      free and self-hostable. The recommended option (set searxng_url in settings);
+#      because it can run on localhost, its URL is trusted (not SSRF-filtered).
+#    * "ddg"     — the keyless DuckDuckGo HTML endpoint, kept as a zero-config
+#      fallback and used automatically when SearXNG is unset or unreachable.
 # --------------------------------------------------------------------------- #
 _DDG_URL = "https://html.duckduckgo.com/html/"
 _UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -402,7 +810,7 @@ _UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
 
 def _clean_ddg_url(href: str) -> str:
     """DDG HTML results wrap targets in /l/?uddg=<encoded>. Unwrap to the real URL."""
-    from urllib.parse import urlparse, parse_qs, unquote
+    from urllib.parse import parse_qs, unquote, urlparse
     href = (href or "").strip()
     if href.startswith("//"):
         href = "https:" + href
@@ -426,35 +834,101 @@ def _domain(url: str) -> str:
         return ""
 
 
-def _web_results(query: str, n: int = 5) -> list[dict]:
-    """Structured web results: list of {title, url, snippet, domain, favicon}."""
-    query = (query or "").strip()
-    if not query:
-        return []
+def _result_item(title: str, url: str, snippet: str) -> dict | None:
+    """Normalize one hit into {title, url, snippet, domain, favicon}, or None if it
+    lacks a title/url."""
+    title = (title or "").strip()
+    url = (url or "").strip()
+    snippet = (snippet or "").strip()
+    if not (title and url):
+        return None
+    dom = _domain(url)
+    return {"title": title, "url": url, "snippet": snippet, "domain": dom,
+            "favicon": (f"https://www.google.com/s2/favicons?domain={dom}&sz=64"
+                        if dom else "")}
+
+
+def _parse_ddg_html(html: str, n: int) -> list[dict]:
+    """Extract structured results from a DuckDuckGo HTML SERP. Pure (no network) so it
+    can be unit-tested against a fixture."""
+    out: list[dict] = []
+    for m in re.finditer(
+            r'result__a"[^>]*href="(.*?)".*?>(.*?)</a>.*?'
+            r'result__snippet"[^>]*>(.*?)</a>', html or "", re.DOTALL):
+        url = _clean_ddg_url(re.sub(r"<.*?>", "", m.group(1)).strip())
+        title = re.sub(r"<.*?>", "", m.group(2)).strip()
+        snippet = re.sub(r"<.*?>", "", m.group(3)).strip()
+        item = _result_item(title, url, snippet)
+        if item:
+            out.append(item)
+        if len(out) >= n:
+            break
+    return out
+
+
+def _parse_searxng_json(data: dict, n: int) -> list[dict]:
+    """Map a SearXNG JSON response ({"results":[{title,url,content}...]}) to our shape.
+    Pure (no network) for unit testing."""
+    out: list[dict] = []
+    for r in (data or {}).get("results", []) if isinstance(data, dict) else []:
+        if not isinstance(r, dict):
+            continue
+        item = _result_item(r.get("title", ""), r.get("url", ""), r.get("content", ""))
+        if item:
+            out.append(item)
+        if len(out) >= n:
+            break
+    return out
+
+
+def _search_config() -> tuple[str, str]:
+    """(provider, searxng_url) from settings, defaulting to the keyless DDG backend."""
+    from . import settings
+    s = settings.get_settings()
+    return (s.get("search_provider") or "ddg").strip().lower(), (s.get("searxng_url") or "").strip()
+
+
+def _ddg_html_results(query: str, n: int) -> list[dict]:
     try:
         import httpx
         resp = httpx.post(_DDG_URL, data={"q": query}, timeout=15,
                           headers={"User-Agent": _UA})
-        html = resp.text
+        return _parse_ddg_html(resp.text, n)
     except Exception:
         return []
-    out: list[dict] = []
-    for m in re.finditer(
-            r'result__a"[^>]*href="(.*?)".*?>(.*?)</a>.*?'
-            r'result__snippet"[^>]*>(.*?)</a>', html, re.DOTALL):
-        url, title, snippet = m.group(1), m.group(2), m.group(3)
-        title = re.sub(r"<.*?>", "", title).strip()
-        snippet = re.sub(r"<.*?>", "", snippet).strip()
-        url = _clean_ddg_url(re.sub(r"<.*?>", "", url).strip())
-        dom = _domain(url)
-        if title and url:
-            out.append({"title": title, "url": url, "snippet": snippet,
-                        "domain": dom,
-                        "favicon": (f"https://www.google.com/s2/favicons?domain={dom}&sz=64"
-                                    if dom else "")})
-        if len(out) >= n:
-            break
-    return out
+
+
+def _searxng_results(query: str, n: int, base_url: str) -> list[dict]:
+    """Query a SearXNG instance's JSON API. Rejects non-http(s) URLs; localhost is fine
+    (a self-hosted instance is trusted, so it is deliberately NOT SSRF-filtered)."""
+    from urllib.parse import urlparse
+    base = (base_url or "").strip().rstrip("/")
+    if urlparse(base).scheme not in ("http", "https"):
+        return []
+    try:
+        import httpx
+        resp = httpx.get(f"{base}/search",
+                         params={"q": query, "format": "json"},
+                         timeout=15, headers={"User-Agent": _UA},
+                         follow_redirects=True)
+        return _parse_searxng_json(resp.json(), n)
+    except Exception:
+        return []
+
+
+def _web_results(query: str, n: int = 5) -> list[dict]:
+    """Structured web results via the configured provider, with a keyless DDG fallback
+    whenever SearXNG is unconfigured or returns nothing."""
+    query = (query or "").strip()
+    if not query:
+        return []
+    provider, searxng_url = _search_config()
+    if provider == "searxng" and searxng_url:
+        results = _searxng_results(query, n, searxng_url)
+        if results:
+            return results
+        # SearXNG down/misconfigured — degrade gracefully rather than returning nothing.
+    return _ddg_html_results(query, n)
 
 
 def _format_web_block(query: str, results: list[dict]) -> str:
@@ -489,9 +963,9 @@ def _research_subqueries(topic: str, n: int) -> list[str]:
                        f"Give exactly {n} distinct web-search queries (one per line, "
                        f"no numbering, no quotes) that together research this topic "
                        f"from different angles:\n{topic}"}])
-        lines = [re.sub(r"^[\-\d\.\)\s•]+", "", l).strip()
-                 for l in (resp.choices[0].message.content or "").splitlines()]
-        subs = [l for l in lines if l][:n]
+        lines = [re.sub(r"^[\-\d\.\)\s•]+", "", ln).strip()
+                 for ln in (resp.choices[0].message.content or "").splitlines()]
+        subs = [ln for ln in lines if ln][:n]
         if subs:
             return subs
     except Exception:
@@ -550,6 +1024,32 @@ _BASH_ALLOW = {"ls", "cat", "echo", "pwd", "grep", "find", "wc", "head", "tail",
                "type", "dir", "date", "whoami", "sort", "uniq", "cut"}
 
 
+def _bash_arg_escapes_jail(tok: str) -> bool:
+    """C2: reject a bash argument that reaches outside the sandbox.
+
+    The command loop already sets cwd to SANDBOX_ROOT and blocks '..' and shell
+    metacharacters, but ABSOLUTE-path arguments still escaped the jail (e.g.
+    ``cat /etc/passwd`` or ``cat /home/user/app/.env``). Flags (leading '-') are
+    fine. Anything that looks like an absolute POSIX path, a home-relative path,
+    a Windows drive/UNC path, or that resolves outside SANDBOX_ROOT is rejected.
+    """
+    t = (tok or "").strip()
+    if not t or t.startswith("-"):
+        return False  # empty or a flag — not a path escape
+    # Absolute / home / Windows-absolute / UNC paths never allowed.
+    if t.startswith(("/", "~", "\\")):
+        return True
+    if len(t) >= 2 and t[1] == ":" and t[0].isalpha():  # C:\ or C:/
+        return True
+    # Relative token: it must resolve to somewhere inside the sandbox root.
+    try:
+        target = (SANDBOX_ROOT / t).resolve()
+        target.relative_to(SANDBOX_ROOT.resolve())
+        return False
+    except Exception:
+        return True
+
+
 def _ensure_dir(p: Path):
     try:
         p.mkdir(parents=True, exist_ok=True)
@@ -574,7 +1074,13 @@ def _iso_now() -> str:
 
 def _html_to_text(html_src: str) -> str:
     import html as _h
-    s = re.sub(r"(?is)<(script|style|head|nav|footer|svg)[^>]*>.*?</\1>", " ", html_src)
+    # Drop non-content boilerplate wholesale (with their inner text) so the model sees
+    # the article, not the chrome: scripts/styles, page head, nav/header/footer/aside,
+    # forms/buttons, embedded frames, and no-JS fallbacks.
+    s = re.sub(r"(?s)<!--.*?-->", " ", html_src)  # HTML comments
+    s = re.sub(
+        r"(?is)<(script|style|head|nav|header|footer|aside|form|button|iframe|noscript|"
+        r"template|svg)[^>]*>.*?</\1>", " ", s)
     s = re.sub(r"(?is)<br\s*/?>", "\n", s)
     s = re.sub(r"(?is)</(p|div|h[1-6]|li|tr|section|article)>", "\n", s)
     s = re.sub(r"(?s)<[^>]+>", " ", s)
@@ -586,8 +1092,8 @@ def _html_to_text(html_src: str) -> str:
 
 # ---- web_fetch (default ON, read-only, SSRF-guarded) ---- #
 def _blocked_host(host: str) -> bool:
-    import socket
     import ipaddress
+    import socket
     if not host:
         return True
     try:
@@ -608,8 +1114,8 @@ def _blocked_host(host: str) -> bool:
 def web_fetch(url: str) -> tuple[str, list[dict]]:
     """Fetch one URL → (cleaned text for the model, source card list). http/https
     only, private/internal hosts blocked, HTML/text/JSON only."""
-    from urllib.parse import urlparse
     import time as _t
+    from urllib.parse import urlparse
     url = (url or "").strip()
     if not url:
         return "web_fetch_tool_error: invalid_input", []
@@ -656,9 +1162,8 @@ def run_python(code: str) -> str:
     """Run a Python snippet in a best-effort sandbox: Docker --network none if
     available, else `python -I` in an ephemeral temp dir with a scrubbed env +
     30s timeout. Returns return_code/stdout/stderr (Windows: reduced isolation)."""
-    import subprocess
-    import sys
     import shutil
+    import subprocess
     import tempfile
     _ensure_dir(SANDBOX_ROOT)
     workdir = tempfile.mkdtemp(prefix="code_", dir=str(SANDBOX_ROOT))
@@ -685,8 +1190,8 @@ def run_python(code: str) -> str:
 
 # ---- bash (default OFF, allowlisted + cwd-jailed) ---- #
 def run_bash(command: str, restart: bool = False) -> str:
-    import subprocess
     import shlex
+    import subprocess
     _ensure_dir(SANDBOX_ROOT)
     if restart:
         return "Bash session restarted."
@@ -704,6 +1209,12 @@ def run_bash(command: str, restart: bool = False) -> str:
     if not parts or parts[0] not in _BASH_ALLOW:
         return (f"Rejected: '{parts[0] if parts else ''}' is not allowlisted. Allowed: "
                 + ", ".join(sorted(_BASH_ALLOW)))
+    # C2: no argument may point outside the sandbox (blocks absolute-path reads
+    # like `cat /etc/passwd` that the metacharacter/`..` filter did not catch).
+    escaping = next((a for a in parts[1:] if _bash_arg_escapes_jail(a)), None)
+    if escaping is not None:
+        return ("Rejected: argument outside the sandbox is not allowed "
+                f"('{escaping}'). Only paths inside the session workspace are permitted.")
     try:
         proc = subprocess.run(parts, cwd=str(SANDBOX_ROOT), capture_output=True,
                               text=True, timeout=30, shell=False)
@@ -718,7 +1229,7 @@ def run_bash(command: str, restart: bool = False) -> str:
 
 
 # ---- shared path jail for text_editor / memory ---- #
-def _jail_path(root: Path, path: str) -> "Path | None":
+def _jail_path(root: Path, path: str) -> Path | None:
     _ensure_dir(root)
     raw = (path or "").strip().replace("\\", "/").lstrip("/")
     for prefix in ("memories/", "workspace/"):

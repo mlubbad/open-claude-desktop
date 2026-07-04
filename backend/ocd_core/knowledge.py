@@ -26,7 +26,7 @@ def _file_meta(path: Path) -> dict:
     ext = path.suffix.lstrip(".").lower()
     if ext in _TEXT_EXTS:
         try:
-            with open(path, "r", encoding="utf-8", errors="ignore") as fh:
+            with open(path, encoding="utf-8", errors="ignore") as fh:
                 meta = f"{sum(1 for _ in fh)} lines"
         except Exception:
             meta = util.fmt_size(size)
@@ -91,13 +91,69 @@ def extract_text_from_file(path: Path) -> str:
         return ""
 
 
+def chunk_text(text: str, size: int = 1200, overlap: int = 200) -> list[str]:
+    """Split text into overlapping, boundary-aware chunks for retrieval.
+
+    Prefers to break on paragraph then sentence boundaries so a chunk rarely cuts a
+    sentence in half, packs pieces up to ``size`` characters, and carries ``overlap``
+    characters of tail context into the next chunk so a fact spanning a boundary stays
+    findable. A single oversized paragraph is hard-split. Pure + deterministic.
+    """
+    text = (text or "").strip()
+    if not text:
+        return []
+    if len(text) <= size:
+        return [text]
+    overlap = max(0, min(overlap, size // 2))
+
+    # Split into paragraphs, then over-long paragraphs into sentences, then hard-wrap
+    # anything still longer than `size`.
+    import re
+    pieces: list[str] = []
+    for para in re.split(r"\n\s*\n", text):
+        para = para.strip()
+        if not para:
+            continue
+        if len(para) <= size:
+            pieces.append(para)
+            continue
+        for sent in re.split(r"(?<=[.!?])\s+", para):
+            sent = sent.strip()
+            if not sent:
+                continue
+            while len(sent) > size:
+                pieces.append(sent[:size])
+                sent = sent[size:]
+            if sent:
+                pieces.append(sent)
+
+    # Pack pieces (each already <= size) into chunks of at most `size` chars. On a flush,
+    # seed the next chunk with the previous chunk's tail (overlap) when it still fits, so
+    # boundary context carries over without ever exceeding `size`.
+    chunks: list[str] = []
+    cur = ""
+    for piece in pieces:
+        candidate = f"{cur}\n{piece}".strip() if cur else piece
+        if len(candidate) <= size:
+            cur = candidate
+            continue
+        if cur:
+            chunks.append(cur)
+        tail = chunks[-1][-overlap:] if (chunks and overlap) else ""
+        seeded = f"{tail}\n{piece}".strip() if tail else piece
+        cur = seeded if len(seeded) <= size else piece
+    if cur:
+        chunks.append(cur)
+    return chunks
+
+
 def ingest_file_to_kb(project_id: str, path: Path) -> int:
     """Chunk a file's text and upsert into the project's ChromaDB collection."""
     text = extract_text_from_file(path)
     if not text.strip():
         return 0
     collection = get_project_kb_collection(project_id)
-    chunks = [text[i:i + 2000] for i in range(0, len(text), 2000)]
+    chunks = chunk_text(text)
     total = 0
     for i in range(0, len(chunks), 20):
         batch = chunks[i:i + 20]
@@ -113,13 +169,37 @@ def ingest_file_to_kb(project_id: str, path: Path) -> int:
 # --------------------------------------------------------------------------- #
 #  Project KB search (isolated per-project collection)
 # --------------------------------------------------------------------------- #
-def search_project_kb(project_id: str, question: str, top_k: int = 5) -> str:
+def search_project_kb_sources(project_id: str, question: str, top_k: int = 5) -> list[dict]:
+    """Structured KB hits: [{source, chunk, text, score}], best first. score is a 0..1
+    relevance (1 - cosine distance) when the backend reports distances."""
     try:
         coll = get_project_kb_collection(project_id)
-        if coll.count() > 0:
-            docs = coll.query(query_texts=[question], n_results=top_k)
-            if docs.get("documents") and docs["documents"][0]:
-                return "\n\n---\n\n".join(docs["documents"][0])
+        if coll.count() == 0:
+            return []
+        res = coll.query(query_texts=[question], n_results=top_k)
+        docs = (res.get("documents") or [[]])[0]
+        metas = (res.get("metadatas") or [[]])[0]
+        dists = (res.get("distances") or [[]])[0]
+        out: list[dict] = []
+        for i, doc in enumerate(docs):
+            meta = metas[i] if i < len(metas) else {}
+            dist = dists[i] if i < len(dists) else None
+            out.append({
+                "source": (meta or {}).get("source", "document"),
+                "chunk": (meta or {}).get("chunk", i),
+                "text": doc,
+                "score": (round(max(0.0, 1.0 - float(dist)), 3) if dist is not None else None),
+            })
+        return out
     except Exception:
-        pass
-    return ""
+        return []
+
+
+def search_project_kb(project_id: str, question: str, top_k: int = 5) -> str:
+    """Cited KB context for the agent to read + attribute. Each passage is headed by its
+    source so the model can say where a fact came from (Claude-style citations)."""
+    hits = search_project_kb_sources(project_id, question, top_k)
+    if not hits:
+        return ""
+    blocks = [f"[{h['source']} · chunk {h['chunk']}]\n{h['text']}" for h in hits]
+    return "\n\n---\n\n".join(blocks)

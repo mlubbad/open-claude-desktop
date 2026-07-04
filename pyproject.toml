@@ -1,46 +1,9 @@
-[build-system]
-requires = ["setuptools>=68"]
-build-backend = "setuptools.build_meta"
-
-[project]
-name = "open-claude-desktop"
-version = "0.2.0"
-description = "GLM-powered, Claude-Desktop-style agent (Chainlit + Reflex) over BigQuery."
-readme = "README.md"
-requires-python = ">=3.12"
-
-# Human-readable source of truth for DIRECT dependencies. Exact, reproducible
-# pins (incl. transitives) live in requirements.txt (a full pip freeze).
-dependencies = [
-    "zhipuai",
-    "google-cloud-bigquery",
-    "google-auth",
-    "google-auth-oauthlib",
-    "chromadb",
-    "pandas",
-    "mcp",
-    "python-dotenv",
-]
-
-[project.optional-dependencies]
-# Chainlit chat app (app.py): UI + charts + file parsing + Postgres data layer.
-chainlit = ["chainlit", "matplotlib", "pdfplumber", "pdfminer.six", "pillow", "openpyxl", "asyncpg", "nest-asyncio"]
-# Reflex projects UI (aj360_app/).
-reflex = ["reflex"]
-# Optional Arabic chart-label shaping.
-arabic = ["arabic-reshaper", "python-bidi"]
-# Tooling.
-dev = ["pytest", "ruff", "mypy"]
-
-[tool.setuptools]
-py-modules = ["app", "run"]
-# ocd_core now lives in its own installable package under backend/ (see backend/pyproject.toml).
-packages = []
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-python_files = ["test_*.py"]
-addopts = "-q"
+# Workspace-level tooling config (ruff + mypy) shared by pre-commit and CI.
+# The installable code lives in per-service packages:
+#   backend/  -> ocd-backend  (FastAPI + ocd_core domain)   see backend/pyproject.toml
+#   frontend/ -> Reflex app (transitional; React/Tauri client lands in Phase 3)
+# There is no root package to build and no root test suite — each service owns
+# its own tests (backend/tests, frontend/tests).
 
 [tool.ruff]
 line-length = 100
@@ -50,8 +13,8 @@ extend-exclude = ["venv", "venv312", ".web", "frontend/.web", "node_modules", "r
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B"]
 ignore = [
-  "E501",  # long lines tolerated in generated SQL / inline HTML strings
-  "B008",  # FastAPI Depends() pattern: function call in default arg is intentional
+  "E501",  # long lines tolerated in inline SQL / prompt strings
+  "B008",  # FastAPI Depends() pattern: call in default arg is intentional
 ]
 
 [tool.mypy]

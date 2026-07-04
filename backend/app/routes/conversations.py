@@ -63,6 +63,12 @@ def list_all(limit: int = 200, user: str = Depends(current_user)) -> list[dict]:
     return conversations.list_all_conversations(limit)
 
 
+@router.get("/conversations/search")
+def search_convs(q: str, limit: int = 50, user: str = Depends(current_user)) -> list[dict]:
+    """Full-text search across all conversations (title + message bodies)."""
+    return conversations.search_conversations(q, limit)
+
+
 @router.post("/conversations/title")
 def conversation_title(body: TitleRequest, user: str = Depends(current_user)) -> dict:
     return {"title": conversations.generate_conversation_title(body.first_message)}

@@ -18,12 +18,16 @@
   --accent-fg: #ffffff;
   --danger: #b0402f;
   --ok: #4a7c59;
+  --ring: rgba(179, 86, 59, 0.18);
+  --shadow-1: 0 1px 3px rgba(20, 20, 19, 0.08);
+  --shadow-soft: 0 1px 3px rgba(20, 20, 19, 0.05);
   --radius: 12px;
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
   --font-serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   color-scheme: light dark;
 }
+:root[data-theme="light"] { color-scheme: light; }
 /* Dark palette. Applied when the app stamps data-theme="dark" (explicit choice or a
    resolved "system" preference). */
 :root[data-theme="dark"] {
@@ -42,6 +46,10 @@
   --accent-fg: #1b1916;
   --danger: #e88a7d;
   --ok: #82b394;
+  --ring: rgba(223, 138, 99, 0.28);
+  --shadow-1: 0 1px 3px rgba(0, 0, 0, 0.5);
+  --shadow-soft: 0 1px 3px rgba(0, 0, 0, 0.4);
+  color-scheme: dark;
 }
 /* Pre-JS fallback: honor the OS setting on first paint, before useTheme stamps
    data-theme. Once an explicit data-theme is present, that wins by specificity. */
@@ -62,14 +70,30 @@
     --accent-fg: #1b1916;
     --danger: #e88a7d;
     --ok: #82b394;
+    --ring: rgba(223, 138, 99, 0.28);
+    --shadow-1: 0 1px 3px rgba(0, 0, 0, 0.5);
+    --shadow-soft: 0 1px 3px rgba(0, 0, 0, 0.4);
+    color-scheme: dark;
   }
 }
 
 * { box-sizing: border-box; }
 
-/* Editorial display type: headings run the serif, body stays humanist sans. */
-h1, h2, h3 { font-family: var(--font-serif); letter-spacing: -0.01em; }
-body { margin: 0; background: var(--bg); color: var(--text); }
+/* Editorial display type: headings run the serif at weight 400 with negative
+   tracking; body stays humanist sans at a readable line-height. */
+h1, h2, h3 { font-family: var(--font-serif); font-weight: 400; letter-spacing: -0.01em; }
+body { margin: 0; background: var(--bg); color: var(--text); line-height: 1.55; }
+
+/* Themed thin scrollbars (the default UA bars clash with the warm palette). */
+* { scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 999px;
+  border: 3px solid transparent; background-clip: content-box; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition-duration: 0.01ms !important; animation: none !important; }
+  html { scroll-behavior: auto; }
+}
 
 .app-shell { display: flex; height: 100vh; }
 .app { flex: 1; display: flex; flex-direction: column; min-width: 0; position: relative; }
@@ -78,7 +102,15 @@ body { margin: 0; background: var(--bg); color: var(--text); }
 
 /* Focus visibility (guide: accent border + soft accent ring on focus). */
 input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-visible {
-  outline: none; box-shadow: 0 0 0 3px var(--accent-soft); border-color: var(--accent); }
+  outline: none; box-shadow: 0 0 0 3px var(--ring); border-color: var(--accent); }
+
+/* Hover-revealed controls must also reveal on keyboard focus. */
+.conv-item:focus-within .conv-act, .conv-act:focus-visible, .conv-del:focus-visible { opacity: 1; }
+.msg.user:focus-within .user-edit { opacity: 1; }
+.msg.assistant:focus-within .msg-actions { opacity: 1; }
+.codeblock:focus-within .code-copy, .code-copy:focus-visible { opacity: 1; }
+/* Keep actions persistently visible on the latest assistant reply. */
+.msg-actions.pinned { opacity: 1; }
 
 /* Code tab: file tree + read-only viewer. */
 .code-panel { display: flex; min-height: 0; width: 48%; max-width: 640px; border-right: 1px solid var(--border); }
@@ -149,7 +181,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-
 .side-tab { flex: 1; border: none; background: transparent; color: var(--muted); cursor: pointer;
   font: inherit; font-size: 12.5px; font-weight: 550; padding: 6px 0; border-radius: 8px; }
 .side-tab.active { background: var(--surface); color: var(--text);
-  box-shadow: 0 1px 3px rgba(20, 20, 19, 0.08); }
+  box-shadow: var(--shadow-1); }
 .side-nav { display: flex; flex-direction: column; gap: 1px; }
 .side-row { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
   border: none; background: transparent; color: var(--text); cursor: pointer; font: inherit;
@@ -189,7 +221,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-
   padding: 7px 10px; border-radius: 8px; cursor: pointer; font-size: 13px; color: var(--muted); }
 .conv-item:hover { background: var(--surface-2); color: var(--text); }
 .conv-item.active { background: var(--surface); color: var(--text);
-  box-shadow: 0 1px 3px rgba(20, 20, 19, 0.08); }
+  box-shadow: var(--shadow-1); }
 .conv-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
 .conv-actions { display: flex; gap: 2px; flex-shrink: 0; }
 .conv-act { opacity: 0; border: none; background: none; color: var(--muted); cursor: pointer;
@@ -270,13 +302,13 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-
   border-radius: 4px 4px 4px 1px; background: rgba(255, 255, 255, 0.92); }
 .hero-composer { width: 100%; }
 .hero-composer .composer { max-width: none; border-radius: 18px; padding: 14px 16px 12px;
-  box-shadow: 0 1px 3px rgba(20, 20, 19, 0.06), 0 10px 30px rgba(20, 20, 19, 0.05); }
+  box-shadow: var(--shadow-1), 0 10px 30px rgba(20, 20, 19, 0.05); }
 .hero-composer .composer textarea { font-size: 15px; min-height: 44px; }
 .hero-note { font-size: 12px; color: var(--muted); margin: 10px 0 0; }
 .chips { display: flex; flex-wrap: wrap; gap: 9px; justify-content: center; margin-top: 24px; }
 .chip { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--border);
   background: var(--surface); color: var(--text); border-radius: 999px; padding: 8px 15px;
-  font-size: 13px; cursor: pointer; box-shadow: 0 1px 3px rgba(20, 20, 19, 0.05); }
+  font-size: 13px; cursor: pointer; box-shadow: var(--shadow-soft); }
 .chip:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
 .chip:disabled { opacity: 0.5; cursor: default; }
 .chip-icon { font-size: 14px; }
@@ -287,7 +319,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-
 .msg.user .bubble {
   background: var(--surface); color: var(--text); border: 1px solid var(--border);
   padding: 11px 15px; border-radius: var(--radius); white-space: pre-wrap;
-  max-width: 80%; box-shadow: 0 1px 3px rgba(20, 20, 19, 0.05);
+  max-width: 80%; box-shadow: var(--shadow-soft);
 }
 .msg.user .bubble.editing { background: var(--surface); color: var(--text);
   border: 1px solid var(--accent); width: min(80%, 640px); }
@@ -394,9 +426,9 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-
 .composer { max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; gap: 8px;
   border: 1px solid var(--border-strong); border-radius: 16px; padding: 12px 14px 10px;
   background: var(--surface); position: relative;
-  box-shadow: 0 1px 3px rgba(20, 20, 19, 0.05); }
+  box-shadow: var(--shadow-soft); }
 .composer:focus-within { border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft), 0 1px 3px rgba(20, 20, 19, 0.05); }
+  box-shadow: 0 0 0 3px var(--ring), var(--shadow-soft); }
 .composer-row { display: flex; align-items: center; gap: 8px; }
 .composer-spacer { flex: 1; }
 .composer-ghost { width: 32px; height: 32px; border-radius: 10px; border: 1px solid var(--border);
@@ -414,7 +446,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-
   background: linear-gradient(135deg, var(--accent), var(--accent-2)); }
 .pill-caret { color: var(--faint); font-size: 10px; }
 .composer-send { width: 34px; height: 34px; border-radius: 11px; border: none; cursor: pointer;
-  background: linear-gradient(140deg, var(--accent), var(--accent-2)); color: #fff; font-size: 16px; }
+  background: linear-gradient(140deg, var(--accent), var(--accent-2)); color: var(--accent-fg); font-size: 16px; }
 .composer-send:disabled { opacity: 0.4; cursor: default; }
 .composer-send.stop { background: var(--danger); }
 .attach-row { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 6px; }

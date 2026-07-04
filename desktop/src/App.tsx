@@ -237,9 +237,10 @@ export default function App() {
             <button
               className="icon-btn"
               title={`Theme: ${themeGlyph(theme.pref).label} (click to change)`}
+              aria-label={`Theme: ${themeGlyph(theme.pref).label}`}
               onClick={theme.cycle}
             >
-              {themeGlyph(theme.pref).icon}
+              <span aria-hidden="true">{themeGlyph(theme.pref).icon}</span>
             </button>
             {state.messages.length > 0 && (
               <button className="icon-btn" title="Export chat as Markdown" onClick={exportChat}>

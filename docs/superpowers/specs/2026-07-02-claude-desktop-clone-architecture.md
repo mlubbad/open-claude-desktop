@@ -645,6 +645,12 @@ adjust the roadmap ordering above:
   the user is already near the bottom, and surfaces a floating ↓ jump-to-latest button when
   they've scrolled up to read. Verified: 4 vitest (`isNearBottom` at bottom / within / beyond
   threshold, custom threshold). Frontend: 76 vitest, tsc clean, build 110 KB gz.
+- **2026-07-03 — Expanded model catalog (complete):** BYOK users get more open models out
+  of the box. The previously-empty `models` lists for OpenRouter / Together / Groq / Mistral
+  are now populated (Llama 3.3, DeepSeek-V3, Qwen2.5-72B, Mixtral, Gemma 2, Codestral, …) and
+  Qwen / Ollama expanded (incl. QwQ, deepseek-r1). Added a catalog-integrity test: every
+  hosted provider offers a model list containing its default_model. The Settings picker
+  renders these automatically. Backend: 285 (2 new), ruff clean.
 - **Next (Phase 3 cont.):** interactive OAuth authorize on the Tauri host;
   true artifact token-streaming; finish the Tauri shell on a build host (tray, icons,
   signed updater, commit externalBin/sidecar spawn).

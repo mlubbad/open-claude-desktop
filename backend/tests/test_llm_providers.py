@@ -26,6 +26,21 @@ def test_registry_has_core_providers():
         assert expected in ids
 
 
+def test_hosted_providers_offer_a_model_list_including_their_default():
+    for p in llm.list_providers():
+        if p.is_local:
+            continue  # local runtimes list whatever the user has pulled
+        assert p.models, f"{p.id} should offer a model list"
+        assert p.default_model in p.models, f"{p.id} default not in its models"
+
+
+def test_expanded_catalog_covers_popular_open_models():
+    by_id = {p.id for p in llm.list_providers()}
+    assert {"openrouter", "together", "groq", "mistral"} <= by_id
+    groq = next(p for p in llm.list_providers() if p.id == "groq")
+    assert len(groq.models) >= 3
+
+
 def test_default_provider_env_override(monkeypatch):
     monkeypatch.delenv("LLM_PROVIDER", raising=False)
     assert llm.default_provider_id() == "zhipu"  # parity default

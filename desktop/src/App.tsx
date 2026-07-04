@@ -299,6 +299,8 @@ export default function App() {
           onAdd={(body) => void connectors.add(body)}
           onAddDemo={() => void connectors.addDemo()}
           onInstall={(file) => void connectors.install(file)}
+          onAddOAuth={(name, url) => void connectors.addOAuth(name, url)}
+          onAuthorize={(sid) => void connectors.authorize(sid)}
           onRemove={(sid) => void connectors.remove(sid)}
           onToggle={connectors.toggle}
           onClose={() => setShowConnectors(false)}

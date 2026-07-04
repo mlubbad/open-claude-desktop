@@ -400,6 +400,77 @@ def add_mcp_server(name: str, command: str = "", args: list[str] | None = None, 
     return item
 
 
+def add_oauth_mcp_server(name: str, url: str, transport: str = "http") -> dict:
+    """Register a remote MCP server that authenticates via OAuth 2.1. Discovery is
+    deferred until the user completes the interactive authorize (``authorize_mcp_oauth``),
+    since it requires a browser round-trip. The server starts in an 'unauthorized' state."""
+    sid = _slug(name)
+    items = [s for s in _load_mcp_servers() if s["id"] != sid]
+    item = {"id": sid, "name": name.strip() or sid,
+            "transport": (transport.strip().lower() or "http"),
+            "url": url.strip(), "env": {}, "headers": {},
+            "auth": False, "auth_mode": "oauth",
+            "tools": [], "status": "unauthorized",
+            "detail": "Authorize to connect."}
+    items.append(item)
+    _save_mcp_servers(items)
+    return item
+
+
+def authorize_mcp_oauth(sid: str, open_url=None) -> dict:
+    """Drive the interactive OAuth 2.1 authorize for an ``auth_mode=oauth`` server:
+    start a loopback listener, open the provider's authorize URL in the browser, wait for
+    the redirect, let the SDK exchange the code (tokens land in the keychain), then
+    discover the server's tools. The loopback listener and the MCP session share one event
+    loop, so the callback resolves in-band. Returns the updated server record.
+
+    NOTE: the browser round-trip is exercised against a live OAuth MCP server; here we
+    verify the wiring (provider construction, registration, status) with unit tests.
+    """
+    import asyncio
+
+    from . import mcp_oauth
+    s = _find_mcp(sid)
+    if not s or not s.get("url") or s.get("auth_mode") != "oauth":
+        raise ValueError("Not an OAuth MCP server.")
+    opener = open_url or mcp_oauth.open_in_browser
+
+    async def _run() -> tuple[list[dict], str]:
+        from mcp import ClientSession
+        from mcp.client.streamable_http import streamablehttp_client
+
+        catcher = mcp_oauth.LoopbackAuthCatcher()
+        redirect_uri = await catcher.start()
+        provider = mcp_oauth.interactive_provider(
+            sid, s["url"], redirect_uri, open_url=opener, callback=catcher.wait)
+        try:
+            async with streamablehttp_client(s["url"], auth=provider) as (read, write, _):
+                async with ClientSession(read, write) as session:
+                    await session.initialize()  # triggers the OAuth flow on a 401
+                    resp = await session.list_tools()
+                    tools = [{"name": t.name, "description": t.description or "",
+                              "inputSchema": getattr(t, "inputSchema", None) or {}}
+                             for t in resp.tools]
+            return tools, ""
+        finally:
+            await catcher.close()
+
+    items = _load_mcp_servers()
+    server = next((x for x in items if x["id"] == sid), None)
+    try:
+        tools, _ = asyncio.run(_run())
+        if server is not None:
+            server["tools"] = tools
+            server["status"] = "connected"
+            server["detail"] = f"{len(tools)} tools"
+    except Exception as e:
+        if server is not None:
+            server["status"] = "error"
+            server["detail"] = str(e)[:140]
+    _save_mcp_servers(items)
+    return next((x for x in _load_mcp_servers() if x["id"] == sid), server or {})
+
+
 def add_demo_mcp_server() -> dict:
     """Register the bundled demo MCP server (mcp_servers/demo_server.py) using the
     current Python interpreter — no node, no network, no secrets."""

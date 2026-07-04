@@ -289,6 +289,10 @@ export const mcp = {
     form.append("user_config", JSON.stringify(userConfig));
     return postForm<McpServer>("/mcp-servers/install", form);
   },
+  // OAuth 2.1 remote connectors: register, then authorize (opens the browser).
+  addOAuth: (name: string, url: string, transport = "http") =>
+    api.post<McpServer>("/mcp-servers/oauth", { name, url, transport }),
+  authorize: (sid: string) => api.post<McpServer>(`/mcp-servers/${sid}/authorize`),
 };
 
 // Stream an agent turn. Invokes onEvent for each typed event; resolves on `done`.

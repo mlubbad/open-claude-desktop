@@ -697,5 +697,20 @@ adjust the roadmap ordering above:
   vite build all green. *(The PyInstaller onefile freeze + per-OS signing run on the GH Actions
   matrix — the maintainer sets `TAURI_SIGNING_PRIVATE_KEY(_PASSWORD)` secrets and pushes a `v*`
   tag.)*
-- **Next:** interactive MCP OAuth authorize (loopback + browser + connect-retry — host pieces
-  done/tested, needs a live OAuth MCP server to E2E); true artifact token-streaming.
+- **2026-07-04 — Interactive MCP OAuth authorize (complete; wiring verified):** the OAuth 2.1
+  flow is now end-to-end wired. `add_oauth_mcp_server` registers a remote server as
+  `auth_mode=oauth` (status "unauthorized", discovery deferred). `authorize_mcp_oauth(sid)`
+  runs the interactive dance in ONE event loop — starts the tested `LoopbackAuthCatcher`,
+  builds an `interactive_provider` whose redirect_handler opens the authorize URL in the
+  browser (`webbrowser`, injectable) and whose callback_handler is the catcher, then connects
+  the MCP `ClientSession` with that provider so `initialize()` triggers discovery→DCR→PKCE→
+  token-exchange on the 401, and finally lists tools + marks the server connected. Routes:
+  `POST /mcp-servers/oauth` and `POST /mcp-servers/{sid}/authorize`. Frontend: an **OAuth 2.1**
+  option in the connectors add-form and an **Authorize** button (with an OAuth ✓ badge) on
+  unauthorized connectors. Verified: `make_redirect_handler` opens the URL, `add_oauth_mcp_server`
+  defers discovery + lists as unauthorized, authorize rejects non-OAuth/unknown servers (400),
+  + 2 route tests. Backend: 304 (5 new), ruff clean; frontend 85 vitest, tsc clean, build 111 KB gz.
+  *(The live browser round-trip is structurally correct — catcher + session share one loop — and
+  is exercised against a real OAuth MCP server; here the non-network wiring is unit-tested.)*
+- **Next:** true artifact token-streaming (a streaming-backend change best validated against a
+  live model with the user's key).

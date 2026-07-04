@@ -105,7 +105,36 @@ export function useConnectors() {
     [refresh],
   );
 
+  const addOAuth = useCallback(
+    async (name: string, url: string) => {
+      setErr(null);
+      try {
+        await mcp.addOAuth(name, url);
+        await refresh();
+      } catch (e) {
+        setErr(String(e));
+      }
+    },
+    [refresh],
+  );
+
+  // Run the interactive OAuth authorize (opens the browser); enable on success.
+  const authorize = useCallback(
+    async (sid: string) => {
+      setErr(null);
+      try {
+        const s = await mcp.authorize(sid);
+        await refresh();
+        if (s.status === "connected") setEnabled((ids) => (ids.includes(s.id) ? ids : [...ids, s.id]));
+        else if (s.detail) setErr(`${s.name}: ${s.detail}`);
+      } catch (e) {
+        setErr(String(e));
+      }
+    },
+    [refresh],
+  );
+
   const toggle = useCallback((sid: string) => setEnabled((ids) => toggleId(ids, sid)), []);
 
-  return { servers, enabled, err, add, addDemo, remove, toggle, install, refresh };
+  return { servers, enabled, err, add, addDemo, addOAuth, authorize, remove, toggle, install, refresh };
 }

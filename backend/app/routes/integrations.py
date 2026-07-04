@@ -120,6 +120,27 @@ def mcp_oauth_status(sid: str, user: str = Depends(current_user)) -> dict:
     return integrations.mcp_oauth_status(sid)
 
 
+class OAuthServerBody(BaseModel):
+    name: str
+    url: str
+    transport: str = "http"
+
+
+@router.post("/mcp-servers/oauth")
+def add_oauth_mcp(body: OAuthServerBody, user: str = Depends(current_user)) -> dict:
+    """Register a remote MCP server that authenticates via OAuth 2.1 (authorize later)."""
+    return integrations.add_oauth_mcp_server(body.name, body.url, body.transport)
+
+
+@router.post("/mcp-servers/{sid}/authorize")
+def authorize_mcp(sid: str, user: str = Depends(current_user)) -> dict:
+    """Run the interactive OAuth 2.1 authorize for a connector (opens the browser)."""
+    try:
+        return integrations.authorize_mcp_oauth(sid)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
 def _spool_upload(file: UploadFile) -> Path:
     """Persist an uploaded bundle to a temp file so the installer can open it as a
     real zip. Caller is responsible for unlinking it."""

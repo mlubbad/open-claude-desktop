@@ -136,6 +136,50 @@ def test_resolve_cfg_no_oauth_provider_for_plain_remote(mem_store):
     assert resolved.get("auth_provider") is None
 
 
+def test_interactive_provider_opens_the_authorize_url(mem_store):
+    import asyncio
+
+    opened = {}
+
+    def opener(url: str) -> None:
+        opened["url"] = url
+
+    async def callback() -> tuple[str, str | None]:
+        return ("code", "state")
+
+    prov = mcp_oauth.interactive_provider(
+        "srv1", "https://mcp.example.com/mcp", "http://127.0.0.1:9000/callback",
+        open_url=opener, callback=callback)
+    assert isinstance(prov, httpx.Auth)
+    # The redirect handler opens the browser at the authorize URL.
+    handler = mcp_oauth.make_redirect_handler(opener)
+    asyncio.run(handler("https://issuer.example.com/authorize?x=1"))
+    assert opened["url"] == "https://issuer.example.com/authorize?x=1"
+
+
+def test_add_oauth_mcp_server_defers_discovery(mem_store, monkeypatch, tmp_path):
+    from ocd_core import integrations
+    monkeypatch.setattr(integrations, "MCP_FILE", tmp_path / "mcp_servers.json")
+    item = integrations.add_oauth_mcp_server("Remote OAuth", "https://mcp.example.com/mcp")
+    assert item["auth_mode"] == "oauth"
+    assert item["status"] == "unauthorized"
+    assert item["tools"] == []
+    # Surfaced by the listing with auth_mode + authorized=False (no tokens yet).
+    listed = {s["id"]: s for s in integrations.list_mcp_servers()}
+    assert listed[item["id"]]["auth_mode"] == "oauth"
+    assert listed[item["id"]]["authorized"] is False
+
+
+def test_authorize_rejects_non_oauth_server(mem_store, monkeypatch, tmp_path):
+    from ocd_core import integrations
+    monkeypatch.setattr(integrations, "MCP_FILE", tmp_path / "mcp_servers.json")
+    try:
+        integrations.authorize_mcp_oauth("does-not-exist")
+        raise AssertionError("expected ValueError")
+    except ValueError as e:
+        assert "OAuth" in str(e)
+
+
 def test_loopback_catcher_handles_missing_state():
     async def go():
         catcher = mcp_oauth.LoopbackAuthCatcher()

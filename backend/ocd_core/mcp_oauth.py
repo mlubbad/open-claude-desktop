@@ -153,6 +153,40 @@ def background_provider(sid: str, server_url: str) -> OAuthClientProvider:
     )
 
 
+def open_in_browser(url: str) -> None:
+    """Open an authorization URL in the user's default browser (best-effort)."""
+    import webbrowser
+    with contextlib.suppress(Exception):
+        webbrowser.open(url)
+
+
+def make_redirect_handler(open_url: Callable[[str], None]) -> Callable[[str], Awaitable[None]]:
+    """An async redirect_handler that opens the authorization URL via ``open_url``."""
+    async def _redirect(url: str) -> None:
+        open_url(url)
+    return _redirect
+
+
+def interactive_provider(
+    sid: str,
+    server_url: str,
+    redirect_uri: str,
+    *,
+    open_url: Callable[[str], None] = open_in_browser,
+    callback: Callable[[], Awaitable[tuple[str, str | None]]],
+) -> OAuthClientProvider:
+    """An OAuth provider for the interactive authorize flow: its redirect_handler opens
+    the authorization URL in the browser and its callback_handler awaits the code from a
+    loopback listener. ``redirect_uri`` must match the one the listener is serving."""
+    return OAuthClientProvider(
+        server_url=server_url,
+        client_metadata=build_client_metadata(redirect_uri),
+        storage=KeychainTokenStorage(sid),
+        redirect_handler=make_redirect_handler(open_url),
+        callback_handler=callback,
+    )
+
+
 _CALLBACK_HTML = (
     "<!doctype html><html><head><meta charset='utf-8'><title>Connected</title></head>"
     "<body style='font-family:system-ui;padding:3rem;text-align:center'>"

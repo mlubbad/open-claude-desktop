@@ -64,6 +64,24 @@ def isolate(monkeypatch, tmp_path):
             pass
 
 
+def test_add_oauth_server_route(isolate):
+    r = client.post("/mcp-servers/oauth",
+                    json={"name": "Remote OAuth", "url": "https://mcp.example.com/mcp"})
+    assert r.status_code == 200, r.text
+    item = r.json()
+    assert item["auth_mode"] == "oauth" and item["status"] == "unauthorized"
+    # It appears in the listing as an unauthorized oauth connector.
+    listed = {s["id"]: s for s in client.get("/mcp-servers").json()}
+    assert listed[item["id"]]["auth_mode"] == "oauth"
+    assert listed[item["id"]]["authorized"] is False
+
+
+def test_authorize_unknown_server_is_400(isolate):
+    r = client.post("/mcp-servers/nope/authorize")
+    assert r.status_code == 400
+    assert "OAuth" in r.json()["detail"]
+
+
 def test_inspect_reads_manifest(isolate):
     r = client.post("/mcp-servers/inspect",
                     files={"file": ("route.mcpb", _bundle_bytes(), "application/zip")})

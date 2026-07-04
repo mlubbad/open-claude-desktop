@@ -15,6 +15,8 @@ export function ConnectorsPanel({
   onInstall,
   onRemove,
   onToggle,
+  onAddOAuth,
+  onAuthorize,
   onClose,
 }: {
   servers: McpServer[];
@@ -25,6 +27,8 @@ export function ConnectorsPanel({
   onInstall: (file: File) => void;
   onRemove: (sid: string) => void;
   onToggle: (sid: string) => void;
+  onAddOAuth: (name: string, url: string) => void;
+  onAuthorize: (sid: string) => void;
   onClose: () => void;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
@@ -35,6 +39,7 @@ export function ConnectorsPanel({
   const [url, setUrl] = useState("");
   const [transport, setTransport] = useState("http");
   const [token, setToken] = useState("");
+  const [auth, setAuth] = useState<"none" | "bearer" | "oauth">("none");
 
   function submit() {
     if (!name.trim()) return;
@@ -43,7 +48,8 @@ export function ConnectorsPanel({
       onAdd({ name, command, args: args.trim() ? args.trim().split(/\s+/) : [] });
     } else {
       if (!url.trim()) return;
-      onAdd({ name, url, transport, auth_token: token.trim() || undefined });
+      if (auth === "oauth") onAddOAuth(name, url);
+      else onAdd({ name, url, transport, auth_token: auth === "bearer" ? token.trim() || undefined : undefined });
     }
     setName("");
     setCommand("");
@@ -99,11 +105,19 @@ export function ConnectorsPanel({
                   {s.source === "mcpb" && (
                     <span className="conn-badge conn-ext">extension{s.version ? ` v${s.version}` : ""}</span>
                   )}
+                  {s.auth_mode === "oauth" && (
+                    <span className="conn-badge conn-ext">OAuth{s.authorized ? " ✓" : ""}</span>
+                  )}
                   <span className={`conn-status ${s.status}`}>{s.status}</span>
                   {s.status === "connected" && <> · {s.tool_count} tools</>}
                   {s.url && <> · {s.url}</>}
                 </span>
               </span>
+              {s.auth_mode === "oauth" && !s.authorized && (
+                <button className="conn-authorize" title="Authorize (opens browser)" onClick={() => onAuthorize(s.id)}>
+                  Authorize
+                </button>
+              )}
               <button className="conn-del" title="Remove" onClick={() => onRemove(s.id)}>
                 ✕
               </button>
@@ -137,16 +151,23 @@ export function ConnectorsPanel({
                 <option value="http">Streamable HTTP</option>
                 <option value="sse">SSE (legacy)</option>
               </select>
-              <input
-                type="password"
-                placeholder="Bearer token (optional, stored in keychain)"
-                value={token}
-                onChange={(e) => setToken(e.target.value)}
-              />
+              <select value={auth} onChange={(e) => setAuth(e.target.value as typeof auth)}>
+                <option value="none">No auth</option>
+                <option value="bearer">Bearer token</option>
+                <option value="oauth">OAuth 2.1 (authorize in browser)</option>
+              </select>
+              {auth === "bearer" && (
+                <input
+                  type="password"
+                  placeholder="Bearer token (stored in keychain)"
+                  value={token}
+                  onChange={(e) => setToken(e.target.value)}
+                />
+              )}
             </>
           )}
           <button className="conn-submit" onClick={submit}>
-            Add connector
+            {mode === "remote" && auth === "oauth" ? "Add OAuth connector" : "Add connector"}
           </button>
         </div>
       </div>

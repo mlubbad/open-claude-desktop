@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { clampContent, fenceLang, formatAttachments, MAX_ATTACH_CHARS, withAttachments } from "./attachments";
+import { clampContent, fenceLang, formatAttachments, MAX_ATTACH_CHARS, parseAttachments, withAttachments } from "./attachments";
 
 describe("clampContent", () => {
   it("passes through short content", () => {
@@ -47,5 +47,35 @@ describe("withAttachments", () => {
   it("uses only the attachment block when there is no message text", () => {
     const out = withAttachments("   ", [{ name: "a.txt", content: "body" }]);
     expect(out.startsWith("Attached file: a.txt")).toBe(true);
+  });
+});
+
+describe("parseAttachments", () => {
+  it("round-trips withAttachments back into body + files", () => {
+    const files = [
+      { name: "a.py", content: "print(1)" },
+      { name: "notes.md", content: "# hi\n\nmore text" },
+    ];
+    const wire = withAttachments("Review these", files);
+    const parsed = parseAttachments(wire);
+    expect(parsed.body).toBe("Review these");
+    expect(parsed.files).toEqual(files);
+  });
+  it("round-trips an attachment-only message (empty body)", () => {
+    const wire = withAttachments("", [{ name: "a.txt", content: "body" }]);
+    const parsed = parseAttachments(wire);
+    expect(parsed.body).toBe("");
+    expect(parsed.files).toEqual([{ name: "a.txt", content: "body" }]);
+  });
+  it("leaves plain messages untouched", () => {
+    const parsed = parseAttachments("Just a normal message\n\nwith paragraphs");
+    expect(parsed.body).toBe("Just a normal message\n\nwith paragraphs");
+    expect(parsed.files).toEqual([]);
+  });
+  it("does not treat a mid-message fenced block as an attachment", () => {
+    const text = "Attached file: fake.txt\n\n```\nnot at end\n```\n\ntrailing prose";
+    const parsed = parseAttachments(text);
+    expect(parsed.body).toBe(text);
+    expect(parsed.files).toEqual([]);
   });
 });

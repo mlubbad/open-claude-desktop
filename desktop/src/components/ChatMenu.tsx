@@ -18,6 +18,25 @@ export function ChatMenu({
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<string | null>(null);
   const ref = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Menu keyboard pattern: focus lands on the first item when the menu opens, and
+  // the arrow keys cycle through the items.
+  useEffect(() => {
+    if (open && draft === null) {
+      menuRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus();
+    }
+  }, [open, draft]);
+
+  function onMenuKey(e: React.KeyboardEvent) {
+    if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+    e.preventDefault();
+    const items = Array.from(menuRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? []);
+    if (!items.length) return;
+    const idx = items.indexOf(document.activeElement as HTMLButtonElement);
+    const next = e.key === "ArrowDown" ? (idx + 1) % items.length : (idx - 1 + items.length) % items.length;
+    items[next].focus();
+  }
 
   useEffect(() => {
     if (!open) return;
@@ -69,7 +88,13 @@ export function ChatMenu({
       {open && (
         // While renaming, the popover holds a text input, not menu items — drop the
         // menu role so the ARIA structure stays truthful.
-        <div className="chat-menu" role={draft === null ? "menu" : undefined} aria-label="Conversation actions">
+        <div
+          ref={menuRef}
+          className="chat-menu"
+          role={draft === null ? "menu" : undefined}
+          aria-label="Conversation actions"
+          onKeyDown={onMenuKey}
+        >
           {draft === null ? (
             <>
               <button role="menuitem" onClick={() => setDraft(title)}>

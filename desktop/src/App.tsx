@@ -301,12 +301,21 @@ export default function App() {
               <Icon name={themeGlyph(theme.pref).icon} />
             </button>
             {view !== "cowork" && (
+              // Pressed state reflects what's actually visible: an open artifact
+              // suppresses the rail, and clicking then brings the rail forward.
               <button
-                className={`icon-btn icon-only ${showInfo ? "active" : ""}`}
+                className={`icon-btn icon-only ${showInfo && !openDoc ? "active" : ""}`}
                 title="Conversation info — artifacts & project knowledge"
                 aria-label="Toggle conversation info panel"
-                aria-pressed={showInfo}
-                onClick={() => setShowInfo((s) => !s)}
+                aria-pressed={showInfo && !openDoc}
+                onClick={() => {
+                  if (openDoc) {
+                    closeArtifact();
+                    setShowInfo(true);
+                  } else {
+                    setShowInfo((s) => !s);
+                  }
+                }}
               >
                 <Icon name="panel" />
               </button>

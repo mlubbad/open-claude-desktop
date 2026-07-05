@@ -117,7 +117,14 @@ export function Sidebar({
                 ＋ New project…
               </button>
             ) : (
-              <div className="project-new-row">
+              // Cancel only when focus leaves the whole row — Tab from the input to
+              // the Add button must not discard the draft (keyboard path).
+              <div
+                className="project-new-row"
+                onBlur={(e) => {
+                  if (!e.currentTarget.contains(e.relatedTarget as Node)) setNewProjectDraft(null);
+                }}
+              >
                 <input
                   className="project-new-input"
                   autoFocus
@@ -129,7 +136,6 @@ export function Sidebar({
                     if (e.key === "Enter") commitNewProject();
                     if (e.key === "Escape") setNewProjectDraft(null);
                   }}
-                  onBlur={() => setNewProjectDraft(null)}
                 />
                 {/* mousedown fires before the input's blur — the click always lands. */}
                 <button

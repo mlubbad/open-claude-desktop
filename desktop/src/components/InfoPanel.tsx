@@ -44,7 +44,7 @@ export function InfoPanel({
                 </span>
               </span>
               <span className="info-row-open" aria-hidden="true">
-                <Icon name="copy" size={13} />
+                <Icon name="chev-right" size={13} />
               </span>
             </button>
           ))}

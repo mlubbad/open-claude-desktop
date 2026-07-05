@@ -13,6 +13,7 @@ export function useProjects() {
   const refresh = useCallback(async () => {
     try {
       setList(await projectApi.list());
+      setErr(null); // recovery clears the sidebar alert — errors never stick
     } catch (e) {
       setErr(String(e));
     }

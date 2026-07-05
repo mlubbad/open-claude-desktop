@@ -399,6 +399,24 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-
 .edit-actions .primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
 .user-edit { opacity: 0; margin-top: 4px; }
 .msg.user:hover .user-edit { opacity: 1; }
+
+/* Attached/pasted files on a user turn: compact cards above the bubble, expandable
+   to inspect exactly what was sent. */
+.user-files { display: flex; flex-direction: column; align-items: flex-end; gap: 6px;
+  margin-bottom: 6px; max-width: 80%; }
+.user-file { border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2);
+  overflow: hidden; max-width: 100%; }
+.user-file-head { display: flex; align-items: center; gap: 8px; border: none; background: none;
+  color: var(--text); cursor: pointer; font: inherit; font-size: 12.5px; padding: 7px 11px;
+  max-width: 100%; }
+.user-file-head:hover { background: var(--surface); }
+.user-file-icon { display: inline-flex; color: var(--muted); flex: none; }
+.user-file-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.user-file-badge { flex: none; border: 1px solid var(--border-strong); border-radius: 4px;
+  padding: 0 5px; font-size: 9.5px; letter-spacing: 0.04em; color: var(--muted); }
+.user-file-body { margin: 0; padding: 10px 12px; border-top: 1px solid var(--border);
+  background: var(--surface); font-family: var(--mono); font-size: 11.5px; line-height: 1.5;
+  max-height: 240px; overflow: auto; white-space: pre-wrap; text-align: left; }
 .msg.assistant .answer :first-child { margin-top: 0; }
 /* Conversation prose runs in the serif at a book-ish size — the editorial voice of
    the reading surface. Code, tables, and chrome stay in the UI sans/mono stacks. */

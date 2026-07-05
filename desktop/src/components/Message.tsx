@@ -2,6 +2,7 @@ import { type ReactNode, useEffect, useRef, useState } from "react";
 import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
+import { type Attachment, parseAttachments } from "../state/attachments";
 import { Icon } from "./Icon";
 import {
   type ArtifactBlock,
@@ -22,6 +23,10 @@ export function UserBubble({
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(msg.text);
+  // Attached files travel inlined in the message text; render them back as compact
+  // chips so a pasted file doesn't wall-of-text the transcript. Editing still edits
+  // the raw wire text (attachments included).
+  const { body, files } = parseAttachments(msg.text);
 
   if (editing) {
     return (
@@ -43,13 +48,42 @@ export function UserBubble({
 
   return (
     <div className="msg user">
-      <div className="bubble">{msg.text}</div>
+      {files.length > 0 && (
+        <div className="user-files">
+          {files.map((f, i) => (
+            <FileChip key={i} file={f} />
+          ))}
+        </div>
+      )}
+      {body && <div className="bubble">{body}</div>}
       {onEdit && (
         <button className="msg-action user-edit" title="Edit message" aria-label="Edit message"
                 onClick={() => { setDraft(msg.text); setEditing(true); }}>
           <Icon name="pencil" size={13} />
         </button>
       )}
+    </div>
+  );
+}
+
+// A pasted/attached file on a user turn: name + type badge, expandable to inspect
+// the content that was sent.
+function FileChip({ file }: { file: Attachment }) {
+  const [open, setOpen] = useState(false);
+  const ext = (file.name.split(".").pop() ?? "").toUpperCase();
+  return (
+    <div className="user-file">
+      <button
+        className="user-file-head"
+        aria-expanded={open}
+        title={open ? "Hide content" : "Show content"}
+        onClick={() => setOpen((o) => !o)}
+      >
+        <span className="user-file-icon" aria-hidden="true"><Icon name="file" size={15} /></span>
+        <span className="user-file-name">{file.name}</span>
+        <span className="user-file-badge">{ext || "PASTED"}</span>
+      </button>
+      {open && <pre className="user-file-body">{file.content}</pre>}
     </div>
   );
 }

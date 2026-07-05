@@ -30,6 +30,7 @@ export type IconName =
   | "file"
   | "panel"
   | "chev-down"
+  | "chev-right"
   | "dots";
 
 const PATHS: Record<IconName, React.ReactNode> = {
@@ -108,6 +109,7 @@ const PATHS: Record<IconName, React.ReactNode> = {
     </>
   ),
   "chev-down": <path d="M4.5 6.5L8 10l3.5-3.5" />,
+  "chev-right": <path d="M6.5 4.5L10 8l-3.5 3.5" />,
   dots: (
     <>
       <circle cx="3.5" cy="8" r="1.1" fill="currentColor" stroke="none" />

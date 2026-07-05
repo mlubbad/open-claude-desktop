@@ -56,6 +56,7 @@ export function Composer({
   const [toolsOpen, setToolsOpen] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const toolsRef = useRef<HTMLDivElement>(null);
+  const toolsMenuRef = useRef<HTMLDivElement>(null);
   const suggestions = useMemo(() => slashSuggestions(skills, text), [skills, text]);
   // Escape hides the menu without erasing the draft; typing re-arms it.
   const [dismissed, setDismissed] = useState(false);
@@ -98,11 +99,23 @@ export function Composer({
     }
     document.addEventListener("mousedown", onDoc);
     document.addEventListener("keydown", onKey, true);
+    // Menu keyboard pattern: initial focus on the first item.
+    toolsMenuRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus();
     return () => {
       document.removeEventListener("mousedown", onDoc);
       document.removeEventListener("keydown", onKey, true);
     };
   }, [toolsOpen]);
+
+  function onToolsMenuKey(e: KeyboardEvent<HTMLDivElement>) {
+    if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+    e.preventDefault();
+    const items = Array.from(toolsMenuRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? []);
+    if (!items.length) return;
+    const idx = items.indexOf(document.activeElement as HTMLButtonElement);
+    const next = e.key === "ArrowDown" ? (idx + 1) % items.length : (idx - 1 + items.length) % items.length;
+    items[next].focus();
+  }
 
   function submit() {
     if (!canSend) return;
@@ -246,7 +259,7 @@ export function Composer({
               <Icon name="sliders" />
             </button>
             {toolsOpen && (
-              <div className="tools-menu" role="menu" aria-label="Tools">
+              <div className="tools-menu" role="menu" aria-label="Tools" ref={toolsMenuRef} onKeyDown={onToolsMenuKey}>
                 <button role="menuitem" onClick={() => { setToolsOpen(false); tools.openConnectors(); }}>
                   Connectors
                   {tools.connectors > 0 && <span className="tools-count">{tools.connectors} on</span>}

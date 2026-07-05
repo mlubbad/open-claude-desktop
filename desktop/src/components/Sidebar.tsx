@@ -19,6 +19,7 @@ export function Sidebar({
   onManageProject,
   list,
   currentId,
+  err,
   onNew,
   onOpen,
   onDelete,
@@ -36,6 +37,7 @@ export function Sidebar({
   onManageProject: () => void;
   list: ConversationSummary[];
   currentId: string | null;
+  err?: string | null;
   onNew: () => void;
   onOpen: (cid: string, pid: string) => void;
   onDelete: (cid: string, pid: string) => void;
@@ -115,19 +117,31 @@ export function Sidebar({
                 ＋ New project…
               </button>
             ) : (
-              <input
-                className="project-new-input"
-                autoFocus
-                placeholder="Project name"
-                aria-label="New project name"
-                value={newProjectDraft}
-                onChange={(e) => setNewProjectDraft(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") commitNewProject();
-                  if (e.key === "Escape") setNewProjectDraft(null);
-                }}
-                onBlur={() => setNewProjectDraft(null)}
-              />
+              <div className="project-new-row">
+                <input
+                  className="project-new-input"
+                  autoFocus
+                  placeholder="Project name"
+                  aria-label="New project name"
+                  value={newProjectDraft}
+                  onChange={(e) => setNewProjectDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") commitNewProject();
+                    if (e.key === "Escape") setNewProjectDraft(null);
+                  }}
+                  onBlur={() => setNewProjectDraft(null)}
+                />
+                {/* mousedown fires before the input's blur — the click always lands. */}
+                <button
+                  className="project-new-add"
+                  aria-label="Create project"
+                  disabled={!(newProjectDraft ?? "").trim()}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={commitNewProject}
+                >
+                  Add
+                </button>
+              </div>
             )}
             {activeProject && (
               <button className="project-row manage" onClick={onManageProject}>
@@ -143,6 +157,7 @@ export function Sidebar({
 
       <div className="side-recents">
         <div className="side-label">Recents</div>
+        {err && <div className="side-err" role="alert">{err}</div>}
         {recents.map((c) => {
           const pid = c.project_id ?? "general";
           const isRenaming = renaming?.id === c.id;
@@ -174,6 +189,11 @@ export function Sidebar({
               ) : (
                 <span className="conv-title" title={c.title}>
                   {c.title || "Untitled"}
+                </span>
+              )}
+              {!isRenaming && c.project_id && c.project_id !== "general" && (
+                <span className="conv-proj" title={c.project_name}>
+                  {c.project_name}
                 </span>
               )}
               <span className="conv-actions">

@@ -13,6 +13,8 @@ import {
   lastUserIndex,
   loadMessages,
   type Message,
+  resolveApprovalState,
+  restoreApprovalState,
   retryFrom,
   startTurn,
   type TranscriptState,
@@ -26,6 +28,8 @@ type Action =
   | { kind: "edit"; index: number; text: string }
   | { kind: "load"; messages: Message[] }
   | { kind: "panel"; artifactId: string | null }
+  | { kind: "approval"; decision: "approve" | "decline"; toolCallId: string }
+  | { kind: "approval_restore"; pending: NonNullable<TranscriptState["pendingApproval"]> }
   | { kind: "reset" };
 
 function reducer(state: TranscriptState, action: Action): TranscriptState {
@@ -42,6 +46,10 @@ function reducer(state: TranscriptState, action: Action): TranscriptState {
       return loadMessages(action.messages);
     case "panel":
       return { ...state, openArtifactId: action.artifactId };
+    case "approval":
+      return resolveApprovalState(state, action.decision, action.toolCallId);
+    case "approval_restore":
+      return restoreApprovalState(state, action.pending);
     case "reset":
       return initialState();
   }
@@ -133,13 +141,41 @@ export function useTranscript(config: TurnConfig) {
     async (decision: "approve" | "decline") => {
       const p = state.pendingApproval;
       if (!p) return;
-      await replyPermission(p.turnId, p.toolCallId, decision);
+      // Dismiss the prompt immediately — the user decided; the stream's follow-up
+      // events (tool_result / tool_error) carry the backend's authoritative outcome.
+      // The id pins the dispatch to THIS approval in case another one arrives first.
+      dispatch({ kind: "approval", decision, toolCallId: p.toolCallId });
+      try {
+        await replyPermission(p.turnId, p.toolCallId, decision);
+      } catch {
+        // The decision never reached the backend (it would eventually time the tool
+        // out as a decline). Re-arm the prompt so the user can decide again.
+        dispatch({ kind: "approval_restore", pending: p });
+      }
     },
     [state.pendingApproval],
   );
 
-  const reset = useCallback(() => dispatch({ kind: "reset" }), []);
-  const load = useCallback((messages: Message[]) => dispatch({ kind: "load", messages }), []);
+  // Loading another conversation or starting fresh must first sever the live SSE
+  // stream — otherwise its remaining events would graft onto (and auto-save into)
+  // whatever transcript replaced the streaming one.
+  const abortStream = useCallback(() => {
+    ctrlRef.current?.abort();
+    ctrlRef.current = null;
+    setBusy(false);
+  }, []);
+
+  const reset = useCallback(() => {
+    abortStream();
+    dispatch({ kind: "reset" });
+  }, [abortStream]);
+  const load = useCallback(
+    (messages: Message[]) => {
+      abortStream();
+      dispatch({ kind: "load", messages });
+    },
+    [abortStream],
+  );
   const openArtifact = useCallback((id: string) => dispatch({ kind: "panel", artifactId: id }), []);
   const closeArtifact = useCallback(() => dispatch({ kind: "panel", artifactId: null }), []);
 

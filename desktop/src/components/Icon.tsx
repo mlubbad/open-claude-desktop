@@ -22,7 +22,15 @@ export type IconName =
   | "bug"
   | "chart"
   | "note"
-  | "bulb";
+  | "bulb"
+  | "check"
+  | "arrow-down"
+  | "thumb-up"
+  | "thumb-down"
+  | "file"
+  | "panel"
+  | "chev-down"
+  | "dots";
 
 const PATHS: Record<IconName, React.ReactNode> = {
   pencil: <path d="M11.3 2.7l2 2L5 13H3v-2l8.3-8.3zM10 4l2 2" />,
@@ -78,6 +86,35 @@ const PATHS: Record<IconName, React.ReactNode> = {
   chart: <path d="M3 13V8M7 13V4M11 13V6M14 13H2" />,
   note: <path d="M4 2.5h8v11H4v-11zM6 5.5h4M6 8h4M6 10.5h2.5" />,
   bulb: <path d="M8 2.5a4 4 0 0 1 2.3 7.2c-.5.4-.8.9-.8 1.5v.3H6.5v-.3c0-.6-.3-1.1-.8-1.5A4 4 0 0 1 8 2.5zM6.5 13.5h3" />,
+  check: <path d="M3.5 8.5l3 3 6-6.5" />,
+  "arrow-down": <path d="M8 3v10M4.5 9.5L8 13l3.5-3.5" />,
+  "thumb-up": (
+    <>
+      <path d="M2.5 7.5h2v6h-2z" />
+      <path d="M4.5 13.5h6.6c.7 0 1.2-.4 1.4-1.1l.9-3.6c.2-.9-.5-1.6-1.3-1.6H8.9l.6-2.7c.2-.9-.5-1.7-1.4-1.7L5.3 7.3c-.5.6-.8 1.3-.8 2.1" />
+    </>
+  ),
+  "thumb-down": (
+    <>
+      <path d="M2.5 8.5h2v-6h-2z" />
+      <path d="M4.5 2.5h6.6c.7 0 1.2.4 1.4 1.1l.9 3.6c.2.9-.5 1.6-1.3 1.6H8.9l.6 2.7c.2.9-.5 1.7-1.4 1.7L5.3 8.7c-.5-.6-.8-1.3-.8-2.1" />
+    </>
+  ),
+  file: <path d="M4 2h5l3 3v9H4V2zM9 2v3h3" />,
+  panel: (
+    <>
+      <rect x="2" y="3" width="12" height="10" rx="1.5" />
+      <path d="M10 3v10" />
+    </>
+  ),
+  "chev-down": <path d="M4.5 6.5L8 10l3.5-3.5" />,
+  dots: (
+    <>
+      <circle cx="3.5" cy="8" r="1.1" fill="currentColor" stroke="none" />
+      <circle cx="8" cy="8" r="1.1" fill="currentColor" stroke="none" />
+      <circle cx="12.5" cy="8" r="1.1" fill="currentColor" stroke="none" />
+    </>
+  ),
 };
 
 export function Icon({

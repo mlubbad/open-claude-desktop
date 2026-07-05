@@ -11,7 +11,10 @@ import {
   findArtifact,
   initialState,
   lastUserIndex,
+  listArtifacts,
   type Message,
+  resolveApprovalState,
+  restoreApprovalState,
   retryFrom,
   setVersion,
   startTurn,
@@ -106,6 +109,86 @@ describe("transcript reducer", () => {
       { type: "done" },
     ]);
     expect(s.pendingApproval).toBeNull();
+  });
+
+  it("approving dismisses the prompt immediately and re-runs the tool card", () => {
+    const s = drive([
+      { type: "tool", id: "c1", name: "bash", input: "ls", label_running: "R", label_done: "R", icon: "terminal" },
+      { type: "approval_required", turn_id: "t1", id: "c1", name: "bash", input: "ls" },
+    ]);
+    const after = resolveApprovalState(s, "approve");
+    expect(after.pendingApproval).toBeNull();
+    const tool = assistant(after).blocks.find((b) => b.kind === "tool") as ToolCard;
+    expect(tool.status).toBe("running");
+    // The backend's follow-up result still lands on the same card.
+    const done = applyEvent(after, { type: "tool_result", id: "c1", name: "bash", summary: "3 files" });
+    const t2 = assistant(done).blocks.find((b) => b.kind === "tool") as ToolCard;
+    expect(t2.status).toBe("done");
+  });
+
+  it("declining dismisses the prompt and marks the tool declined", () => {
+    const s = drive([
+      { type: "tool", id: "c1", name: "bash", input: "ls", label_running: "R", label_done: "R", icon: "terminal" },
+      { type: "approval_required", turn_id: "t1", id: "c1", name: "bash", input: "ls" },
+    ]);
+    const after = resolveApprovalState(s, "decline");
+    expect(after.pendingApproval).toBeNull();
+    const tool = assistant(after).blocks.find((b) => b.kind === "tool") as ToolCard;
+    expect(tool.status).toBe("error");
+    expect(tool.error).toMatch(/Declined/);
+  });
+
+  it("resolveApprovalState is a no-op without a pending approval", () => {
+    const s = drive([{ type: "delta", scope: "answer", text: "hi" }]);
+    expect(resolveApprovalState(s, "approve")).toBe(s);
+  });
+
+  it("a stale decision id never resolves a different pending approval", () => {
+    const s = drive([
+      { type: "tool", id: "c2", name: "bash", input: "ls", label_running: "R", label_done: "R", icon: "terminal" },
+      { type: "approval_required", turn_id: "t1", id: "c2", name: "bash", input: "ls" },
+    ]);
+    // The user clicked the prompt for c1, but c2's approval replaced it meanwhile.
+    expect(resolveApprovalState(s, "approve", "c1")).toBe(s);
+    expect(resolveApprovalState(s, "approve", "c2").pendingApproval).toBeNull();
+  });
+
+  it("restoreApprovalState re-arms the prompt and the tool card after a failed reply", () => {
+    const s = drive([
+      { type: "tool", id: "c1", name: "bash", input: "ls", label_running: "R", label_done: "R", icon: "terminal" },
+      { type: "approval_required", turn_id: "t1", id: "c1", name: "bash", input: "ls" },
+    ]);
+    const pending = s.pendingApproval!;
+    const declined = resolveApprovalState(s, "decline", "c1");
+    const restored = restoreApprovalState(declined, pending);
+    expect(restored.pendingApproval).toEqual(pending);
+    const tool = assistant(restored).blocks.find((b) => b.kind === "tool") as ToolCard;
+    expect(tool.status).toBe("awaiting_approval");
+    expect(tool.error).toBeUndefined();
+  });
+
+  it("tool_result clears an optimistically-planted decline error (exit_plan_mode path)", () => {
+    const s = drive([
+      { type: "tool", id: "c1", name: "exit_plan_mode", input: "{}", label_running: "R", label_done: "Planned", icon: "plan" },
+      { type: "approval_required", turn_id: "t1", id: "c1", name: "exit_plan_mode", input: "{}" },
+    ]);
+    const declined = resolveApprovalState(s, "decline", "c1");
+    const after = applyEvent(declined, { type: "tool_result", id: "c1", name: "exit_plan_mode", summary: "Kept planning" });
+    const tool = assistant(after).blocks.find((b) => b.kind === "tool") as ToolCard;
+    expect(tool.status).toBe("done");
+    expect(tool.summary).toBe("Kept planning");
+    expect(tool.error).toBeUndefined();
+  });
+
+  it("listArtifacts collects every artifact doc in order", () => {
+    const s = drive([
+      { type: "artifact_open", id: "a1", title: "One", kind: "html", language: "" },
+      { type: "artifact_close", id: "a1", version: 1 },
+      { type: "artifact_open", id: "a2", title: "Two", kind: "markdown", language: "" },
+      { type: "artifact_close", id: "a2", version: 1 },
+      { type: "done" },
+    ]);
+    expect(listArtifacts(s.messages).map((d) => d.id)).toEqual(["a1", "a2"]);
   });
 
   it("stores usage from the usage event", () => {

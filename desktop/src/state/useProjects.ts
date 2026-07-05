@@ -77,6 +77,11 @@ export function useProjectDetail(pid: string | null) {
   }, [pid]);
 
   useEffect(() => {
+    // Reset before (re)loading so a switch never shows the previous project's data
+    // labeled as the new one (pid=null clears to empty).
+    setInstructions("");
+    setFiles([]);
+    setCapacity(null);
     void load();
   }, [load]);
 

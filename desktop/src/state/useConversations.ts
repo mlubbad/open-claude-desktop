@@ -12,14 +12,25 @@ export function useConversations(config: TurnConfig) {
   const chat = useTranscript(config);
   const [list, setList] = useState<ConversationSummary[]>([]);
   const [current, setCurrent] = useState<{ cid: string; pid: string } | null>(null);
-  const prevBusy = useRef(false);
+  // Persistence problems are surfaced, not swallowed: the sidebar shows this so
+  // "history isn't loading" is diagnosable instead of silently empty.
+  const [histErr, setHistErr] = useState<string | null>(null);
+  // The turn's (busy, cid) from last render: auto-save fires only when a turn ends
+  // in the SAME conversation it started in — switching chats mid-stream must never
+  // save the replacement transcript (or auto-title it) under the wrong thread.
+  const prevTurn = useRef<{ busy: boolean; cid: string | null }>({ busy: false, cid: null });
   const titled = useRef<Set<string>>(new Set());
+  // Conversations the user has renamed by hand — an in-flight auto-title must not
+  // overwrite a deliberate title.
+  const renamedManually = useRef<Set<string>>(new Set());
 
   const refresh = useCallback(async () => {
     try {
       setList(await convApi.listAll());
-    } catch {
-      /* backend offline — keep the last list */
+      setHistErr(null);
+    } catch (e) {
+      /* backend offline — keep the last list, but say so */
+      setHistErr(`Couldn't load history: ${e instanceof Error ? e.message : String(e)}`);
     }
   }, []);
 
@@ -46,39 +57,52 @@ export function useConversations(config: TurnConfig) {
     [current, chat, refresh, config.projectId],
   );
 
-  // Auto-save the transcript when a turn transitions from running -> idle, and
-  // auto-title the conversation once, right after its first exchange completes.
+  // Auto-save the transcript when a turn transitions from running -> idle in the
+  // same conversation, and auto-title the conversation once, right after its first
+  // exchange completes.
   useEffect(() => {
-    if (prevBusy.current && !chat.busy && current && chat.state.messages.length > 0) {
+    const prev = prevTurn.current;
+    const sameThread = current && prev.cid === current.cid;
+    if (prev.busy && !chat.busy && current && sameThread && chat.state.messages.length > 0) {
       convApi
         .save(current.pid, current.cid, toBackend(chat.state.messages))
         .then(() => refresh())
         .catch(() => {});
 
-      if (!titled.current.has(current.cid) && isFirstExchange(chat.state.messages)) {
+      if (
+        !titled.current.has(current.cid) &&
+        !renamedManually.current.has(current.cid) &&
+        isFirstExchange(chat.state.messages)
+      ) {
         titled.current.add(current.cid);
         const seed = firstUserText(chat.state.messages);
         if (seed) {
           const { pid, cid } = current;
           convApi
             .generateTitle(seed)
-            .then(({ title }) => (title ? convApi.rename(pid, cid, title) : null))
+            // A manual rename that lands while the title generates wins.
+            .then(({ title }) =>
+              title && !renamedManually.current.has(cid) ? convApi.rename(pid, cid, title) : null,
+            )
             .then(() => refresh())
             .catch(() => {});
         }
       }
     }
-    prevBusy.current = chat.busy;
+    prevTurn.current = { busy: chat.busy, cid: current?.cid ?? null };
   }, [chat.busy, current, chat.state.messages, refresh]);
 
   const openConversation = useCallback(
-    async (cid: string, pid: string) => {
+    async (cid: string, pid: string): Promise<boolean> => {
       try {
         const detail = await convApi.get(pid, cid);
         chat.load(fromBackend(detail.messages));
         setCurrent({ cid, pid });
-      } catch {
-        /* ignore */
+        setHistErr(null);
+        return true;
+      } catch (e) {
+        setHistErr(`Couldn't open that chat: ${e instanceof Error ? e.message : String(e)}`);
+        return false;
       }
     },
     [chat],
@@ -106,6 +130,7 @@ export function useConversations(config: TurnConfig) {
     async (cid: string, pid: string, title: string) => {
       const t = title.trim();
       if (!t) return;
+      renamedManually.current.add(cid); // a hand-picked title outranks auto-titling
       try {
         await convApi.rename(pid, cid, t);
       } catch {
@@ -139,6 +164,7 @@ export function useConversations(config: TurnConfig) {
     closeArtifact: chat.closeArtifact,
     send,
     list,
+    histErr,
     current,
     openConversation,
     newChat,

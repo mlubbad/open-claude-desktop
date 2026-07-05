@@ -94,6 +94,18 @@ export function initialState(): TranscriptState {
   };
 }
 
+// Every artifact document in the transcript, in creation order (for the info rail).
+export function listArtifacts(messages: Message[]): ArtifactDoc[] {
+  const out: ArtifactDoc[] = [];
+  for (const m of messages) {
+    if (m.role !== "assistant") continue;
+    for (const b of m.blocks) {
+      if (b.kind === "artifact") out.push(b.doc);
+    }
+  }
+  return out;
+}
+
 // Find the artifact document for a given id anywhere in the transcript.
 export function findArtifact(state: TranscriptState, id: string | null): ArtifactDoc | null {
   if (!id) return null;
@@ -289,7 +301,9 @@ export function applyEvent(prev: TranscriptState, ev: AgentEvent): TranscriptSta
     }
 
     case "tool_result":
-      return updateTool(state, assistant, ev.id, (t) => ({ ...t, status: "done", summary: ev.summary }));
+      // Clear any optimistically-planted error (e.g. a declined exit_plan_mode
+      // resolves as a successful "kept planning" result, not an error).
+      return updateTool(state, assistant, ev.id, (t) => ({ ...t, status: "done", summary: ev.summary, error: undefined }));
 
     case "tool_error":
       return updateTool(state, assistant, ev.id, (t) => ({ ...t, status: "error", error: ev.text }));
@@ -388,6 +402,59 @@ export function applyEvent(prev: TranscriptState, ev: AgentEvent): TranscriptSta
     default:
       return state;
   }
+}
+
+// Optimistically resolve the pending HITL approval: the prompt disappears the moment
+// the user decides (the backend confirms via its own follow-up events). Approving
+// flips the tool card back to "running"; declining marks it declined immediately —
+// the backend's tool_result/tool_error for the same id refines it either way.
+// `toolCallId` pins the decision to the approval the user actually saw, so a
+// just-arrived different approval is never resolved by a stale click.
+export function resolveApprovalState(
+  state: TranscriptState,
+  decision: "approve" | "decline",
+  toolCallId?: string,
+): TranscriptState {
+  const pending = state.pendingApproval;
+  if (!pending) return state;
+  if (toolCallId !== undefined && pending.toolCallId !== toolCallId) return state;
+  const messages = state.messages.map((m) => {
+    if (m.role !== "assistant") return m;
+    let changed = false;
+    const blocks = m.blocks.map((b) => {
+      if (b.kind === "tool" && b.id === pending.toolCallId && b.status === "awaiting_approval") {
+        changed = true;
+        return decision === "approve"
+          ? { ...b, status: "running" as const }
+          : { ...b, status: "error" as const, error: "Declined — the tool was not run." };
+      }
+      return b;
+    });
+    return changed ? { role: "assistant" as const, blocks } : m;
+  });
+  return { ...state, messages, pendingApproval: null };
+}
+
+// Re-arm an approval whose delivery to the backend failed: the prompt comes back and
+// the tool card returns to awaiting, so the user can decide again instead of the
+// backend timing the request out as a silent decline.
+export function restoreApprovalState(
+  state: TranscriptState,
+  pending: NonNullable<TranscriptState["pendingApproval"]>,
+): TranscriptState {
+  const messages = state.messages.map((m) => {
+    if (m.role !== "assistant") return m;
+    let changed = false;
+    const blocks = m.blocks.map((b) => {
+      if (b.kind === "tool" && b.id === pending.toolCallId && (b.status === "running" || b.status === "error")) {
+        changed = true;
+        return { ...b, status: "awaiting_approval" as const, error: undefined };
+      }
+      return b;
+    });
+    return changed ? { role: "assistant" as const, blocks } : m;
+  });
+  return { ...state, messages, pendingApproval: pending };
 }
 
 function updateTool(

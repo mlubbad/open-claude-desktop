@@ -7,9 +7,20 @@ import { Icon } from "./Icon";
 
 export const EFFORT_LEVELS = ["Low", "Medium", "High", "Max"] as const;
 
-// The message composer card: textarea on top, a control row underneath (attach,
-// model pill, effort selector, send/stop). Used both pinned at the bottom of a
-// conversation and centered in the empty-state hero.
+// Entries for the composer's tools popover (connectors / plugins / skills), each a
+// jump into the matching settings page.
+export interface ToolsMenuInfo {
+  connectors: number;
+  plugins: number;
+  openConnectors: () => void;
+  openPlugins: () => void;
+  openSkills: () => void;
+}
+
+// The message composer card: textarea on top, a control row underneath — attach and
+// tools on the left, model + effort + send on the right (mirroring the desktop
+// pattern). Used both pinned at the bottom of a conversation and centered in the
+// empty-state hero.
 export function Composer({
   busy,
   onSend,
@@ -18,11 +29,12 @@ export function Composer({
   draftKey = "new",
   initialText = "",
   onTextChange,
-  placeholder = "Message Open Claude Desktop…  (type / for skills)",
+  placeholder = "Write a message…",
   modelLabel,
   onModelClick,
   effort,
   onEffort,
+  tools,
 }: {
   busy: boolean;
   onSend: (text: string) => void;
@@ -36,11 +48,14 @@ export function Composer({
   onModelClick?: () => void;
   effort?: string;
   onEffort?: (e: string) => void;
+  tools?: ToolsMenuInfo;
 }) {
   const [text, setTextState] = useState(initialText);
   const [sel, setSel] = useState(0);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [toolsOpen, setToolsOpen] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const toolsRef = useRef<HTMLDivElement>(null);
   const suggestions = useMemo(() => slashSuggestions(skills, text), [skills, text]);
   // Escape hides the menu without erasing the draft; typing re-arms it.
   const [dismissed, setDismissed] = useState(false);
@@ -63,6 +78,31 @@ export function Composer({
     setAttachments([]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draftKey]);
+
+  // Dismiss the tools popover on outside click or Escape. The Escape listener runs
+  // in the capture phase and swallows the event so the global handler (which can
+  // stop a running generation) never fires for a mere popover dismissal.
+  useEffect(() => {
+    if (!toolsOpen) return;
+    function onDoc(e: MouseEvent) {
+      if (!toolsRef.current?.contains(e.target as Node)) setToolsOpen(false);
+    }
+    // (globalThis.KeyboardEvent: the DOM event type — `KeyboardEvent` alone would
+    // resolve to React's synthetic type imported above.)
+    function onKey(e: globalThis.KeyboardEvent) {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        e.preventDefault();
+        setToolsOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey, true);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKey, true);
+    };
+  }, [toolsOpen]);
 
   function submit() {
     if (!canSend) return;
@@ -111,6 +151,7 @@ export function Composer({
       }
       if (e.key === "Escape") {
         e.preventDefault();
+        e.stopPropagation(); // dismissing the menu must not reach the global Escape handler
         setDismissed(true); // hide the menu; keep the draft
         return;
       }
@@ -193,11 +234,41 @@ export function Composer({
         >
           <Icon name="plus" />
         </button>
+        {tools && (
+          <div className="tools-anchor" ref={toolsRef}>
+            <button
+              className={`composer-ghost ${toolsOpen ? "active" : ""}`}
+              title="Tools — connectors, plugins, skills"
+              aria-label="Tools"
+              aria-expanded={toolsOpen}
+              onClick={() => setToolsOpen((o) => !o)}
+            >
+              <Icon name="sliders" />
+            </button>
+            {toolsOpen && (
+              <div className="tools-menu" role="menu" aria-label="Tools">
+                <button role="menuitem" onClick={() => { setToolsOpen(false); tools.openConnectors(); }}>
+                  Connectors
+                  {tools.connectors > 0 && <span className="tools-count">{tools.connectors} on</span>}
+                </button>
+                <button role="menuitem" onClick={() => { setToolsOpen(false); tools.openPlugins(); }}>
+                  Plugins
+                  {tools.plugins > 0 && <span className="tools-count">{tools.plugins} on</span>}
+                </button>
+                <button role="menuitem" onClick={() => { setToolsOpen(false); tools.openSkills(); }}>
+                  Skills
+                  <span className="tools-count">type /</span>
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+        <span className="composer-spacer" />
         {modelLabel && (
           <button className="composer-pill model" title="Change model" onClick={onModelClick}>
             <span className="model-dot" aria-hidden="true" />
             {modelLabel}
-            <span className="pill-caret">▾</span>
+            <span className="pill-caret" aria-hidden="true"><Icon name="chev-down" size={11} /></span>
           </button>
         )}
         {effort && onEffort && (
@@ -211,7 +282,6 @@ export function Composer({
             </select>
           </label>
         )}
-        <span className="composer-spacer" />
         {busy ? (
           <button className="composer-send stop" onClick={onStop} title="Stop">
             ■

@@ -1,4 +1,4 @@
-import { type ReactNode, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -45,8 +45,9 @@ export function UserBubble({
     <div className="msg user">
       <div className="bubble">{msg.text}</div>
       {onEdit && (
-        <button className="msg-action user-edit" title="Edit" onClick={() => { setDraft(msg.text); setEditing(true); }}>
-          Edit
+        <button className="msg-action user-edit" title="Edit message" aria-label="Edit message"
+                onClick={() => { setDraft(msg.text); setEditing(true); }}>
+          <Icon name="pencil" size={13} />
         </button>
       )}
     </div>
@@ -68,6 +69,12 @@ export function AssistantBubble({
 }) {
   const answer = answerText(msg);
   const streaming = msg.blocks.some((b) => (b.kind === "answer" || b.kind === "thinking") && b.streaming);
+  // Local, per-message feedback marker (visual only; nothing is sent anywhere).
+  // A regenerated reply is new content, so streaming clears any prior vote.
+  const [vote, setVote] = useState<"up" | "down" | null>(null);
+  useEffect(() => {
+    if (streaming) setVote(null);
+  }, [streaming]);
   return (
     <div className="msg assistant">
       {msg.blocks.map((b, i) => (
@@ -75,10 +82,29 @@ export function AssistantBubble({
       ))}
       {!streaming && answer && (
         <div className={`msg-actions ${isLast ? "pinned" : ""}`}>
-          <CopyButton getText={() => answer} label="Copy" />
+          <CopyButton getText={() => answer} />
+          <button
+            className={`msg-action ${vote === "up" ? "voted" : ""}`}
+            title="Good response"
+            aria-label="Good response"
+            aria-pressed={vote === "up"}
+            onClick={() => setVote((v) => (v === "up" ? null : "up"))}
+          >
+            <Icon name="thumb-up" size={14} />
+          </button>
+          <button
+            className={`msg-action ${vote === "down" ? "voted" : ""}`}
+            title="Bad response"
+            aria-label="Bad response"
+            aria-pressed={vote === "down"}
+            onClick={() => setVote((v) => (v === "down" ? null : "down"))}
+          >
+            <Icon name="thumb-down" size={14} />
+          </button>
           {isLast && onRetry && (
-            <button className="msg-action" onClick={onRetry} disabled={busy} title="Regenerate">
-              <Icon name="retry" size={13} /> Retry
+            <button className="msg-action" onClick={onRetry} disabled={busy}
+                    title="Retry" aria-label="Regenerate response">
+              <Icon name="retry" size={14} />
             </button>
           )}
         </div>
@@ -87,7 +113,7 @@ export function AssistantBubble({
   );
 }
 
-function CopyButton({ getText, label }: { getText: () => string; label: string }) {
+function CopyButton({ getText }: { getText: () => string }) {
   const [copied, setCopied] = useState(false);
   function copy() {
     void navigator.clipboard?.writeText(getText());
@@ -95,8 +121,9 @@ function CopyButton({ getText, label }: { getText: () => string; label: string }
     setTimeout(() => setCopied(false), 1200);
   }
   return (
-    <button className="msg-action" onClick={copy} title={label}>
-      {copied ? "Copied" : label}
+    <button className="msg-action" onClick={copy} title={copied ? "Copied" : "Copy"}
+            aria-label={copied ? "Copied" : "Copy response"}>
+      <Icon name={copied ? "check" : "copy"} size={14} />
     </button>
   );
 }
@@ -143,7 +170,9 @@ function ArtifactCard({ block, onOpen }: { block: ArtifactBlock; onOpen?: (id: s
   const { doc } = block;
   return (
     <button className="artifact-card" onClick={() => onOpen?.(doc.id)}>
-      <span className="artifact-card-icon">▧</span>
+      <span className="artifact-card-icon" aria-hidden="true">
+        <Icon name="file" size={18} />
+      </span>
       <span className="artifact-card-meta">
         <span className="artifact-card-title">{doc.title}</span>
         <span className="artifact-card-kind">
@@ -151,20 +180,45 @@ function ArtifactCard({ block, onOpen }: { block: ArtifactBlock; onOpen?: (id: s
           {doc.version > 1 ? ` · v${doc.version}` : ""}
         </span>
       </span>
-      <span className="artifact-card-open">Open ›</span>
+      <span className="artifact-card-open">Open</span>
     </button>
   );
 }
 
+// Show at most this many characters of a finished thought before folding the rest
+// behind "Show more" (streaming thoughts always show everything as they arrive).
+const THINKING_FOLD = 700;
+
 function Thinking({ block }: { block: ThinkingBlock }) {
   const [open, setOpen] = useState(block.streaming);
+  const [showAll, setShowAll] = useState(false);
   const label = block.streaming ? "Thinking…" : `Thought${block.elapsed ? ` for ${block.elapsed}s` : ""}`;
+  const long = !block.streaming && block.text.length > THINKING_FOLD;
+  const text = long && !showAll ? block.text.slice(0, THINKING_FOLD).trimEnd() + "…" : block.text;
   return (
     <div className={`thinking ${block.streaming ? "streaming" : ""}`}>
       <button className="thinking-toggle" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
-        <span className="chev">{open ? "▾" : "▸"}</span> {label}
+        <span className="thinking-ic" aria-hidden="true"><Icon name="clock" size={13} /></span>
+        {label}
+        <span className={`chev ${open ? "" : "chev-collapsed"}`} aria-hidden="true">
+          <Icon name="chev-down" size={12} />
+        </span>
       </button>
-      {open && <div className="thinking-body">{block.text}</div>}
+      {open && block.text && (
+        <div className="thinking-body">
+          {text}
+          {long && (
+            <button className="thinking-more" onClick={() => setShowAll((s) => !s)}>
+              {showAll ? "Show less" : "Show more"}
+            </button>
+          )}
+        </div>
+      )}
+      {!block.streaming && open && (
+        <div className="thinking-done">
+          <Icon name="check" size={13} /> Done
+        </div>
+      )}
     </div>
   );
 }

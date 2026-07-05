@@ -1,14 +1,16 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { conversations } from "./api/client";
 import { notify, onTrayNewChat, registerSummonHotkey, unregisterSummonHotkey } from "./platform";
 import { ApprovalPrompt } from "./components/ApprovalPrompt";
 import { ArtifactPanel } from "./components/ArtifactPanel";
+import { ChatMenu } from "./components/ChatMenu";
 import { CodePanel } from "./components/CodePanel";
 import { CoworkPanel } from "./components/CoworkPanel";
 import { type Command, CommandPalette } from "./components/CommandPalette";
-import { Composer } from "./components/Composer";
+import { Composer, type ToolsMenuInfo } from "./components/Composer";
 import { Icon } from "./components/Icon";
+import { InfoPanel } from "./components/InfoPanel";
 import { AssistantBubble, UserBubble } from "./components/Message";
 import { ProjectPanel } from "./components/ProjectPanel";
 import { SettingsModal, type SettingsPage } from "./components/SettingsModal";
@@ -18,16 +20,15 @@ import { UsageMeter } from "./components/UsageMeter";
 import { exportSlug, toMarkdown } from "./state/exportConversation";
 import { type Drafts, getDraft, setDraft } from "./state/drafts";
 import { useAutoScroll } from "./state/useAutoScroll";
-import { conversationsForProject } from "./state/projectFilter";
 import { STARTER_PROMPTS } from "./state/starters";
-import { findArtifact } from "./state/transcript";
+import { findArtifact, listArtifacts } from "./state/transcript";
 import { useCode } from "./state/useCode";
 import { useCowork } from "./state/useCowork";
 import { useConnectors } from "./state/useConnectors";
 import { useConversations } from "./state/useConversations";
 import { useKeyboard } from "./state/useKeyboard";
 import { usePlugins } from "./state/usePlugins";
-import { useProjects } from "./state/useProjects";
+import { useProjectDetail, useProjects } from "./state/useProjects";
 import { useSchedules } from "./state/useSchedules";
 import { useSkills } from "./state/useSkills";
 import { useTheme } from "./state/useTheme";
@@ -47,6 +48,8 @@ export default function App() {
   // Plan mode: the agent researches read-only and proposes a plan to approve before it
   // changes anything. Only meaningful in the interactive Chat/Code views.
   const [planMode, setPlanMode] = useState(false);
+  // The conversation info rail (artifacts + project knowledge), toggled from the top bar.
+  const [showInfo, setShowInfo] = useState(false);
 
   const proj = useProjects();
   const connectors = useConnectors();
@@ -92,6 +95,7 @@ export default function App() {
     openArtifact,
     closeArtifact,
     list,
+    histErr,
     current,
     openConversation,
     newChat,
@@ -99,6 +103,23 @@ export default function App() {
     rename,
     togglePin,
   } = useConversations(config);
+
+  // Project knowledge for the info rail (loaded only while the rail is open).
+  const projDetail = useProjectDetail(showInfo ? proj.active : null);
+
+  // Opening a chat also switches into its project so the breadcrumb, knowledge
+  // grounding, and follow-up sends all match where the conversation lives. The
+  // project only switches once the chat actually loaded — a failed open must not
+  // leave the visible chat grounded on a different project.
+  const setActiveProject = proj.setActive;
+  const openFromRecents = useCallback(
+    async (cid: string, pid: string) => {
+      if (await openConversation(cid, pid)) {
+        setActiveProject(pid === "general" ? null : pid);
+      }
+    },
+    [openConversation, setActiveProject],
+  );
 
   useKeyboard({
     // Escape closes the topmost open layer first; stopping generation comes after
@@ -131,10 +152,10 @@ export default function App() {
     const chats: Command[] = list.map((c) => ({
       label: `Chat: ${c.title || "Untitled"}`,
       hint: c.updated_rel,
-      run: () => openConversation(c.id, c.project_id ?? "general"),
+      run: () => void openFromRecents(c.id, c.project_id ?? "general"),
     }));
     return [...actions, ...chats];
-  }, [newChat, proj.active, list, openConversation]);
+  }, [newChat, proj.active, list, openFromRecents]);
 
   // Global summon hotkey (desktop only; no-op on web). Fired from the OS even when the
   // app is unfocused; brings it forward and starts a fresh chat.
@@ -174,8 +195,16 @@ export default function App() {
 
   const lastAssistantIdx = state.messages.reduce((acc, m, i) => (m.role === "assistant" ? i : acc), -1);
   const openDoc = findArtifact(state, state.openArtifactId);
-  const scopedList = conversationsForProject(list, proj.active);
+  const artifacts = listArtifacts(state.messages);
   const activeProjectName = proj.list.find((p) => p.id === proj.active)?.name ?? "";
+
+  const toolsMenu: ToolsMenuInfo = {
+    connectors: connectors.enabled.length,
+    plugins: pluginMgr.enabled.length,
+    openConnectors: () => setSettingsPage("connectors"),
+    openPlugins: () => setSettingsPage("plugins"),
+    openSkills: () => setSettingsPage("skills"),
+  };
 
   function exportChat() {
     const title = list.find((c) => c.id === current?.cid)?.title || "Conversation";
@@ -211,10 +240,11 @@ export default function App() {
         }}
         onNewProject={(name) => void newProject(name)}
         onManageProject={() => setShowProject(true)}
-        list={scopedList}
+        list={list}
         currentId={current?.cid ?? null}
+        err={histErr ?? proj.err}
         onNew={newChat}
-        onOpen={openConversation}
+        onOpen={openFromRecents}
         onDelete={remove}
         onRename={rename}
         onTogglePin={togglePin}
@@ -224,9 +254,27 @@ export default function App() {
 
       <div className="app">
         <header className="topbar">
-          <div className="topbar-title" title={convTitle || undefined}>
-            {state.messages.length > 0 ? convTitle || "Untitled" : ""}
-            {proj.active && <span className="project-chip">{activeProjectName}</span>}
+          <div className="topbar-crumbs">
+            {proj.active && view !== "cowork" && (
+              <>
+                <button className="crumb-proj" title="Manage project" onClick={() => setShowProject(true)}>
+                  {activeProjectName}
+                </button>
+                <span className="crumb-sep" aria-hidden="true">/</span>
+              </>
+            )}
+            {view !== "cowork" && current && state.messages.length > 0 ? (
+              <ChatMenu
+                title={convTitle || "Untitled"}
+                onRename={(t) => void rename(current.cid, current.pid, t)}
+                onExport={exportChat}
+                onDelete={() => void remove(current.cid, current.pid)}
+              />
+            ) : (
+              <span className="crumb-title-static">
+                {view === "cowork" ? "Cowork" : state.messages.length > 0 ? convTitle || "Untitled" : ""}
+              </span>
+            )}
           </div>
           <div className="topbar-right">
             {view !== "cowork" && (
@@ -245,26 +293,24 @@ export default function App() {
             )}
             {state.usage && <UsageMeter usage={state.usage} />}
             <button
-              className="icon-btn"
+              className="icon-btn icon-only"
               title={`Theme: ${themeGlyph(theme.pref).label} (click to change)`}
               aria-label={`Theme: ${themeGlyph(theme.pref).label}`}
               onClick={theme.cycle}
             >
               <Icon name={themeGlyph(theme.pref).icon} />
             </button>
-            {state.messages.length > 0 && (
-              <button className="icon-btn" title="Export chat as Markdown" aria-label="Export chat as Markdown" onClick={exportChat}>
-                <Icon name="download" />
+            {view !== "cowork" && (
+              <button
+                className={`icon-btn icon-only ${showInfo ? "active" : ""}`}
+                title="Conversation info — artifacts & project knowledge"
+                aria-label="Toggle conversation info panel"
+                aria-pressed={showInfo}
+                onClick={() => setShowInfo((s) => !s)}
+              >
+                <Icon name="panel" />
               </button>
             )}
-            <button className="icon-btn" title="Connectors (MCP)" onClick={() => setSettingsPage("connectors")}>
-              Connectors
-              {connectors.enabled.length > 0 && <span className="badge">{connectors.enabled.length}</span>}
-            </button>
-            <button className="icon-btn" title="Plugins" onClick={() => setSettingsPage("plugins")}>
-              Plugins
-              {pluginMgr.enabled.length > 0 && <span className="badge">{pluginMgr.enabled.length}</span>}
-            </button>
           </div>
         </header>
 
@@ -315,6 +361,7 @@ export default function App() {
                   onModelClick={() => setSettingsPage("providers")}
                   effort={effort}
                   onEffort={setEffort}
+                  tools={toolsMenu}
                 />
               </div>
               <p className="hero-note">
@@ -339,10 +386,12 @@ export default function App() {
         <main className="transcript" ref={scroll.ref}>
           {state.messages.map((m, i) =>
             m.role === "user" ? (
-              <UserBubble key={i} msg={m} onEdit={busy ? undefined : (text) => editAndResend(i, text)} />
+              <UserBubble key={`${current?.cid ?? "new"}-${i}`} msg={m} onEdit={busy ? undefined : (text) => editAndResend(i, text)} />
             ) : (
+              // Keyed per conversation so per-message local state (feedback votes,
+              // edit drafts) never leaks across chat switches.
               <AssistantBubble
-                key={i}
+                key={`${current?.cid ?? "new"}-${i}`}
                 msg={m}
                 isLast={i === lastAssistantIdx}
                 busy={busy}
@@ -368,8 +417,8 @@ export default function App() {
         )}
 
         {state.messages.length > 0 && scroll.showJump && (
-          <button className="jump-latest" title="Jump to latest" onClick={scroll.jumpToBottom}>
-            ↓
+          <button className="jump-latest" title="Jump to latest" aria-label="Jump to latest" onClick={scroll.jumpToBottom}>
+            <Icon name="arrow-down" size={15} />
           </button>
         )}
 
@@ -387,7 +436,9 @@ export default function App() {
               onModelClick={() => setSettingsPage("providers")}
               effort={effort}
               onEffort={setEffort}
+              tools={toolsMenu}
             />
+            <p className="footer-note">AI can make mistakes — double-check important information.</p>
           </footer>
         )}
           </div>
@@ -396,6 +447,17 @@ export default function App() {
       </div>
 
       {openDoc && <ArtifactPanel doc={openDoc} onClose={closeArtifact} />}
+
+      {!openDoc && showInfo && view !== "cowork" && (
+        <InfoPanel
+          artifacts={artifacts}
+          projectName={proj.active ? activeProjectName : null}
+          files={projDetail.files}
+          onOpenArtifact={openArtifact}
+          onManageProject={() => setShowProject(true)}
+          onClose={() => setShowInfo(false)}
+        />
+      )}
 
       {showHelp && <ShortcutsHelp onClose={() => setShowHelp(false)} />}
 
@@ -411,7 +473,7 @@ export default function App() {
                 label: `Chat: ${h.title || "Untitled"}`,
                 hint: h.updated_rel,
                 sub: h.snippet,
-                run: () => openConversation(h.id, h.project_id ?? "general"),
+                run: () => void openFromRecents(h.id, h.project_id ?? "general"),
               }));
           }}
           onClose={() => setShowPalette(false)}

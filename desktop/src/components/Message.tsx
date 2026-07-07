@@ -4,11 +4,13 @@ import remarkGfm from "remark-gfm";
 
 import { type Attachment, parseAttachments } from "../state/attachments";
 import { Icon } from "./Icon";
+import { QuestionCard } from "./QuestionCard";
 import {
   type ArtifactBlock,
   answerText,
   type AssistantMessage,
   type Block,
+  type QuestionBlock,
   type ThinkingBlock,
   type ToolCard,
   type UserMessage,
@@ -94,12 +96,14 @@ export function AssistantBubble({
   busy,
   onRetry,
   onOpenArtifact,
+  onAnswerQuestion,
 }: {
   msg: AssistantMessage;
   isLast: boolean;
   busy: boolean;
   onRetry?: () => void;
   onOpenArtifact?: (id: string) => void;
+  onAnswerQuestion?: (id: string, text: string) => void;
 }) {
   const answer = answerText(msg);
   const streaming = msg.blocks.some((b) => (b.kind === "answer" || b.kind === "thinking") && b.streaming);
@@ -112,7 +116,7 @@ export function AssistantBubble({
   return (
     <div className="msg assistant">
       {msg.blocks.map((b, i) => (
-        <BlockView key={i} block={b} onOpenArtifact={onOpenArtifact} />
+        <BlockView key={i} block={b} busy={busy} onOpenArtifact={onOpenArtifact} onAnswerQuestion={onAnswerQuestion} />
       ))}
       {!streaming && answer && (
         <div className={`msg-actions ${isLast ? "pinned" : ""}`}>
@@ -187,10 +191,22 @@ function CodeBlock({ children }: { children?: ReactNode }) {
   );
 }
 
-function BlockView({ block, onOpenArtifact }: { block: Block; onOpenArtifact?: (id: string) => void }) {
+function BlockView({
+  block,
+  busy,
+  onOpenArtifact,
+  onAnswerQuestion,
+}: {
+  block: Block;
+  busy: boolean;
+  onOpenArtifact?: (id: string) => void;
+  onAnswerQuestion?: (id: string, text: string) => void;
+}) {
   if (block.kind === "thinking") return <Thinking block={block} />;
   if (block.kind === "tool") return <Tool block={block} />;
   if (block.kind === "artifact") return <ArtifactCard block={block} onOpen={onOpenArtifact} />;
+  if (block.kind === "question")
+    return <QuestionCard block={block as QuestionBlock} busy={busy} onSubmit={onAnswerQuestion ?? (() => {})} />;
   return (
     <div className="answer">
       <Markdown remarkPlugins={[remarkGfm]} components={mdComponents}>

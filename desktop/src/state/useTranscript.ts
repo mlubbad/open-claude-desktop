@@ -6,6 +6,7 @@ import { useCallback, useReducer, useRef, useState } from "react";
 import { type AgentTurnRequest, replyPermission, streamTurn } from "../api/client";
 import type { AgentEvent } from "../api/events";
 import {
+  answerQuestionState,
   applyEvent,
   buildHistory,
   editFrom,
@@ -30,6 +31,7 @@ type Action =
   | { kind: "panel"; artifactId: string | null }
   | { kind: "approval"; decision: "approve" | "decline"; toolCallId: string }
   | { kind: "approval_restore"; pending: NonNullable<TranscriptState["pendingApproval"]> }
+  | { kind: "answer_question"; id: string }
   | { kind: "reset" };
 
 function reducer(state: TranscriptState, action: Action): TranscriptState {
@@ -50,6 +52,8 @@ function reducer(state: TranscriptState, action: Action): TranscriptState {
       return resolveApprovalState(state, action.decision, action.toolCallId);
     case "approval_restore":
       return restoreApprovalState(state, action.pending);
+    case "answer_question":
+      return answerQuestionState(state, action.id);
     case "reset":
       return initialState();
   }
@@ -165,6 +169,9 @@ export function useTranscript(config: TurnConfig) {
     setBusy(false);
   }, []);
 
+  // Mark a question card answered (the caller then sends the composed answer).
+  const markQuestionAnswered = useCallback((id: string) => dispatch({ kind: "answer_question", id }), []);
+
   const reset = useCallback(() => {
     abortStream();
     dispatch({ kind: "reset" });
@@ -179,5 +186,5 @@ export function useTranscript(config: TurnConfig) {
   const openArtifact = useCallback((id: string) => dispatch({ kind: "panel", artifactId: id }), []);
   const closeArtifact = useCallback(() => dispatch({ kind: "panel", artifactId: null }), []);
 
-  return { state, busy, send, retryLast, editAndResend, stop, resolveApproval, reset, load, openArtifact, closeArtifact };
+  return { state, busy, send, retryLast, editAndResend, stop, resolveApproval, markQuestionAnswered, reset, load, openArtifact, closeArtifact };
 }

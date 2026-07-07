@@ -113,6 +113,16 @@ export function useConversations(config: TurnConfig) {
     setCurrent(null);
   }, [chat]);
 
+  // Answer an inline structured-question card: collapse it, then post the composed
+  // answer as the next turn (contract §5.1).
+  const answerQuestion = useCallback(
+    (id: string, text: string) => {
+      chat.markQuestionAnswered(id);
+      void send(text);
+    },
+    [chat, send],
+  );
+
   const remove = useCallback(
     async (cid: string, pid: string) => {
       try {
@@ -163,6 +173,7 @@ export function useConversations(config: TurnConfig) {
     openArtifact: chat.openArtifact,
     closeArtifact: chat.closeArtifact,
     send,
+    answerQuestion,
     list,
     histErr,
     current,

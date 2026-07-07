@@ -55,7 +55,23 @@ export interface AnswerBlock {
   streaming: boolean;
 }
 
-export type Block = ThinkingBlock | AnswerBlock | ToolCard | ArtifactBlock;
+export interface QuestionItem {
+  title: string;
+  options: string[];
+  allowOther: boolean;
+}
+
+// An inline structured-question card the agent raised mid-turn (contract §5.1).
+// `answered` collapses the card once the user responds; the answer is posted as the
+// next user turn by the caller.
+export interface QuestionBlock {
+  kind: "question";
+  id: string;
+  questions: QuestionItem[];
+  answered: boolean;
+}
+
+export type Block = ThinkingBlock | AnswerBlock | ToolCard | ArtifactBlock | QuestionBlock;
 
 export interface AssistantMessage {
   role: "assistant";
@@ -375,6 +391,20 @@ export function applyEvent(prev: TranscriptState, ev: AgentEvent): TranscriptSta
       };
     }
 
+    case "question": {
+      assistant.blocks.push({
+        kind: "question",
+        id: ev.id,
+        questions: ev.questions.map((q) => ({
+          title: q.title,
+          options: q.options,
+          allowOther: q.allow_other ?? true,
+        })),
+        answered: false,
+      });
+      return state;
+    }
+
     case "usage":
       return {
         ...state,
@@ -402,6 +432,33 @@ export function applyEvent(prev: TranscriptState, ev: AgentEvent): TranscriptSta
     default:
       return state;
   }
+}
+
+// Mark a question card answered (collapses it) once the user responds. Immutable.
+export function answerQuestionState(state: TranscriptState, id: string): TranscriptState {
+  const messages = state.messages.map((m) => {
+    if (m.role !== "assistant") return m;
+    let changed = false;
+    const blocks = m.blocks.map((b) => {
+      if (b.kind === "question" && b.id === id && !b.answered) {
+        changed = true;
+        return { ...b, answered: true };
+      }
+      return b;
+    });
+    return changed ? { role: "assistant" as const, blocks } : m;
+  });
+  return { ...state, messages };
+}
+
+// Compose the user-facing answer text from a set of (question, answer) pairs — the
+// "Q: …\nA: …" summary that becomes the next user turn (contract §5.1). Blank answers
+// (skipped) are omitted; if everything is blank the result is empty.
+export function composeAnswers(pairs: { question: string; answer: string }[]): string {
+  return pairs
+    .filter((p) => p.answer.trim())
+    .map((p) => `Q: ${p.question}\nA: ${p.answer.trim()}`)
+    .join("\n\n");
 }
 
 // Optimistically resolve the pending HITL approval: the prompt disappears the moment

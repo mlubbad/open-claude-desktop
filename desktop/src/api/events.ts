@@ -35,6 +35,9 @@ export type AgentEvent =
   | { type: "artifact_delta"; id: string; text: string }
   | { type: "artifact_close"; id: string; version: number }
   | { type: "approval_required"; turn_id: string; id: string; name: string; input: string }
+  // A structured clarifying question the agent asks mid-turn; the UI renders an
+  // inline card and the user's answer is posted as the next turn (contract §5.1).
+  | { type: "question"; id: string; questions: QuestionSpec[] }
   | {
       type: "usage";
       model: string;
@@ -54,6 +57,12 @@ export interface Usage {
   context_limit: number;
   context_pct: number;
   cost_usd: number | null;
+}
+
+export interface QuestionSpec {
+  title: string;
+  options: string[];
+  allow_other?: boolean;
 }
 
 export interface Source {

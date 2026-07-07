@@ -2,10 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import type { AgentEvent } from "../api/events";
 import {
+  answerQuestionState,
   answerText,
   applyEvent,
   type AssistantMessage,
   buildHistory,
+  composeAnswers,
   contentAtVersion,
   editFrom,
   findArtifact,
@@ -178,6 +180,35 @@ describe("transcript reducer", () => {
     expect(tool.status).toBe("done");
     expect(tool.summary).toBe("Kept planning");
     expect(tool.error).toBeUndefined();
+  });
+
+  it("renders a question block and collapses it once answered", () => {
+    const s = drive([
+      {
+        type: "question",
+        id: "q1",
+        questions: [
+          { title: "Which channel?", options: ["A", "B"], allow_other: true },
+          { title: "How long?", options: ["Short", "Long"] },
+        ],
+      },
+    ]);
+    const qb = assistant(s).blocks.find((b) => b.kind === "question");
+    expect(qb && qb.kind === "question" && qb.questions.length).toBe(2);
+    expect(qb && qb.kind === "question" && qb.answered).toBe(false);
+    const after = answerQuestionState(s, "q1");
+    const qb2 = assistant(after).blocks.find((b) => b.kind === "question");
+    expect(qb2 && qb2.kind === "question" && qb2.answered).toBe(true);
+  });
+
+  it("composeAnswers builds a Q/A summary and drops skipped answers", () => {
+    expect(
+      composeAnswers([
+        { question: "Which channel?", answer: "Better Creating" },
+        { question: "How long?", answer: "  " },
+      ]),
+    ).toBe("Q: Which channel?\nA: Better Creating");
+    expect(composeAnswers([{ question: "x", answer: "" }])).toBe("");
   });
 
   it("listArtifacts collects every artifact doc in order", () => {

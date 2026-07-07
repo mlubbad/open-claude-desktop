@@ -107,6 +107,7 @@ export default function App() {
     editAndResend,
     stop,
     resolveApproval,
+    answerQuestion,
     openArtifact,
     closeArtifact,
     list,
@@ -484,6 +485,7 @@ export default function App() {
                 busy={busy}
                 onRetry={retryLast}
                 onOpenArtifact={openArtifact}
+                onAnswerQuestion={answerQuestion}
               />
             ),
           )}

@@ -41,10 +41,15 @@ yields; the API layer appends a terminal {"type": "done"} after the stream ends.
   {"type": "approval_required", "turn_id": str, "id": str,   # awaiting a decision;
                           "name": str, "input": str}         #   reply via the API
 
+  Structured clarifying question (interactive turns only; the turn ENDS after this —
+  the user's answer arrives as the next user turn):
+  {"type": "question", "id": str,
+   "questions": [{"title": str, "options": [str], "allow_other": bool}]}
+
   Failure:
   {"type": "error", "text": str}                             # the turn could not proceed
 
-Effort levels (Low/Medium/High/Max) control the depth of multi-turn thinking:
+Effort levels (Low/Medium/High/Extra/Max) control the depth of multi-turn thinking:
   Low/Medium — direct tool loop, no extra reasoning passes.
   High       — a planning pass before acting.
   Max        — planning pass + a self-verification pass before the final answer.
@@ -79,6 +84,25 @@ WEB_SEARCH_TOOL = {"type": "function", "function": {
     "parameters": {"type": "object", "properties": {
         "query": {"type": "string", "description": "The search query."}},
         "required": ["query"]}}}
+
+ASK_USER_TOOL = {"type": "function", "function": {
+    "name": "ask_user",
+    "description": (
+        "Ask the user 1-3 short structured clarifying questions when their intent is "
+        "genuinely ambiguous AND the answer changes what you would produce. Each question "
+        "offers 2-5 concise options; the user can also skip or reply freely. The turn ENDS "
+        "after asking — the user's choices arrive as their next message. Use sparingly (at "
+        "most once per request, before starting the work), never for things you can infer."),
+    "parameters": {"type": "object", "properties": {
+        "questions": {"type": "array", "description": "1-3 questions.",
+            "items": {"type": "object", "properties": {
+                "title": {"type": "string", "description": "The question itself."},
+                "options": {"type": "array", "items": {"type": "string"},
+                            "description": "2-5 short answer options."},
+                "allow_other": {"type": "boolean",
+                                "description": "Offer a freeform answer too (default true)."}},
+                "required": ["title", "options"]}}},
+        "required": ["questions"]}}}
 
 RESEARCH_TOOL = {"type": "function", "function": {
     "name": "deep_research",
@@ -420,6 +444,7 @@ async def _stream_llm(llm, model, messages, tools=None, temperature=0.1,
 
 # Friendly tool labels (Claude-style): name -> (running gerund, done past, icon).
 TOOL_LABELS = {
+    "ask_user":      ("Asking you a question", "Asked for your input", "question"),
     "search_schema": ("Looking up schema", "Looked up schema", "search"),
     "run_sql":       ("Querying BigQuery", "Queried BigQuery", "database"),
     "web_search":    ("Searching the web", "Searched the web", "globe"),
@@ -434,6 +459,26 @@ TOOL_LABELS = {
     "spawn_subagent": ("Delegating to subagent", "Subagent finished", "users"),
     "exit_plan_mode": ("Preparing plan", "Plan ready for review", "clipboard-list"),
 }
+
+
+def parse_questions(args: dict) -> list[dict]:
+    """Validate + bound an ask_user payload into the wire shape the client renders.
+
+    Caps: ≤3 questions, each with 2–5 non-empty string options; titles/options
+    length-bounded. Returns [] when nothing valid survives (the caller then feeds an
+    error back to the model instead of ending the turn)."""
+    out: list[dict] = []
+    for q in (args.get("questions") or [])[:3]:
+        if not isinstance(q, dict):
+            continue
+        title = str(q.get("title") or "").strip()[:200]
+        options = [str(o).strip()[:120] for o in (q.get("options") or [])
+                   if str(o).strip()][:5]
+        if not title or len(options) < 2:
+            continue
+        out.append({"title": title, "options": options,
+                    "allow_other": bool(q.get("allow_other", True))})
+    return out
 
 
 def _tool_labels(name: str) -> tuple[str, str, str]:
@@ -719,6 +764,11 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
         tools.append(TASK_TOOL)
     if plan_mode:
         tools.append(PLAN_TOOL)
+    # Structured clarifying questions need a live user to answer them: only offer the
+    # tool on interactive turns (turn_id present). Cowork/scheduler/subagent runs pass
+    # no turn_id and must never stall waiting for input.
+    if turn_id:
+        tools.append(ASK_USER_TOOL)
     if extra_tools:
         tools.extend(extra_tools)
     # H6: enforce tool enablement at DISPATCH, not just by which schemas we send.
@@ -862,6 +912,23 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
             yield {"type": "tool", "id": tc.id, "name": name,
                    "input": _tool_input(name, args), "label_running": run_lbl,
                    "label_done": done_lbl, "icon": icon}
+            # ask_user: surface a structured question card and END the turn — the user's
+            # choices arrive as their next message (§5.1). Needs no permission (it only
+            # asks), so it is handled before the plan-mode/HITL gates. An invalid payload
+            # feeds an error back to the model instead of ending the turn.
+            if name == "ask_user":
+                qs = parse_questions(args)
+                if not qs:
+                    yield {"type": "tool_error", "id": tc.id, "name": name,
+                           "text": "Invalid ask_user payload."}
+                    blocked_outcomes.append({"id": tc.id, "name": name, "ok": False,
+                        "result": ("ERROR: ask_user requires questions=[{title, options[2-5]}]. "
+                                   "Fix the payload and call it again, or proceed without asking.")})
+                    continue
+                yield {"type": "tool_result", "id": tc.id, "name": name,
+                       "summary": "Waiting for your answer"}
+                yield {"type": "question", "id": tc.id, "questions": qs}
+                return
             # Plan mode: `exit_plan_mode` presents the plan for approval; approving LEAVES
             # plan mode (the rest of this turn runs under the normal HITL gate). Every other
             # state-changing tool is blocked until then.

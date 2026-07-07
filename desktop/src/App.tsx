@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { conversations, settings as settingsApi } from "./api/client";
+import { conversations, projects as projectApi, settings as settingsApi } from "./api/client";
 import { notify, onTrayNewChat, registerSummonHotkey, unregisterSummonHotkey } from "./platform";
 import { ApprovalPrompt } from "./components/ApprovalPrompt";
 import { ArtifactPanel } from "./components/ArtifactPanel";
 import { ChatMenu } from "./components/ChatMenu";
+import { CreateProjectModal } from "./components/CreateProjectModal";
+import { FeedbackModal } from "./components/FeedbackModal";
 import { CodePanel } from "./components/CodePanel";
 import { CoworkPanel } from "./components/CoworkPanel";
 import { type Command, CommandPalette } from "./components/CommandPalette";
@@ -62,6 +64,9 @@ export default function App() {
   const [planMode, setPlanMode] = useState(false);
   // The conversation info rail (artifacts + project knowledge), toggled from the top bar.
   const [showInfo, setShowInfo] = useState(false);
+  const [showCreateProject, setShowCreateProject] = useState(false);
+  // Negative-feedback modal, opened from a reply's thumbs-down (local-only in BYOK).
+  const [feedbackFor, setFeedbackFor] = useState<string | null>(null);
 
   const proj = useProjects();
   const connectors = useConnectors();
@@ -118,6 +123,7 @@ export default function App() {
     remove,
     rename,
     togglePin,
+    move,
   } = useConversations(config);
 
   // Sync the composer's live settings when the open conversation changes: load that
@@ -262,7 +268,7 @@ export default function App() {
   // Composer control wiring (contract §2/§3/§4). Model + effort persist per
   // conversation via applyOptions; Research / Web-search flow into the request options.
   const addMenu: AddMenuInfo = {
-    onAddToProject: () => setShowProject(true),
+    onAddToProject: () => (proj.active ? setShowProject(true) : setShowCreateProject(true)),
     onAddFromGitHub: () => setSettingsPage("connectors"),
     openSkills: () => setSettingsPage("skills"),
     openConnectors: () => setSettingsPage("connectors"),
@@ -309,6 +315,20 @@ export default function App() {
     }
   }
 
+  // Full create-project modal (name + goal); the goal seeds the project instructions.
+  async function createProjectWithGoal(name: string, goal: string) {
+    const id = await proj.create(name.trim());
+    if (id && goal.trim()) {
+      try {
+        await projectApi.saveInstructions(id, `# ${name.trim()}\n\n${goal.trim()}\n`);
+      } catch {
+        /* instructions are best-effort */
+      }
+    }
+    setShowCreateProject(false);
+    newChat();
+  }
+
   const convTitle = list.find((c) => c.id === current?.cid)?.title;
 
   return (
@@ -324,6 +344,7 @@ export default function App() {
         }}
         onNewProject={(name) => void newProject(name)}
         onManageProject={() => setShowProject(true)}
+        onArtifacts={() => setShowInfo(true)}
         list={list}
         currentId={current?.cid ?? null}
         err={histErr ?? proj.err}
@@ -332,6 +353,7 @@ export default function App() {
         onDelete={remove}
         onRename={rename}
         onTogglePin={togglePin}
+        onMove={move}
         onCustomize={() => setSettingsPage("general")}
         modelLabel={`${defaults.provider} · ${defaults.model}`}
       />
@@ -486,6 +508,7 @@ export default function App() {
                 onRetry={retryLast}
                 onOpenArtifact={openArtifact}
                 onAnswerQuestion={answerQuestion}
+                onFeedback={() => setFeedbackFor(current?.cid ?? "new")}
               />
             ),
           )}
@@ -543,6 +566,30 @@ export default function App() {
           onOpenArtifact={openArtifact}
           onManageProject={() => setShowProject(true)}
           onClose={() => setShowInfo(false)}
+        />
+      )}
+
+      {showCreateProject && (
+        <CreateProjectModal
+          onCreate={(name, goal) => void createProjectWithGoal(name, goal)}
+          onClose={() => setShowCreateProject(false)}
+        />
+      )}
+
+      {feedbackFor && (
+        <FeedbackModal
+          onSubmit={(issueType, details) => {
+            // Local-only in a BYOK build: record to localStorage, nothing leaves the device.
+            try {
+              const log = JSON.parse(localStorage.getItem("ocd.feedback") ?? "[]");
+              log.push({ cid: current?.cid ?? null, issueType, details });
+              localStorage.setItem("ocd.feedback", JSON.stringify(log));
+            } catch {
+              /* ignore quota/parse */
+            }
+            setFeedbackFor(null);
+          }}
+          onClose={() => setFeedbackFor(null)}
         />
       )}
 

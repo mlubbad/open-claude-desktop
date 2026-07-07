@@ -97,6 +97,7 @@ export function AssistantBubble({
   onRetry,
   onOpenArtifact,
   onAnswerQuestion,
+  onFeedback,
 }: {
   msg: AssistantMessage;
   isLast: boolean;
@@ -104,6 +105,7 @@ export function AssistantBubble({
   onRetry?: () => void;
   onOpenArtifact?: (id: string) => void;
   onAnswerQuestion?: (id: string, text: string) => void;
+  onFeedback?: () => void;
 }) {
   const answer = answerText(msg);
   const streaming = msg.blocks.some((b) => (b.kind === "answer" || b.kind === "thinking") && b.streaming);
@@ -135,7 +137,10 @@ export function AssistantBubble({
             title="Bad response"
             aria-label="Bad response"
             aria-pressed={vote === "down"}
-            onClick={() => setVote((v) => (v === "down" ? null : "down"))}
+            onClick={() => {
+              setVote((v) => (v === "down" ? null : "down"));
+              onFeedback?.();
+            }}
           >
             <Icon name="thumb-down" size={14} />
           </button>

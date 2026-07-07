@@ -163,6 +163,21 @@ export function useConversations(config: TurnConfig) {
     [refresh],
   );
 
+  const move = useCallback(
+    async (cid: string, pid: string, dstProjectId: string) => {
+      if (pid === dstProjectId) return;
+      try {
+        await convApi.move(pid, cid, dstProjectId);
+      } catch {
+        /* ignore */
+      }
+      // Keep the open conversation's project pointer in sync so follow-up saves land right.
+      setCurrent((c) => (c && c.cid === cid ? { cid, pid: dstProjectId } : c));
+      void refresh();
+    },
+    [refresh],
+  );
+
   return {
     state: chat.state,
     busy: chat.busy,
@@ -182,5 +197,6 @@ export function useConversations(config: TurnConfig) {
     remove,
     rename,
     togglePin,
+    move,
   };
 }

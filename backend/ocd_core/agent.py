@@ -199,6 +199,7 @@ EFFORT = {
     "Low":    {"steps": 3,  "plan": False, "verify": False, "temp": 0.0},
     "Medium": {"steps": 7,  "plan": False, "verify": False, "temp": 0.1},
     "High":   {"steps": 11, "plan": True,  "verify": False, "temp": 0.2},
+    "Extra":  {"steps": 13, "plan": True,  "verify": False, "temp": 0.25},
     "Max":    {"steps": 16, "plan": True,  "verify": True,  "temp": 0.3},
 }
 

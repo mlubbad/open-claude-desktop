@@ -1,0 +1,40 @@
+// UI copy for the model + effort picker. Descriptors are best-effort, keyed on the
+// bare model name (any "provider/" prefix stripped) — purely cosmetic labels for the
+// picker; the real capability lookup lives in the backend catalog.
+
+export interface EffortLevel {
+  value: string;
+  tag?: string; // e.g. "Default"
+  info?: boolean; // show a small info glyph
+}
+
+// The five extended-thinking levels, mirroring the reference picker. Each maps to
+// real backend behaviour (steps/plan/verify/temp) in agent.EFFORT.
+export const EFFORT_LEVELS: EffortLevel[] = [
+  { value: "Low" },
+  { value: "Medium" },
+  { value: "High", tag: "Default" },
+  { value: "Extra", info: true },
+  { value: "Max", info: true },
+];
+
+const DESCRIPTORS: [RegExp, string][] = [
+  [/gpt-4o-mini|mini|flash|turbo|haiku/i, "Fastest for quick answers."],
+  [/reasoner|o3|o1|thinking|glm-4\.5|deepseek-r/i, "For your toughest challenges."],
+  [/gpt-4o|opus|glm-4-plus|qwen-max|70b|72b|deepseek-chat|deepseek-v3/i, "For complex tasks."],
+  [/sonnet|plus|glm-4-air|qwen-plus/i, "Most efficient for everyday tasks."],
+];
+
+// A one-line descriptor for a model name (picker subtitle).
+export function modelDescriptor(model: string): string {
+  const name = (model || "").split("/").pop() ?? "";
+  for (const [re, text] of DESCRIPTORS) {
+    if (re.test(name)) return text;
+  }
+  return "General-purpose model.";
+}
+
+// The short label shown on the composer control (last path segment, upper-trimmed).
+export function modelShortLabel(model: string): string {
+  return (model || "").split("/").pop() ?? model;
+}

@@ -52,7 +52,7 @@ GLM_MODELS = list(dict.fromkeys(
     m.strip() for m in os.getenv("GLM_MODELS", _glm_default).split(",") if m.strip()))
 
 # --- effort + settings ---
-EFFORT_LEVELS = ["Low", "Medium", "High", "Max"]
+EFFORT_LEVELS = ["Low", "Medium", "High", "Extra", "Max"]
 # Claude-style "Extended thinking" levels — each maps to real backend behaviour
 # (steps cap + planning/verification passes + temperature) in agent.EFFORT.
 EFFORT_DESCRIPTIONS = {

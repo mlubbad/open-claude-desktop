@@ -31,7 +31,14 @@ export type IconName =
   | "panel"
   | "chev-down"
   | "chev-right"
-  | "dots";
+  | "dots"
+  | "mic"
+  | "waveform"
+  | "arrow-up"
+  | "arrow-right"
+  | "share"
+  | "search"
+  | "pin-angle";
 
 const PATHS: Record<IconName, React.ReactNode> = {
   pencil: <path d="M11.3 2.7l2 2L5 13H3v-2l8.3-8.3zM10 4l2 2" />,
@@ -110,6 +117,28 @@ const PATHS: Record<IconName, React.ReactNode> = {
   ),
   "chev-down": <path d="M4.5 6.5L8 10l3.5-3.5" />,
   "chev-right": <path d="M6.5 4.5L10 8l-3.5 3.5" />,
+  "arrow-up": <path d="M8 13V3M4.5 6.5L8 3l3.5 3.5" />,
+  "arrow-right": <path d="M3 8h10M9.5 4.5L13 8l-3.5 3.5" />,
+  mic: (
+    <>
+      <rect x="6" y="2" width="4" height="7.5" rx="2" />
+      <path d="M3.8 8a4.2 4.2 0 0 0 8.4 0M8 12.2V14" />
+    </>
+  ),
+  waveform: <path d="M2.5 6.5v3M5 4v8M7.5 6v4M10 3.5v9M12.5 6.5v3" />,
+  share: (
+    <>
+      <path d="M8 10V2.5M5 5l3-3 3 3" />
+      <path d="M4 8H3v5.5h10V8h-1" />
+    </>
+  ),
+  search: (
+    <>
+      <circle cx="7" cy="7" r="4" />
+      <path d="M10 10l3 3" />
+    </>
+  ),
+  "pin-angle": <path d="M9.5 2.5l4 4-2 .5-3 3-.5 2.5-4-4 2.5-.5 3-3 .5-2z" />,
   dots: (
     <>
       <circle cx="3.5" cy="8" r="1.1" fill="currentColor" stroke="none" />

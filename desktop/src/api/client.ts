@@ -196,6 +196,8 @@ export const conversations = {
     api.post<{ title: string }>("/conversations/title", { first_message: firstMessage }),
   setPinned: (pid: string, cid: string, pinned: boolean) =>
     api.patch<{ ok: boolean }>(`/projects/${pid}/conversations/${cid}`, { pinned }),
+  move: (pid: string, cid: string, dstProjectId: string) =>
+    api.post<{ ok: boolean }>(`/projects/${pid}/conversations/${cid}/move`, { dst_project_id: dstProjectId }),
   del: (pid: string, cid: string) => api.del<{ ok: boolean }>(`/projects/${pid}/conversations/${cid}`),
 };
 

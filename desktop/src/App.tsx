@@ -1,14 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { conversations } from "./api/client";
+import { conversations, projects as projectApi, settings as settingsApi } from "./api/client";
 import { notify, onTrayNewChat, registerSummonHotkey, unregisterSummonHotkey } from "./platform";
 import { ApprovalPrompt } from "./components/ApprovalPrompt";
 import { ArtifactPanel } from "./components/ArtifactPanel";
 import { ChatMenu } from "./components/ChatMenu";
+import { CreateProjectModal } from "./components/CreateProjectModal";
+import { FeedbackModal } from "./components/FeedbackModal";
 import { CodePanel } from "./components/CodePanel";
 import { CoworkPanel } from "./components/CoworkPanel";
 import { type Command, CommandPalette } from "./components/CommandPalette";
-import { Composer, type ToolsMenuInfo } from "./components/Composer";
+import { type AddMenuInfo, Composer, type ModelControlInfo } from "./components/Composer";
+import type { VoiceInfo } from "./components/MicPicker";
 import { Icon } from "./components/Icon";
 import { InfoPanel } from "./components/InfoPanel";
 import { AssistantBubble, UserBubble } from "./components/Message";
@@ -17,10 +20,12 @@ import { SettingsModal, type SettingsPage } from "./components/SettingsModal";
 import { ShortcutsHelp } from "./components/ShortcutsHelp";
 import { Sidebar } from "./components/Sidebar";
 import { UsageMeter } from "./components/UsageMeter";
+import { type ChatOptions, DEFAULT_CHAT_OPTIONS } from "./state/chatOptions";
+import { greeting } from "./state/greeting";
 import { exportSlug, toMarkdown } from "./state/exportConversation";
 import { type Drafts, getDraft, setDraft } from "./state/drafts";
 import { useAutoScroll } from "./state/useAutoScroll";
-import { STARTER_PROMPTS } from "./state/starters";
+import { STARTER_GROUPS } from "./state/starters";
 import { findArtifact, listArtifacts } from "./state/transcript";
 import { useCode } from "./state/useCode";
 import { useCowork } from "./state/useCowork";
@@ -35,9 +40,18 @@ import { useTheme } from "./state/useTheme";
 import { themeGlyph } from "./state/theme";
 
 export default function App() {
-  const [provider, setProvider] = useState<string>("zhipu");
-  const [model, setModel] = useState<string>("glm-4-plus");
-  const [effort, setEffort] = useState<string>("High");
+  // Chat settings model (contract §8): `active` is what the composer shows for the
+  // open conversation; `defaults` is the baseline new chats inherit; `convOverrides`
+  // persists each conversation's own model/effort/toggles. An effect below syncs
+  // `active` whenever the open conversation changes.
+  const [defaults, setDefaults] = useState<ChatOptions>(DEFAULT_CHAT_OPTIONS);
+  const [active, setActive] = useState<ChatOptions>(DEFAULT_CHAT_OPTIONS);
+  const [convOverrides, setConvOverrides] = useState<Record<string, ChatOptions>>({});
+  // Voice / input-device selection (contract §4).
+  const [micDeviceId, setMicDeviceId] = useState<string | null>(null);
+  const [holdToRecord, setHoldToRecord] = useState(false);
+  // First name for the personalized greeting (from the saved profile).
+  const [profileName, setProfileName] = useState("");
   // One unified Settings modal; non-null = open at that page (deep-linkable).
   const [settingsPage, setSettingsPage] = useState<SettingsPage | null>(null);
   const [showProject, setShowProject] = useState(false);
@@ -50,6 +64,9 @@ export default function App() {
   const [planMode, setPlanMode] = useState(false);
   // The conversation info rail (artifacts + project knowledge), toggled from the top bar.
   const [showInfo, setShowInfo] = useState(false);
+  const [showCreateProject, setShowCreateProject] = useState(false);
+  // Negative-feedback modal, opened from a reply's thumbs-down (local-only in BYOK).
+  const [feedbackFor, setFeedbackFor] = useState<string | null>(null);
 
   const proj = useProjects();
   const connectors = useConnectors();
@@ -58,31 +75,34 @@ export default function App() {
   const theme = useTheme();
   const codeWs = useCode(proj.active ?? undefined, view === "code");
   const cowork = useCowork(
-    { model, provider, effort, projectId: proj.active },
+    { model: defaults.model, provider: defaults.provider, effort: defaults.effort, projectId: proj.active },
     view === "cowork",
   );
   const sched = useSchedules(
-    { model, provider, effort, projectId: proj.active },
+    { model: defaults.model, provider: defaults.provider, effort: defaults.effort, projectId: proj.active },
     view === "cowork",
   );
 
   const config = useMemo(
     () => ({
-      provider,
-      model,
-      effort,
+      provider: active.provider,
+      model: active.model,
+      effort: active.effort,
       permissionMode: planMode ? "plan" : "ask",
       projectId: proj.active,
       enabledMcp: connectors.enabled,
       enabledPlugins: pluginMgr.enabled,
-      // In Code mode, give the agent its file + shell tools over the workspace, plus
-      // subagents so it can fan out isolated subtasks (reading many files, focused analysis).
-      options:
-        view === "code"
+      // Capability toggles: web search / research gate real tools; Code mode adds the
+      // file + shell + subagent tools over the workspace.
+      options: {
+        web_search: active.webSearch,
+        research: active.research,
+        ...(view === "code"
           ? { text_editor: true, bash: true, code_exec: true, subagents: true }
-          : undefined,
+          : {}),
+      },
     }),
-    [provider, model, effort, proj.active, connectors.enabled, pluginMgr.enabled, view, planMode],
+    [active, proj.active, connectors.enabled, pluginMgr.enabled, view, planMode],
   );
   const {
     state,
@@ -92,6 +112,7 @@ export default function App() {
     editAndResend,
     stop,
     resolveApproval,
+    answerQuestion,
     openArtifact,
     closeArtifact,
     list,
@@ -102,7 +123,51 @@ export default function App() {
     remove,
     rename,
     togglePin,
+    move,
   } = useConversations(config);
+
+  // Sync the composer's live settings when the open conversation changes: load that
+  // conversation's saved settings, or fall back to the workspace defaults for a new
+  // chat. Keyed on the conversation id only.
+  const currentCid = current?.cid ?? null;
+  useEffect(() => {
+    setActive(currentCid && convOverrides[currentCid] ? convOverrides[currentCid] : defaults);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentCid]);
+
+  // Apply a settings change to the open conversation (persisting its override) or,
+  // for a not-yet-created chat, to the workspace defaults.
+  const applyOptions = useCallback(
+    (patch: Partial<ChatOptions>) => {
+      setActive((prev) => {
+        const next = { ...prev, ...patch };
+        if (currentCid) setConvOverrides((o) => ({ ...o, [currentCid]: next }));
+        else setDefaults(next);
+        return next;
+      });
+    },
+    [currentCid],
+  );
+
+  // Load the saved profile name + default model/effort once, for the greeting and the
+  // new-chat baseline.
+  useEffect(() => {
+    settingsApi
+      .get()
+      .then((s) => {
+        setProfileName(s.profile?.call_me || s.profile?.name || "");
+        const seeded = (d: ChatOptions): ChatOptions => ({
+          ...d,
+          provider: s.provider ?? d.provider,
+          model: s.model ?? d.model,
+          effort: s.effort ?? d.effort,
+        });
+        setDefaults(seeded);
+        setActive(seeded); // no conversation open yet at mount → the composer shows these
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Project knowledge for the info rail (loaded only while the rail is open).
   const projDetail = useProjectDetail(showInfo ? proj.active : null);
@@ -197,13 +262,38 @@ export default function App() {
   const openDoc = findArtifact(state, state.openArtifactId);
   const artifacts = listArtifacts(state.messages);
   const activeProjectName = proj.list.find((p) => p.id === proj.active)?.name ?? "";
+  // Personalized, context-aware empty-state greeting (time-of-day + first name).
+  const greet = useMemo(() => greeting(profileName), [profileName]);
 
-  const toolsMenu: ToolsMenuInfo = {
-    connectors: connectors.enabled.length,
-    plugins: pluginMgr.enabled.length,
+  // Composer control wiring (contract §2/§3/§4). Model + effort persist per
+  // conversation via applyOptions; Research / Web-search flow into the request options.
+  const addMenu: AddMenuInfo = {
+    onAddToProject: () => (proj.active ? setShowProject(true) : setShowCreateProject(true)),
+    onAddFromGitHub: () => setSettingsPage("connectors"),
+    openSkills: () => setSettingsPage("skills"),
     openConnectors: () => setSettingsPage("connectors"),
     openPlugins: () => setSettingsPage("plugins"),
-    openSkills: () => setSettingsPage("skills"),
+    research: active.research,
+    onResearch: (on) => applyOptions({ research: on }),
+    webSearch: active.webSearch,
+    onWebSearch: (on) => applyOptions({ webSearch: on }),
+  };
+  const modelControl: ModelControlInfo = {
+    provider: active.provider,
+    model: active.model,
+    effort: active.effort,
+    thinking: active.thinking,
+    onSelectModel: (p, m) => applyOptions({ provider: p, model: m }),
+    onSelectEffort: (e) => applyOptions({ effort: e }),
+    onToggleThinking: (on) => applyOptions({ thinking: on }),
+    onMoreModels: () => setSettingsPage("providers"),
+  };
+  const voice: VoiceInfo = {
+    deviceId: micDeviceId,
+    onSelectDevice: setMicDeviceId,
+    holdToRecord,
+    onHoldToRecord: setHoldToRecord,
+    onVoiceMode: () => setSettingsPage("providers"),
   };
 
   function exportChat() {
@@ -225,6 +315,20 @@ export default function App() {
     }
   }
 
+  // Full create-project modal (name + goal); the goal seeds the project instructions.
+  async function createProjectWithGoal(name: string, goal: string) {
+    const id = await proj.create(name.trim());
+    if (id && goal.trim()) {
+      try {
+        await projectApi.saveInstructions(id, `# ${name.trim()}\n\n${goal.trim()}\n`);
+      } catch {
+        /* instructions are best-effort */
+      }
+    }
+    setShowCreateProject(false);
+    newChat();
+  }
+
   const convTitle = list.find((c) => c.id === current?.cid)?.title;
 
   return (
@@ -240,6 +344,7 @@ export default function App() {
         }}
         onNewProject={(name) => void newProject(name)}
         onManageProject={() => setShowProject(true)}
+        onArtifacts={() => setShowInfo(true)}
         list={list}
         currentId={current?.cid ?? null}
         err={histErr ?? proj.err}
@@ -248,8 +353,9 @@ export default function App() {
         onDelete={remove}
         onRename={rename}
         onTogglePin={togglePin}
+        onMove={move}
         onCustomize={() => setSettingsPage("general")}
-        modelLabel={`${provider} · ${model}`}
+        modelLabel={`${defaults.provider} · ${defaults.model}`}
       />
 
       <div className="app">
@@ -354,7 +460,7 @@ export default function App() {
             <div className="hero-inner">
               <h1 className="hero-greet">
                 <span className="hero-mark" aria-hidden="true" />
-                Where should we start?
+                {greet}
               </h1>
               <div className="hero-composer">
                 <Composer
@@ -366,21 +472,16 @@ export default function App() {
                   initialText={getDraft(drafts, current?.cid ?? "new")}
                   onTextChange={(t) => setDrafts((d) => setDraft(d, current?.cid ?? "new", t))}
                   placeholder="How can I help you today?"
-                  modelLabel={`${provider} · ${model}`}
-                  onModelClick={() => setSettingsPage("providers")}
-                  effort={effort}
-                  onEffort={setEffort}
-                  tools={toolsMenu}
+                  addMenu={addMenu}
+                  modelControl={modelControl}
+                  voice={voice}
                 />
               </div>
-              <p className="hero-note">
-                Bring your own key — switch provider or model anytime.
-              </p>
               <div className="chips">
-                {STARTER_PROMPTS.map((s) => (
+                {STARTER_GROUPS.map((s) => (
                   <button
                     key={s.label}
-                    className="chip"
+                    className={`chip ${s.wide ? "chip-wide" : ""}`}
                     disabled={busy}
                     onClick={() => send(s.prompt)}
                   >
@@ -406,6 +507,8 @@ export default function App() {
                 busy={busy}
                 onRetry={retryLast}
                 onOpenArtifact={openArtifact}
+                onAnswerQuestion={answerQuestion}
+                onFeedback={() => setFeedbackFor(current?.cid ?? "new")}
               />
             ),
           )}
@@ -441,11 +544,9 @@ export default function App() {
               draftKey={current?.cid ?? "new"}
               initialText={getDraft(drafts, current?.cid ?? "new")}
               onTextChange={(t) => setDrafts((d) => setDraft(d, current?.cid ?? "new", t))}
-              modelLabel={`${provider} · ${model}`}
-              onModelClick={() => setSettingsPage("providers")}
-              effort={effort}
-              onEffort={setEffort}
-              tools={toolsMenu}
+              addMenu={addMenu}
+              modelControl={modelControl}
+              voice={voice}
             />
             <p className="footer-note">AI can make mistakes — double-check important information.</p>
           </footer>
@@ -465,6 +566,30 @@ export default function App() {
           onOpenArtifact={openArtifact}
           onManageProject={() => setShowProject(true)}
           onClose={() => setShowInfo(false)}
+        />
+      )}
+
+      {showCreateProject && (
+        <CreateProjectModal
+          onCreate={(name, goal) => void createProjectWithGoal(name, goal)}
+          onClose={() => setShowCreateProject(false)}
+        />
+      )}
+
+      {feedbackFor && (
+        <FeedbackModal
+          onSubmit={(issueType, details) => {
+            // Local-only in a BYOK build: record to localStorage, nothing leaves the device.
+            try {
+              const log = JSON.parse(localStorage.getItem("ocd.feedback") ?? "[]");
+              log.push({ cid: current?.cid ?? null, issueType, details });
+              localStorage.setItem("ocd.feedback", JSON.stringify(log));
+            } catch {
+              /* ignore quota/parse */
+            }
+            setFeedbackFor(null);
+          }}
+          onClose={() => setFeedbackFor(null)}
         />
       )}
 
@@ -494,10 +619,11 @@ export default function App() {
           page={settingsPage}
           onPage={setSettingsPage}
           onClose={() => setSettingsPage(null)}
-          active={{ provider, model }}
+          active={{ provider: defaults.provider, model: defaults.model }}
           onPick={(p, m) => {
-            setProvider(p);
-            setModel(m);
+            // Settings picks the workspace default; also apply to the live conversation.
+            setDefaults((d) => ({ ...d, provider: p, model: m }));
+            applyOptions({ provider: p, model: m });
           }}
           skills={skills}
           conn={{

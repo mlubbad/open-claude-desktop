@@ -1,26 +1,39 @@
 /* Original, theme-aware palette (light + dark). A warm, editorial identity —
    inspired by the warm-canvas *category* of design, but built with our own values:
    our clay accent (not any third-party's signature colour), our own neutrals, and
-   an open serif-display stack. Deliberately NOT a copy of any product's brand. */
+   an open serif-display stack. Deliberately NOT a copy of any product's brand.
+
+   Token discipline (mirrors the reference contract's structure, our values):
+   - canvas is CREAM, never pure white; cards/popovers/modals sit on cream too
+   - the accent is SCARCE — send button, focus rings, checkmarks, active states only
+   - radius + spacing follow a fixed scale (below) */
 :root {
-  --bg: #f6f4ee;
-  --surface: #fffdf7;
-  --surface-2: #efece3;
-  --sunken: #f1eee6;
-  --border: #e6e1d6;
-  --border-strong: #d9d3c5;
-  --text: #26221c;
-  --muted: #7c7468;
-  --faint: #a49b8c;
+  --bg: #f4f1e9;            /* canvas — cream, never white */
+  --surface: #fbf9f3;       /* cards/popovers/modals — cream, a hair above canvas */
+  --surface-2: #efeae0;     /* hover fills on rows/menu items */
+  --card: #ece4d6;          /* user bubble, active tab pill, badges, selected rows */
+  --card-strong: #e4dbc9;   /* pressed rows */
+  --sunken: #efece4;
+  --border: #e5dfd2;
+  --border-strong: #d8d1c1;
+  --text: #201d18;          /* ink */
+  --muted: #726b5f;
+  --faint: #9c9282;
   --accent: #b3563b;
   --accent-2: #c9754c;
-  --accent-soft: #f2e6dd;
+  --accent-soft: #f1e5da;
   --accent-fg: #ffffff;
+  --accent-active: #97432c;  /* send button pressed */
   --danger: #b0402f;
   --ok: #4a7c59;
   --ring: rgba(179, 86, 59, 0.18);
   --shadow-1: 0 1px 3px rgba(20, 20, 19, 0.08);
   --shadow-soft: 0 1px 3px rgba(20, 20, 19, 0.05);
+  /* radius scale: sm 6 · md 8 (inputs/buttons) · lg 12 (cards/popovers/bubbles) · xl 16 (overlays) */
+  --r-sm: 6px;
+  --r-md: 8px;
+  --r-lg: 12px;
+  --r-xl: 16px;
   --radius: 12px;
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
   --font-serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
@@ -34,6 +47,8 @@
   --bg: #1b1916;
   --surface: #23201c;
   --surface-2: #2c2823;
+  --card: #322d26;
+  --card-strong: #3a342c;
   --sunken: #17150f;
   --border: #322d26;
   --border-strong: #40392f;
@@ -44,6 +59,7 @@
   --accent-2: #e8a074;
   --accent-soft: #33271e;
   --accent-fg: #1b1916;
+  --accent-active: #c9754c;
   --danger: #e88a7d;
   --ok: #82b394;
   --ring: rgba(223, 138, 99, 0.28);
@@ -58,6 +74,8 @@
     --bg: #1b1916;
     --surface: #23201c;
     --surface-2: #2c2823;
+    --card: #322d26;
+    --card-strong: #3a342c;
     --sunken: #17150f;
     --border: #322d26;
     --border-strong: #40392f;
@@ -68,6 +86,7 @@
     --accent-2: #e8a074;
     --accent-soft: #33271e;
     --accent-fg: #1b1916;
+    --accent-active: #c9754c;
     --danger: #e88a7d;
     --ok: #82b394;
     --ring: rgba(223, 138, 99, 0.28);
@@ -78,6 +97,11 @@
 }
 
 * { box-sizing: border-box; }
+
+/* RTL support: elements marked [dir="auto"] let the browser pick direction from the
+   first strong character, so Arabic/Hebrew content right-aligns while Latin stays
+   left — used on recents rows and message bodies. */
+[dir="auto"] { unicode-bidi: plaintext; }
 
 /* Editorial display type: headings run the serif at weight 400 with negative
    tracking; body stays humanist sans at a readable line-height. */
@@ -384,9 +408,9 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-
 .msg.user { display: flex; justify-content: flex-end; }
 .msg.user { flex-direction: column; align-items: flex-end; }
 .msg.user .bubble {
-  background: var(--surface); color: var(--text); border: 1px solid var(--border);
-  padding: 11px 15px; border-radius: var(--radius); white-space: pre-wrap;
-  max-width: 80%; box-shadow: var(--shadow-soft);
+  background: var(--card); color: var(--text); border: none;
+  padding: 10px 15px; border-radius: var(--r-lg); white-space: pre-wrap;
+  max-width: 80%;
   font-family: var(--font-serif); font-size: 15px; line-height: 1.55;
 }
 .msg.user .bubble.editing { background: var(--surface); color: var(--text);
@@ -574,10 +598,14 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-
 .model-dot { width: 8px; height: 8px; border-radius: 50%; flex: none;
   background: linear-gradient(135deg, var(--accent), var(--accent-2)); }
 .pill-caret { color: var(--faint); font-size: 10px; }
-.composer-send { width: 34px; height: 34px; border-radius: 11px; border: none; cursor: pointer;
-  background: linear-gradient(140deg, var(--accent), var(--accent-2)); color: var(--accent-fg); font-size: 16px; }
-.composer-send:disabled { opacity: 0.4; cursor: default; }
-.composer-send.stop { background: var(--danger); }
+/* Send button: flat filled square, accent fill, press-darken (no hover state). The
+   accent is deliberately scarce — this is one of the few places it appears. */
+.composer-send { width: 34px; height: 34px; border-radius: var(--r-md); border: none; cursor: pointer;
+  background: var(--accent); color: var(--accent-fg); font-size: 16px;
+  display: inline-flex; align-items: center; justify-content: center; }
+.composer-send:active:not(:disabled) { background: var(--accent-active); }
+.composer-send:disabled { background: var(--card-strong); color: var(--faint); cursor: default; }
+.composer-send.stop { background: var(--accent); }
 .attach-row { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 6px; }
 .attach-chip { display: inline-flex; align-items: center; gap: 5px; font-size: 12px;
   border: 1px solid var(--border); border-radius: 999px; padding: 3px 8px; color: var(--text);
@@ -785,3 +813,199 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-
   overflow-wrap: break-word; }
 .conv-proj { flex: none; max-width: 72px; overflow: hidden; text-overflow: ellipsis;
   white-space: nowrap; font-size: 10.5px; color: var(--faint); }
+
+/* ============================================================================
+   Chat-clone pass — model+effort picker, + Add menu, mic picker, greeting spike
+   ============================================================================ */
+
+/* Greeting spike mark — our own 8-point starburst glyph (an original mark, not any
+   third-party logo): a vertical + horizontal bar crossed by two diagonals, all in
+   the accent. Tapered via a radial mask so the points read as a spike. */
+.hero-mark { width: 30px; height: 30px; flex: none; position: relative;
+  background:
+    linear-gradient(0deg,   transparent 44%, var(--accent) 44%, var(--accent) 56%, transparent 56%),
+    linear-gradient(90deg,  transparent 44%, var(--accent) 44%, var(--accent) 56%, transparent 56%),
+    linear-gradient(45deg,  transparent 46%, var(--accent) 46%, var(--accent) 54%, transparent 54%),
+    linear-gradient(135deg, transparent 46%, var(--accent) 46%, var(--accent) 54%, transparent 54%);
+  -webkit-mask: radial-gradient(circle at center, #000 8%, rgba(0,0,0,0.55) 40%, transparent 72%);
+  mask: radial-gradient(circle at center, #000 8%, rgba(0,0,0,0.55) 40%, transparent 72%); }
+
+/* Wide "choice" chip sits centered on its own row. */
+.chip-wide { flex-basis: 100%; justify-content: center; margin-top: 2px; }
+
+/* Model pill: model name in ink, effort word muted. */
+.composer-pill.model { gap: 8px; }
+.model-name { color: var(--text); }
+.model-effort { color: var(--muted); }
+.model-anchor, .mic-anchor { position: relative; display: inline-flex; }
+.composer-ghost.bare { border: none; background: none; width: 30px; }
+.composer-ghost.bare:hover:not(:disabled) { background: var(--surface-2); }
+.send-stop-glyph { width: 11px; height: 11px; background: var(--accent-fg); border-radius: 2px; }
+
+/* ---- Two-column model + effort popover (§3) ---- */
+.mp-pop { position: absolute; bottom: calc(100% + 8px); right: 0; z-index: 40;
+  display: flex; gap: 0; background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--r-lg); box-shadow: 0 12px 34px rgba(0,0,0,0.18); overflow: hidden;
+  min-width: 520px; }
+.mp-col { padding: 8px; display: flex; flex-direction: column; gap: 1px; }
+.mp-effort { width: 250px; border-right: 1px solid var(--border); }
+.mp-models { width: 270px; }
+.mp-help { margin: 4px 8px 8px; font-size: 12px; color: var(--muted); line-height: 1.45; }
+.mp-row { display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  width: 100%; text-align: left; border: none; background: none; color: var(--text);
+  cursor: pointer; font: inherit; font-size: 13.5px; padding: 8px 10px; border-radius: var(--r-md); }
+.mp-row:hover { background: var(--surface-2); }
+.mp-row.sel { color: var(--text); }
+.mp-row-label { display: inline-flex; align-items: center; gap: 8px; font-weight: 500; }
+.mp-tag { font-size: 11px; font-weight: 500; color: var(--muted); background: var(--card);
+  border-radius: 999px; padding: 1px 7px; }
+.mp-info { color: var(--faint); font-size: 12px; }
+.mp-check { color: var(--accent); display: inline-flex; }
+.mp-divider { height: 1px; background: var(--border); margin: 6px 4px; }
+.mp-thinking, .mic-hold { display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; padding: 6px 10px; }
+.mp-thinking-meta { display: flex; flex-direction: column; gap: 1px; }
+.mp-thinking-help { font-size: 11.5px; color: var(--muted); }
+.mp-model { align-items: flex-start; }
+.mp-model-meta { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.mp-model-name { font-weight: 500; font-size: 14px; }
+.mp-model-desc { font-size: 12px; color: var(--muted); }
+.mp-static { cursor: default; }
+.mp-static:hover { background: none; }
+.mp-row-value { color: var(--muted); font-size: 13px; }
+.mp-more .mp-chev { color: var(--faint); display: inline-flex; }
+
+/* Toggle switch (shared by picker Thinking + mic Hold-to-record). */
+.mp-switch { position: relative; width: 34px; height: 20px; border-radius: 999px; border: none;
+  background: var(--card-strong); cursor: pointer; flex: none; transition: background 0.15s; }
+.mp-switch.on { background: var(--accent); }
+.mp-switch-knob { position: absolute; top: 2px; left: 2px; width: 16px; height: 16px;
+  border-radius: 50%; background: #fff; transition: transform 0.15s; }
+.mp-switch.on .mp-switch-knob { transform: translateX(14px); }
+
+/* ---- + Add menu (§2) ---- */
+.add-anchor { position: relative; display: inline-flex; }
+.add-menu { position: absolute; bottom: calc(100% + 8px); left: 0; z-index: 40; min-width: 240px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg);
+  box-shadow: 0 12px 34px rgba(0,0,0,0.18); padding: 6px; display: flex; flex-direction: column; gap: 1px; }
+.add-menu button { display: flex; align-items: center; gap: 11px; width: 100%; text-align: left;
+  border: none; background: none; color: var(--text); cursor: pointer; font: inherit;
+  font-size: 13.5px; padding: 8px 10px; border-radius: var(--r-md); }
+.add-menu button:hover { background: var(--surface-2); }
+.add-ic { display: inline-flex; color: var(--muted); flex: none; }
+.add-shortcut { margin-left: auto; font-size: 11.5px; color: var(--faint); }
+.add-chev { margin-left: auto; color: var(--faint); display: inline-flex; }
+.add-check { margin-left: auto; color: var(--accent); display: inline-flex; }
+.add-divider { height: 1px; background: var(--border); margin: 5px 4px; }
+
+/* ---- Mic / device picker (§4) ---- */
+.mic-pop { position: absolute; bottom: calc(100% + 8px); right: 0; z-index: 40; min-width: 280px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg);
+  box-shadow: 0 12px 34px rgba(0,0,0,0.18); padding: 8px; display: flex; flex-direction: column; gap: 1px; }
+.mic-meter { display: flex; align-items: center; gap: 3px; height: 22px; padding: 2px 8px 6px; }
+.mic-bar { flex: 1; height: 100%; background: var(--accent); border-radius: 2px; transition: opacity 0.08s; }
+.mic-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%;
+  text-align: left; border: none; background: none; color: var(--text); cursor: pointer; font: inherit;
+  font-size: 13px; padding: 8px 10px; border-radius: var(--r-md); }
+.mic-row:hover { background: var(--surface-2); }
+.mic-row-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mic-check { color: var(--accent); display: inline-flex; flex: none; }
+.mic-divider { height: 1px; background: var(--border); margin: 6px 4px; }
+.mic-denied { font-size: 12.5px; color: var(--muted); padding: 8px 10px; }
+
+/* ---- Inline structured-question card (§5.1) ---- */
+.qcard { max-width: 760px; margin: 10px auto; background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--r-lg); padding: 16px 18px; outline: none; box-shadow: var(--shadow-soft); }
+.qcard.answered { padding: 8px 14px; }
+.qcard-done { display: inline-flex; align-items: center; gap: 7px; color: var(--ok); font-size: 12.5px; }
+.qcard-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.qcard-title { font-family: var(--font-serif); font-size: 17px; color: var(--text); line-height: 1.35; }
+.qcard-pager { display: inline-flex; align-items: center; gap: 6px; flex: none; color: var(--muted); font-size: 12.5px; }
+.qcard-page-btn { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px;
+  border: none; background: none; color: var(--muted); cursor: pointer; border-radius: var(--r-sm); }
+.qcard-page-btn:hover:not(:disabled) { background: var(--surface-2); color: var(--text); }
+.qcard-page-btn:disabled { opacity: 0.35; cursor: default; }
+.qcard-page-btn .flip { transform: rotate(180deg); }
+.qcard-options { display: flex; flex-direction: column; gap: 1px; }
+.qcard-opt { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; border: none;
+  background: none; color: var(--text); cursor: pointer; font: inherit; font-size: 14.5px;
+  padding: 11px 10px; border-radius: var(--r-md); border-bottom: 1px solid var(--hairline-soft, var(--border)); }
+.qcard-opt:last-of-type { border-bottom: none; }
+.qcard-opt.active { background: var(--surface-2); }
+.qcard-num { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px;
+  flex: none; border-radius: 999px; background: var(--card); color: var(--muted); font-size: 12.5px; font-weight: 500; }
+.qcard-opt.active .qcard-num { background: var(--accent-soft); color: var(--accent); }
+.qcard-opt-label { flex: 1; min-width: 0; }
+.qcard-arrow { color: var(--accent); opacity: 0; display: inline-flex; flex: none; }
+.qcard-opt.active .qcard-arrow { opacity: 1; }
+.qcard-other { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-top: 1px solid var(--border);
+  margin-top: 4px; }
+.qcard-other-ic { color: var(--muted); display: inline-flex; }
+.qcard-other-input { flex: 1; border: none; background: none; outline: none; color: var(--text);
+  font: inherit; font-size: 14px; }
+.qcard-other-input::placeholder { color: var(--muted); }
+.qcard-skip { flex: none; border: 1px solid var(--border); background: var(--surface); color: var(--text);
+  border-radius: var(--r-md); padding: 5px 14px; font: inherit; font-size: 13px; cursor: pointer; }
+.qcard-skip:hover { border-color: var(--border-strong); }
+.qcard-reply { margin-top: 8px; padding-top: 10px; border-top: 1px solid var(--border); }
+.qcard-reply-input { width: 100%; border: none; background: none; outline: none; color: var(--text);
+  font: inherit; font-size: 14px; }
+.qcard-reply-input::placeholder { color: var(--muted); }
+.qcard-hint { margin-top: 10px; font-size: 12px; color: var(--faint); text-align: center; }
+
+/* ---- Sidebar Pinned section + ⋮ overflow menu (§0.2/§7.3) ---- */
+.side-label-btn { display: flex; align-items: center; gap: 5px; width: 100%; border: none;
+  background: none; cursor: pointer; font: inherit; text-align: left; }
+.side-label-chev { display: inline-flex; color: var(--faint); transition: transform 0.12s; }
+.side-label-chev.collapsed { transform: rotate(-90deg); }
+.conv-menu-anchor2 { position: relative; display: inline-flex; margin-left: auto; }
+.conv-more { opacity: 0; }
+.conv-item:hover .conv-more, .conv-item.active .conv-more { opacity: 1; }
+.conv-more[aria-expanded="true"] { opacity: 1; }
+.conv-menu { position: absolute; top: calc(100% + 2px); right: 0; z-index: 40; min-width: 180px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg);
+  box-shadow: 0 10px 28px rgba(0,0,0,0.18); padding: 5px; display: flex; flex-direction: column; gap: 1px; }
+.conv-menu button { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+  border: none; background: none; color: var(--text); cursor: pointer; font: inherit; font-size: 13px;
+  padding: 7px 10px; border-radius: var(--r-md); }
+.conv-menu button:hover { background: var(--surface-2); }
+.cm-ic { display: inline-flex; color: var(--muted); flex: none; }
+.cm-key { margin-left: auto; font-size: 11px; color: var(--faint); }
+.cm-chev { margin-left: auto; color: var(--faint); display: inline-flex; }
+.cm-danger { color: var(--danger); }
+.cm-danger:hover { background: color-mix(in srgb, var(--danger) 12%, transparent) !important; }
+.cm-danger .cm-ic { color: var(--danger); }
+.conv-menu-divider { height: 1px; background: var(--border); margin: 4px 4px; }
+.conv-submenu-anchor { position: relative; }
+.conv-submenu { position: absolute; top: -5px; right: calc(100% + 4px); z-index: 41; min-width: 150px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg);
+  box-shadow: 0 10px 28px rgba(0,0,0,0.18); padding: 5px; display: flex; flex-direction: column; gap: 1px;
+  max-height: 240px; overflow-y: auto; }
+.conv-submenu button { font-size: 13px; }
+.conv-submenu-empty { font-size: 12px; color: var(--muted); padding: 7px 10px; }
+
+/* ---- Create-project + Negative-feedback modals (§7) ---- */
+.modal-overlay { position: fixed; inset: 0; background: rgba(20,18,15,0.42); z-index: 60;
+  display: flex; align-items: center; justify-content: center; padding: 24px; }
+.modal { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg);
+  width: min(520px, 100%); max-height: 88vh; overflow-y: auto; padding: 24px 24px 20px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.28); }
+.modal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+.modal-title { margin: 0; font-family: inherit; font-size: 20px; font-weight: 600; letter-spacing: 0; color: var(--text); }
+.modal-close { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px;
+  border: none; background: none; color: var(--muted); border-radius: var(--r-md); cursor: pointer; }
+.modal-close:hover { background: var(--surface-2); color: var(--text); }
+.modal-label { display: block; font-size: 13.5px; font-weight: 500; color: var(--text); margin: 14px 0 6px; }
+.modal-input { width: 100%; border: 1px solid var(--border); border-radius: var(--r-md); padding: 9px 11px;
+  background: var(--bg); color: var(--text); font: inherit; font-size: 14px; }
+.modal-input:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--ring); }
+.modal-textarea { min-height: 92px; resize: vertical; line-height: 1.5; }
+.modal-fine { margin: 12px 0 0; font-size: 12px; color: var(--muted); line-height: 1.5; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+.btn-secondary { border: 1px solid var(--border); background: var(--surface); color: var(--text);
+  border-radius: var(--r-md); padding: 8px 16px; font: inherit; font-size: 14px; font-weight: 500; cursor: pointer; }
+.btn-secondary:hover { border-color: var(--border-strong); }
+.btn-primary { border: none; background: var(--accent); color: var(--accent-fg); border-radius: var(--r-md);
+  padding: 8px 16px; font: inherit; font-size: 14px; font-weight: 500; cursor: pointer; }
+.btn-primary:active:not(:disabled) { background: var(--accent-active); }
+.btn-primary:disabled { background: var(--card-strong); color: var(--faint); cursor: default; }

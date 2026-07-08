@@ -26,3 +26,17 @@ def test_engine_uses_database_url(monkeypatch):
     import os
     if os.path.exists("_url_probe.db"):
         os.remove("_url_probe.db")
+
+
+def test_default_is_local_sqlite_never_postgres(monkeypatch):
+    """Root-cause regression (500s on machines without a local Postgres): with no
+    DATABASE_URL set, the default MUST be a SQLite file at a package-derived path —
+    independent of the process cwd — never an implicit Postgres."""
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    from ocd_core import config
+    from ocd_core.db import engine
+    url = engine.database_url()
+    assert url.startswith("sqlite:///")
+    assert "postgresql" not in url
+    assert url.endswith("/ocd.db")
+    assert (config.REPO_ROOT / "ocd.db").as_posix() in url

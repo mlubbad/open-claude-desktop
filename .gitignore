@@ -65,3 +65,9 @@ dist/
 
 # Stray root node_modules (created if a tool runs from repo root)
 node_modules/
+
+# Local-first SQLite database (default DATABASE_URL)
+ocd.db
+ocd.db-journal
+ocd.db-wal
+ocd.db-shm

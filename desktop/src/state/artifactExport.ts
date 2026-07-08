@@ -3,6 +3,29 @@
 
 import type { ArtifactDoc } from "./transcript";
 
+// Kinds rendered in a sandboxed iframe (they produce visual output).
+export const IFRAME_KINDS = new Set(["html", "svg", "mermaid", "react"]);
+
+// Whether an artifact has a working Preview. iframe kinds render live; markdown
+// renders formatted; anything else with source shows as syntax-highlighted code —
+// so every artifact is previewable (matching the reference's always-on eye toggle).
+export function isPreviewable(kind: string): boolean {
+  return IFRAME_KINDS.has(kind) || kind === "markdown" || kind === "code" ||
+    kind === "" || kind === "text";
+}
+
+// The markdown fed to the in-panel renderer for non-iframe kinds: a markdown
+// artifact renders as-is; any other text/code artifact is wrapped in a fenced block
+// (tagged with its language) so rehype-highlight syntax-colours it. iframe kinds
+// have no in-panel markdown, so they return "".
+export function previewMarkdown(kind: string, content: string, language = ""): string {
+  if (IFRAME_KINDS.has(kind)) return "";
+  if (kind === "markdown") return content;
+  // Pick a fence the body can't contain so a code sample with ``` doesn't break out.
+  const fence = content.includes("```") ? "~~~" : "```";
+  return `${fence}${language}\n${content}\n${fence}`;
+}
+
 export function slug(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "artifact";
 }

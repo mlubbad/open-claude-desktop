@@ -1,6 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import Markdown from "react-markdown";
+import rehypeHighlight from "rehype-highlight";
+import remarkGfm from "remark-gfm";
 
-import { filename, mime, printableHtml, typeTag } from "../state/artifactExport";
+import {
+  filename,
+  IFRAME_KINDS,
+  isPreviewable,
+  mime,
+  previewMarkdown,
+  printableHtml,
+  typeTag,
+} from "../state/artifactExport";
 import { getDriveClientId, saveToDrive, setDriveClientId } from "../state/gdrive";
 import { type ArtifactDoc, contentAtVersion } from "../state/transcript";
 import { Icon } from "./Icon";
@@ -18,7 +29,8 @@ export function ArtifactPanel({
   doc: ArtifactDoc;
   onClose: () => void;
 }) {
-  const previewable = doc.kind === "html" || doc.kind === "svg" || doc.kind === "mermaid" || doc.kind === "react";
+  const previewable = isPreviewable(doc.kind);
+  const iframePreview = IFRAME_KINDS.has(doc.kind);
   const [tab, setTab] = useState<"preview" | "code">(previewable ? "preview" : "code");
   const [expanded, setExpanded] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -40,7 +52,12 @@ export function ArtifactPanel({
   // Render the currently-selected version (not always the live content).
   const shownDoc = isLatest ? doc : { ...doc, content: shownContent };
 
-  const srcDoc = useMemo(() => (previewable ? buildSrcDoc(shownDoc) : ""), [shownDoc, previewable]);
+  const srcDoc = useMemo(() => (iframePreview ? buildSrcDoc(shownDoc) : ""), [shownDoc, iframePreview]);
+  // In-panel preview markdown for non-iframe kinds (see previewMarkdown for the rules).
+  const renderMarkdown = useMemo(
+    () => previewMarkdown(shownDoc.kind, shownContent, shownDoc.language),
+    [shownContent, shownDoc.kind, shownDoc.language],
+  );
 
   // Dismiss popovers on outside click / Escape (Escape swallowed from the global handler).
   useEffect(() => {
@@ -206,7 +223,7 @@ export function ArtifactPanel({
         </div>
       </header>
       <div className="artifact-body">
-        {tab === "preview" && previewable ? (
+        {tab === "preview" && iframePreview ? (
           <iframe
             key={renderKey}
             className="artifact-preview"
@@ -214,6 +231,12 @@ export function ArtifactPanel({
             sandbox="allow-scripts"
             srcDoc={srcDoc}
           />
+        ) : tab === "preview" && previewable ? (
+          <div className="artifact-render">
+            <Markdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
+              {renderMarkdown}
+            </Markdown>
+          </div>
         ) : (
           <pre className="artifact-code">
             <code>{shownContent}</code>

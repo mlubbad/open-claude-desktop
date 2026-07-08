@@ -164,6 +164,7 @@ export function useProjectDetail(pid: string | null) {
     capacity,
     upload,
     addText,
+    reload: load,
     busy,
   };
 }

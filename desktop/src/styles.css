@@ -576,6 +576,10 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-
 .artifact-menu button { border: none; background: none; color: var(--text); cursor: pointer; font: inherit;
   font-size: 13px; text-align: left; padding: 7px 10px; border-radius: var(--r-md); }
 .artifact-menu button:hover { background: var(--surface-2); }
+.artifact-menu button:disabled { opacity: 0.6; cursor: default; }
+.artifact-menu button:disabled:hover { background: none; }
+.artifact-menu button.is-added { color: var(--accent); }
+.artifact-menu-sep { height: 1px; margin: 4px 6px; background: var(--border); }
 
 /* Save-to-Drive popover. */
 .drive-pop { position: absolute; top: calc(100% + 6px); right: 0; z-index: 45; width: 300px;

@@ -35,8 +35,17 @@ _BUILTINS: tuple[Provider, ...] = (
              ("gpt-4o", "gpt-4o-mini", "o3-mini"),
              docs="https://platform.openai.com/docs"),
     Provider("zhipu", "Zhipu GLM", "https://open.bigmodel.cn/api/paas/v4",
-             "ZHIPU_API_KEY", "glm-4-plus",
-             ("glm-4-plus", "glm-4.5-air", "glm-4-flash", "glm-4-long", "glm-4v-plus"),
+             "ZHIPU_API_KEY", "glm-4.6",
+             # Newest first: GLM-5 reasoning flagships, then the GLM-4.5/4.6
+             # agentic-coding family, vision variants, then the legacy GLM-4
+             # line. IDs are shared across the bigmodel.cn and z.ai endpoints;
+             # BYOK users may also type any model string the endpoint accepts.
+             ("glm-5.2", "glm-5.1", "glm-5",
+              "glm-4.7-flash",
+              "glm-4.6", "glm-4.5", "glm-4.5-x", "glm-4.5-air", "glm-4.5-airx",
+              "glm-4.5-flash",
+              "glm-4.6v", "glm-4.5v",
+              "glm-4-plus", "glm-4-long", "glm-4-flash", "glm-4v-plus"),
              docs="https://open.bigmodel.cn"),
     Provider("deepseek", "DeepSeek", "https://api.deepseek.com", "DEEPSEEK_API_KEY",
              "deepseek-chat", ("deepseek-chat", "deepseek-reasoner"),

@@ -1057,3 +1057,31 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-
   padding: 8px 16px; font: inherit; font-size: 14px; font-weight: 500; cursor: pointer; }
 .btn-primary:active:not(:disabled) { background: var(--accent-active); }
 .btn-primary:disabled { background: var(--card-strong); color: var(--faint); cursor: default; }
+
+/* ---- Artifact in-panel preview: rendered markdown + syntax-highlighted code ---- */
+.artifact-render { padding: 18px 22px; overflow: auto; height: 100%; font-size: 14px; line-height: 1.6; }
+.artifact-render h1 { font-size: 22px; }
+.artifact-render h2 { font-size: 18px; }
+.artifact-render h1, .artifact-render h2, .artifact-render h3 { margin: 0.8em 0 0.4em; }
+.artifact-render p, .artifact-render ul, .artifact-render ol { margin: 0.5em 0; }
+.artifact-render :not(pre) > code { background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: 5px; padding: 1px 5px; font-family: var(--mono); font-size: 0.86em; color: var(--accent); }
+.artifact-render pre { margin: 0; padding: 0; background: none; }
+.artifact-render pre code { display: block; font-family: var(--mono); font-size: 13px; line-height: 1.6;
+  white-space: pre; }
+/* A pure code artifact fills the pane like an editor. */
+.artifact-render > pre { background: var(--surface); }
+.artifact-render > pre > code { padding: 4px 2px; }
+
+/* highlight.js token palette, theme-aware via our tokens (works in light + dark). */
+.hljs { color: var(--text); background: transparent; }
+.hljs-comment, .hljs-quote { color: var(--faint); font-style: italic; }
+.hljs-keyword, .hljs-selector-tag, .hljs-literal, .hljs-section, .hljs-doctag, .hljs-meta { color: var(--accent); }
+.hljs-string, .hljs-attr, .hljs-regexp, .hljs-addition, .hljs-attribute, .hljs-meta-string { color: var(--ok); }
+.hljs-number, .hljs-built_in, .hljs-builtin-name, .hljs-type, .hljs-class .hljs-title { color: var(--accent-2); }
+.hljs-title, .hljs-title.function_, .hljs-name { color: var(--text); font-weight: 600; }
+.hljs-variable, .hljs-template-variable, .hljs-tag, .hljs-selector-id, .hljs-selector-class { color: var(--text); }
+.hljs-symbol, .hljs-bullet, .hljs-params, .hljs-operator, .hljs-punctuation { color: var(--muted); }
+.hljs-deletion { color: var(--danger); }
+.hljs-emphasis { font-style: italic; }
+.hljs-strong { font-weight: 700; }

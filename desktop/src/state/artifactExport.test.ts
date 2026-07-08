@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
 
-import { ext, filename, mime, printableHtml, slug, typeTag } from "./artifactExport";
+import {
+  ext,
+  filename,
+  isPreviewable,
+  mime,
+  previewMarkdown,
+  printableHtml,
+  slug,
+  typeTag,
+} from "./artifactExport";
 
 describe("artifact export helpers", () => {
   it("slugs titles safely", () => {
@@ -30,5 +39,41 @@ describe("artifact export helpers", () => {
     expect(sheet).toContain("A &lt;title&gt;");
     expect(sheet).toContain("body &amp; &lt;code&gt;");
     expect(sheet).toContain("<pre>");
+  });
+});
+
+describe("isPreviewable", () => {
+  it("previews iframe kinds", () => {
+    for (const k of ["html", "svg", "mermaid", "react"]) expect(isPreviewable(k)).toBe(true);
+  });
+  it("previews markdown, code, and plain text (so the eye toggle always works)", () => {
+    expect(isPreviewable("markdown")).toBe(true);
+    expect(isPreviewable("code")).toBe(true);
+    expect(isPreviewable("text")).toBe(true);
+    expect(isPreviewable("")).toBe(true); // untyped artifacts default to previewable
+  });
+  it("is not previewable for unknown kinds", () => {
+    expect(isPreviewable("binary")).toBe(false);
+  });
+});
+
+describe("previewMarkdown", () => {
+  it("returns nothing for iframe kinds (they render in the sandbox)", () => {
+    expect(previewMarkdown("html", "<p>hi</p>")).toBe("");
+    expect(previewMarkdown("svg", "<svg/>")).toBe("");
+  });
+  it("passes a markdown artifact through unchanged", () => {
+    expect(previewMarkdown("markdown", "# Heading\n\ntext")).toBe("# Heading\n\ntext");
+  });
+  it("wraps code in a language-tagged fence for syntax highlighting", () => {
+    expect(previewMarkdown("code", "print('hi')", "python")).toBe("```python\nprint('hi')\n```");
+    // No language → an untagged fence.
+    expect(previewMarkdown("text", "plain")).toBe("```\nplain\n```");
+  });
+  it("uses a ~~~ fence when the source itself contains ```", () => {
+    const md = previewMarkdown("code", "a\n```\nb", "md");
+    expect(md.startsWith("~~~md\n")).toBe(true);
+    expect(md.endsWith("\n~~~")).toBe(true);
+    expect(md).toContain("```"); // the inner backticks survive intact
   });
 });

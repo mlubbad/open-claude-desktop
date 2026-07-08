@@ -1,8 +1,14 @@
 """Sync SQLAlchemy/SQLModel engine + session lifecycle for ocd_core persistence.
 
 The engine is LAZY (built on first use from DATABASE_URL) so importing this
-module never opens a connection. Prod default is local Postgres; tests inject
-sqlite://. In-memory SQLite uses StaticPool so every Session shares one DB.
+module never opens a connection.
+
+Local-first default: a SQLite file at a STABLE path derived from the package
+location (config.REPO_ROOT), never from the process working directory — so the
+app works out of the box on any machine, started from any directory, with zero
+database setup. Postgres (or anything SQLAlchemy speaks) remains fully supported
+by setting DATABASE_URL explicitly. In-memory SQLite uses StaticPool so every
+Session shares one DB.
 """
 from __future__ import annotations
 
@@ -13,7 +19,16 @@ from contextlib import contextmanager
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine
 
-DEFAULT_DATABASE_URL = "postgresql+psycopg://ocd:ocd@localhost:5432/ocd"
+from .. import config
+
+
+def _default_sqlite_url() -> str:
+    # as_posix() keeps the URL well-formed on Windows (sqlite:///D:/... ) and
+    # POSIX (sqlite:////home/... ) alike.
+    return f"sqlite:///{(config.REPO_ROOT / 'ocd.db').as_posix()}"
+
+
+DEFAULT_DATABASE_URL = _default_sqlite_url()
 
 _engine = None
 

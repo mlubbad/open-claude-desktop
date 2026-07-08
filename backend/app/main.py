@@ -4,11 +4,19 @@ import os
 
 from dotenv import load_dotenv
 
-# Load repo .env BEFORE importing modules that read env at import time (notably
+# Load .env BEFORE importing modules that read env at import time (notably
 # ocd_core.config.PROJECT_ID, pulled in via the route imports below). override=
 # False -> real process env wins (docker-compose env_file / `environment:` /
 # exported vars), so this is a no-op in containers and only fills gaps locally.
+#
+# Looked up in cwd AND at known package-relative locations (backend/.env, repo
+# root/.env) so starting uvicorn from any directory finds the same config — a
+# cwd-only lookup silently dropped DATABASE_URL and friends when the server was
+# launched from the repo root instead of backend/.
 load_dotenv()
+_here = os.path.dirname(os.path.abspath(__file__))
+load_dotenv(os.path.join(_here, "..", ".env"))          # backend/.env
+load_dotenv(os.path.join(_here, "..", "..", ".env"))    # repo-root/.env
 
 import asyncio  # noqa: E402
 import contextlib  # noqa: E402

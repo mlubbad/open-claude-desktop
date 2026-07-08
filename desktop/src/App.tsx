@@ -1,12 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { conversations, projects as projectApi, settings as settingsApi } from "./api/client";
+import { conversations, settings as settingsApi } from "./api/client";
 import { notify, onTrayNewChat, registerSummonHotkey, unregisterSummonHotkey } from "./platform";
 import { ApprovalPrompt } from "./components/ApprovalPrompt";
 import { ArtifactPanel } from "./components/ArtifactPanel";
 import { ChatMenu } from "./components/ChatMenu";
 import { CreateProjectModal } from "./components/CreateProjectModal";
+import { EditDetailsModal } from "./components/EditDetailsModal";
 import { FeedbackModal } from "./components/FeedbackModal";
+import { ProjectHome } from "./components/ProjectHome";
+import { ProjectsPage } from "./components/ProjectsPage";
+import { SetInstructionsModal } from "./components/SetInstructionsModal";
 import { CodePanel } from "./components/CodePanel";
 import { CoworkPanel } from "./components/CoworkPanel";
 import { type Command, CommandPalette } from "./components/CommandPalette";
@@ -65,6 +69,13 @@ export default function App() {
   // HITL autonomy (set in Settings): "strict" asks before every step, "ask" only before
   // sensitive actions (default), "auto" runs autonomously. Plan mode overrides it.
   const [approvalMode, setApprovalMode] = useState("ask");
+  // Projects is a full-page destination (list + per-project home), distinct from the
+  // chat/code/cowork surface tabs. `projectsScreen` shows it; `projectDetail` is the
+  // open project's id (null = the grid). Edit-details / instructions modals hang off it.
+  const [projectsScreen, setProjectsScreen] = useState(false);
+  const [projectDetail, setProjectDetail] = useState<string | null>(null);
+  const [editDetailsFor, setEditDetailsFor] = useState<string | null>(null);
+  const [showInstructions, setShowInstructions] = useState(false);
   // The conversation info rail (artifacts + project knowledge), toggled from the top bar.
   const [showInfo, setShowInfo] = useState(false);
   const [showCreateProject, setShowCreateProject] = useState(false);
@@ -194,9 +205,51 @@ export default function App() {
       if (await openConversation(cid, pid)) {
         setActiveProject(pid === "general" ? null : pid);
       }
+      setProjectsScreen(false); // opening a chat leaves the Projects screen
     },
     [openConversation, setActiveProject],
   );
+
+  // The open project's home data (instructions / memory / knowledge files).
+  const homeDetail = useProjectDetail(projectDetail);
+  const detailProject = proj.list.find((p) => p.id === projectDetail) ?? null;
+
+  // Open the Projects grid.
+  const openProjectsPage = useCallback(() => {
+    setProjectDetail(null);
+    setProjectsScreen(true);
+  }, []);
+  // Open a project's home (scopes new chats to it). Resets the transcript so a message
+  // sent from the project composer starts a fresh conversation inside the project.
+  const openProject = useCallback(
+    (pid: string) => {
+      setActiveProject(pid);
+      newChat();
+      setProjectDetail(pid);
+      setProjectsScreen(true);
+    },
+    [setActiveProject, newChat],
+  );
+  // Sending from the project home reveals the chat surface with the streaming reply.
+  const sendFromProject = useCallback(
+    (text: string) => {
+      setProjectsScreen(false);
+      send(text);
+    },
+    [send],
+  );
+  // New chat / surface switches leave the Projects screen and show the chat surface. The
+  // top-level "New chat" is always a General (no-project) chat — starting a chat inside a
+  // project happens from that project's home instead.
+  const goNewChat = useCallback(() => {
+    setProjectsScreen(false);
+    setActiveProject(null);
+    newChat();
+  }, [newChat, setActiveProject]);
+  const goView = useCallback((v: "chat" | "code" | "cowork") => {
+    setProjectsScreen(false);
+    setView(v);
+  }, []);
 
   useKeyboard({
     // Escape closes the topmost open layer first; stopping generation comes after
@@ -211,14 +264,14 @@ export default function App() {
             : busy
               ? stop()
               : closeArtifact(),
-    onNewChat: newChat,
+    onNewChat: goNewChat,
     onPalette: () => setShowPalette(true),
     onHelp: () => setShowHelp(true),
   });
 
   const commands: Command[] = useMemo(() => {
     const actions: Command[] = [
-      { label: "New chat", hint: "⌘⇧O", run: newChat },
+      { label: "New chat", hint: "⌘⇧O", run: goNewChat },
       { label: "Settings: models & keys", run: () => setSettingsPage("providers") },
       { label: "Settings: connectors (MCP)", run: () => setSettingsPage("connectors") },
       { label: "Settings: plugins", run: () => setSettingsPage("plugins") },
@@ -232,12 +285,12 @@ export default function App() {
       run: () => void openFromRecents(c.id, c.project_id ?? "general"),
     }));
     return [...actions, ...chats];
-  }, [newChat, proj.active, list, openFromRecents]);
+  }, [goNewChat, proj.active, list, openFromRecents]);
 
   // Global summon hotkey (desktop only; no-op on web). Fired from the OS even when the
   // app is unfocused; brings it forward and starts a fresh chat.
-  const newChatRef = useRef(newChat);
-  newChatRef.current = newChat;
+  const newChatRef = useRef(goNewChat);
+  newChatRef.current = goNewChat;
   useEffect(() => {
     const accel = "CmdOrControl+Shift+Space";
     void registerSummonHotkey(accel, () => newChatRef.current());
@@ -322,25 +375,12 @@ export default function App() {
     URL.revokeObjectURL(url);
   }
 
-  async function newProject(name: string) {
-    if (name.trim()) {
-      await proj.create(name.trim());
-      newChat();
-    }
-  }
-
-  // Full create-project modal (name + goal); the goal seeds the project instructions.
-  async function createProjectWithGoal(name: string, goal: string) {
-    const id = await proj.create(name.trim());
-    if (id && goal.trim()) {
-      try {
-        await projectApi.saveInstructions(id, `# ${name.trim()}\n\n${goal.trim()}\n`);
-      } catch {
-        /* instructions are best-effort */
-      }
-    }
+  // Create-project modal (name + description). Stores the description and opens the new
+  // project's home so the user can add context and start a chat there.
+  async function createProjectWithGoal(name: string, description: string) {
+    const id = await proj.create(name.trim(), description.trim());
     setShowCreateProject(false);
-    newChat();
+    if (id) openProject(id);
   }
 
   const convTitle = list.find((c) => c.id === current?.cid)?.title;
@@ -349,20 +389,17 @@ export default function App() {
     <div className="app-shell">
       <Sidebar
         view={view}
-        onView={setView}
+        onView={goView}
         projects={proj.list}
         activeProject={proj.active}
-        onSelectProject={(pid) => {
-          proj.setActive(pid);
-          newChat();
-        }}
-        onNewProject={(name) => void newProject(name)}
-        onManageProject={() => setShowProject(true)}
+        projectsActive={projectsScreen}
+        onProjects={openProjectsPage}
+        onOpenProject={openProject}
         onArtifacts={() => setShowInfo(true)}
         list={list}
         currentId={current?.cid ?? null}
         err={histErr ?? proj.err}
-        onNew={newChat}
+        onNew={goNewChat}
         onOpen={openFromRecents}
         onDelete={remove}
         onRename={rename}
@@ -375,29 +412,35 @@ export default function App() {
       <div className="app">
         <header className="topbar">
           <div className="topbar-crumbs">
-            {proj.active && view !== "cowork" && (
-              <>
-                <button className="crumb-proj" title="Manage project" onClick={() => setShowProject(true)}>
-                  {activeProjectName}
-                </button>
-                <span className="crumb-sep" aria-hidden="true">/</span>
-              </>
-            )}
-            {view !== "cowork" && current && state.messages.length > 0 ? (
-              <ChatMenu
-                title={convTitle || "Untitled"}
-                onRename={(t) => void rename(current.cid, current.pid, t)}
-                onExport={exportChat}
-                onDelete={() => void remove(current.cid, current.pid)}
-              />
+            {projectsScreen ? (
+              <span className="crumb-title-static">Projects</span>
             ) : (
-              <span className="crumb-title-static">
-                {view === "cowork" ? "Cowork" : state.messages.length > 0 ? convTitle || "Untitled" : ""}
-              </span>
+              <>
+                {proj.active && view !== "cowork" && (
+                  <>
+                    <button className="crumb-proj" title="Open project" onClick={() => proj.active && openProject(proj.active)}>
+                      {activeProjectName}
+                    </button>
+                    <span className="crumb-sep" aria-hidden="true">/</span>
+                  </>
+                )}
+                {view !== "cowork" && current && state.messages.length > 0 ? (
+                  <ChatMenu
+                    title={convTitle || "Untitled"}
+                    onRename={(t) => void rename(current.cid, current.pid, t)}
+                    onExport={exportChat}
+                    onDelete={() => void remove(current.cid, current.pid)}
+                  />
+                ) : (
+                  <span className="crumb-title-static">
+                    {view === "cowork" ? "Cowork" : state.messages.length > 0 ? convTitle || "Untitled" : ""}
+                  </span>
+                )}
+              </>
             )}
           </div>
           <div className="topbar-right">
-            {view !== "cowork" && (
+            {view !== "cowork" && !projectsScreen && (
               <button
                 className={`icon-btn plan-toggle ${planMode ? "active" : ""}`}
                 title={
@@ -420,7 +463,7 @@ export default function App() {
             >
               <Icon name={themeGlyph(theme.pref).icon} />
             </button>
-            {view !== "cowork" && (
+            {view !== "cowork" && !projectsScreen && (
               // Pressed state reflects what's actually visible: an open artifact
               // suppresses the rail, and clicking then brings the rail forward.
               <button
@@ -443,7 +486,52 @@ export default function App() {
           </div>
         </header>
 
-        {view === "cowork" ? (
+        {projectsScreen && projectDetail && detailProject ? (
+          <ProjectHome
+            project={detailProject}
+            instructions={homeDetail.instructions}
+            memory={homeDetail.memory}
+            memoryUpdated={homeDetail.memoryUpdated}
+            files={homeDetail.files}
+            composer={
+              <Composer
+                busy={busy}
+                onSend={sendFromProject}
+                onStop={stop}
+                skills={skills}
+                draftKey={`project-${projectDetail}`}
+                placeholder="How can I help with this project?"
+                addMenu={addMenu}
+                modelControl={modelControl}
+                voice={voice}
+              />
+            }
+            onBack={openProjectsPage}
+            onEditInstructions={() => setShowInstructions(true)}
+            onUploadFile={(f) => void homeDetail.upload(f)}
+            onAddText={() => {
+              const text = window.prompt("Paste text to add as project context:");
+              if (text && text.trim()) {
+                const name = window.prompt("File name:", "note.txt") || "note.txt";
+                void homeDetail.addText(name, text);
+              }
+            }}
+            onEditDetails={() => setEditDetailsFor(projectDetail)}
+            onTogglePin={() => void proj.update(projectDetail, { pinned: !detailProject.pinned })}
+            onArchive={() => { void proj.update(projectDetail, { archived: true }); openProjectsPage(); }}
+            onDelete={() => { void proj.remove(projectDetail); openProjectsPage(); }}
+          />
+        ) : projectsScreen ? (
+          <ProjectsPage
+            list={proj.list}
+            onOpen={openProject}
+            onNew={() => setShowCreateProject(true)}
+            onEditDetails={(pid) => setEditDetailsFor(pid)}
+            onTogglePin={(pid, pinned) => void proj.update(pid, { pinned })}
+            onArchive={(pid) => void proj.update(pid, { archived: true })}
+            onDelete={(pid) => void proj.remove(pid)}
+          />
+        ) : view === "cowork" ? (
           <CoworkPanel
             tasks={cowork.tasks}
             selected={cowork.selected}
@@ -587,6 +675,34 @@ export default function App() {
         <CreateProjectModal
           onCreate={(name, goal) => void createProjectWithGoal(name, goal)}
           onClose={() => setShowCreateProject(false)}
+        />
+      )}
+
+      {editDetailsFor && (() => {
+        const p = proj.list.find((x) => x.id === editDetailsFor);
+        if (!p) return null;
+        return (
+          <EditDetailsModal
+            initialName={p.name}
+            initialDescription={p.description ?? ""}
+            onSave={(name, description) => {
+              void proj.update(editDetailsFor, { name, description });
+              setEditDetailsFor(null);
+            }}
+            onClose={() => setEditDetailsFor(null)}
+          />
+        );
+      })()}
+
+      {showInstructions && detailProject && (
+        <SetInstructionsModal
+          projectName={detailProject.name}
+          initial={homeDetail.instructions}
+          onSave={(text) => {
+            void homeDetail.saveInstructions(text);
+            setShowInstructions(false);
+          }}
+          onClose={() => setShowInstructions(false)}
         />
       )}
 

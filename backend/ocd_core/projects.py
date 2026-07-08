@@ -20,7 +20,14 @@ config.PROJECTS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def _meta(p: Project) -> dict:
-    return {"id": p.id, "name": p.name, "created_at": p.created_at.isoformat()}
+    """Full project card metadata for the Projects grid + sidebar."""
+    return {"id": p.id, "name": p.name,
+            "description": getattr(p, "description", "") or "",
+            "pinned": bool(getattr(p, "pinned", False)),
+            "archived": bool(getattr(p, "archived", False)),
+            "created_at": p.created_at.isoformat(),
+            "updated_at": p.updated_at.isoformat(),
+            "updated_rel": util.relative_time(p.updated_at.isoformat())}
 
 
 def get_project_allowlist(project_id: str) -> list:
@@ -41,9 +48,16 @@ def save_project_allowlist(project_id: str, tables: list) -> bool:
         return True
 
 
-def list_projects() -> list[dict]:
+def list_projects(include_archived: bool = False) -> list[dict]:
+    """All projects (newest-updated first). Archived projects are excluded unless asked."""
     with session() as s:
-        return [_meta(p) for p in s.exec(select(Project).order_by(Project.created_at)).all()]
+        q = select(Project)
+        if not include_archived:
+            # getattr default keeps this working before the column-ensure migration runs.
+            q = q.where((Project.archived == False) | (Project.archived == None))  # noqa: E711,E712
+        rows = s.exec(q).all()
+    rows.sort(key=lambda p: p.updated_at, reverse=True)
+    return [_meta(p) for p in rows]
 
 
 def get_project(project_id: str) -> dict | None:
@@ -52,20 +66,47 @@ def get_project(project_id: str) -> dict | None:
         return _meta(p) if p else None
 
 
-def create_project(name: str) -> dict:
+def create_project(name: str, description: str = "") -> dict:
     project_id = util.slugify(name)
+    desc = (description or "").strip()
+    # Seed the project instructions from the stated goal so chats are grounded from the
+    # start (the agent reads instructions, not the card description). The user can refine
+    # them later via "Set instructions". Empty goal -> the editable placeholder.
+    instructions = (f"# {name}\n\n{desc}\n" if desc
+                    else f"# Instructions for {name}\n\n"
+                         "Add specific guidelines for this project here.\n")
     with session() as s:
         if s.get(Project, project_id) is not None:
             project_id = f"{project_id}-{uuid.uuid4().hex[:4]}"
         now = utcnow()
-        p = Project(id=project_id, name=name,
-                    instructions=f"# Instructions for {name}\n\n"
-                                 "Add specific guidelines for this project here.\n",
+        p = Project(id=project_id, name=name, description=desc, instructions=instructions,
                     memory="", allowlist=[], created_at=now, updated_at=now)
         s.add(p)
         meta = _meta(p)
     (config.PROJECTS_DIR / project_id / "knowledge").mkdir(parents=True, exist_ok=True)
     return meta
+
+
+def update_project(project_id: str, *, name: str | None = None,
+                   description: str | None = None, pinned: bool | None = None,
+                   archived: bool | None = None) -> dict | None:
+    """Patch a project's card fields (name/description) or state (pinned/archived).
+    Only provided fields change. Returns the updated metadata, or None if not found."""
+    with session() as s:
+        p = s.get(Project, project_id)
+        if p is None:
+            return None
+        if name is not None and name.strip():
+            p.name = name.strip()
+        if description is not None:
+            p.description = description.strip()
+        if pinned is not None:
+            p.pinned = bool(pinned)
+        if archived is not None:
+            p.archived = bool(archived)
+        p.updated_at = utcnow()
+        s.add(p)
+        return _meta(p)
 
 
 def delete_project(project_id: str) -> bool:
@@ -134,8 +175,10 @@ def project_capacity(project_id: str) -> dict:
 
 
 def project_card_view(p: dict) -> dict:
-    instr = get_project_instructions(p["id"])
-    desc = instr.split("\n")[0].replace("#", "").strip()
+    desc = (p.get("description") or "").strip()
+    if not desc:  # fall back to the first instructions line for older projects
+        instr = get_project_instructions(p["id"])
+        desc = instr.split("\n")[0].replace("#", "").strip()
     if not desc or len(desc) < 5:
         desc = "No description provided yet."
     if len(desc) > 80:

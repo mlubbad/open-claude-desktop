@@ -17,8 +17,11 @@ def utcnow() -> datetime:
 class Project(SQLModel, table=True):
     id: str = Field(primary_key=True)              # the slug
     name: str
+    description: str = ""                           # shown on the project card
     instructions: str = ""
     memory: str = ""
+    pinned: bool = False                            # pinned to the sidebar
+    archived: bool = False                          # hidden from the default list
     allowlist: list = Field(default_factory=list, sa_column=Column(JSON))
     owner_id: str | None = Field(default=None, index=True)
     workspace_id: str | None = Field(default=None, index=True)

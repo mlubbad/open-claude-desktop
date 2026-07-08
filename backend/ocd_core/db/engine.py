@@ -108,6 +108,46 @@ def init_db() -> None:
     """Create all tables from SQLModel metadata (dev/tests; prod uses Alembic)."""
     import ocd_core.db.models  # noqa: F401  register tables on the metadata
     SQLModel.metadata.create_all(get_engine())
+    ensure_columns()
+
+
+# New columns added to existing tables over time. create_all() only creates missing
+# TABLES, never missing columns, so an existing local DB (SQLite or Postgres) would be
+# missing these. This idempotent, dialect-agnostic check ALTERs in anything absent —
+# simpler and safer for the local-first default than requiring an Alembic run.
+_ADDED_COLUMNS = {
+    "project": {
+        "description": "VARCHAR",
+        "pinned": "BOOLEAN DEFAULT 0",
+        "archived": "BOOLEAN DEFAULT 0",
+        "owner_id": "VARCHAR",
+        "workspace_id": "VARCHAR",
+    },
+    "conversation": {
+        "pinned": "BOOLEAN DEFAULT 0",
+        "owner_id": "VARCHAR",
+        "workspace_id": "VARCHAR",
+    },
+}
+
+
+def ensure_columns() -> None:
+    from sqlalchemy import inspect, text
+    eng = get_engine()
+    try:
+        insp = inspect(eng)
+        tables = set(insp.get_table_names())
+        with eng.begin() as conn:
+            for table, cols in _ADDED_COLUMNS.items():
+                if table not in tables:
+                    continue
+                existing = {c["name"] for c in insp.get_columns(table)}
+                for name, ddl in cols.items():
+                    if name not in existing:
+                        conn.execute(text(f'ALTER TABLE "{table}" ADD COLUMN {name} {ddl}'))
+    except Exception as e:  # never let a best-effort migration break startup
+        import logging
+        logging.getLogger(__name__).warning("ensure_columns skipped: %s", e)
 
 
 @contextmanager

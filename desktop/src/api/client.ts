@@ -119,7 +119,19 @@ export const GENERAL_PROJECT = "general";
 export interface Project {
   id: string;
   name: string;
+  description?: string;
+  pinned?: boolean;
+  archived?: boolean;
   created_at?: string;
+  updated_at?: string;
+  updated_rel?: string;
+}
+
+export interface ProjectPatch {
+  name?: string;
+  description?: string;
+  pinned?: boolean;
+  archived?: boolean;
 }
 
 export interface Capacity {
@@ -136,12 +148,14 @@ export interface ProjectFile {
 }
 
 export const projects = {
-  list: () => api.get<Project[]>("/projects"),
-  create: (name: string) => api.post<Project>("/projects", { name }),
+  list: (archived = false) => api.get<Project[]>(`/projects${archived ? "?archived=true" : ""}`),
+  create: (name: string, description = "") => api.post<Project>("/projects", { name, description }),
+  update: (pid: string, patch: ProjectPatch) => api.patch<Project>(`/projects/${pid}`, patch),
   del: (pid: string) => api.del<{ ok: boolean }>(`/projects/${pid}`),
   getInstructions: (pid: string) => api.get<{ content: string }>(`/projects/${pid}/instructions`),
   saveInstructions: (pid: string, content: string) =>
     api.put<{ ok: boolean }>(`/projects/${pid}/instructions`, { content }),
+  getMemory: (pid: string) => api.get<{ content: string; updated_rel: string }>(`/projects/${pid}/memory`),
   capacity: (pid: string) => api.get<Capacity>(`/projects/${pid}/capacity`),
   files: (pid: string) => api.get<ProjectFile[]>(`/projects/${pid}/files`),
   uploadFile: async (pid: string, file: File) => {

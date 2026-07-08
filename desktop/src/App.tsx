@@ -62,6 +62,9 @@ export default function App() {
   // Plan mode: the agent researches read-only and proposes a plan to approve before it
   // changes anything. Only meaningful in the interactive Chat/Code views.
   const [planMode, setPlanMode] = useState(false);
+  // HITL autonomy (set in Settings): "strict" asks before every step, "ask" only before
+  // sensitive actions (default), "auto" runs autonomously. Plan mode overrides it.
+  const [approvalMode, setApprovalMode] = useState("ask");
   // The conversation info rail (artifacts + project knowledge), toggled from the top bar.
   const [showInfo, setShowInfo] = useState(false);
   const [showCreateProject, setShowCreateProject] = useState(false);
@@ -88,7 +91,7 @@ export default function App() {
       provider: active.provider,
       model: active.model,
       effort: active.effort,
-      permissionMode: planMode ? "plan" : "ask",
+      permissionMode: planMode ? "plan" : approvalMode,
       projectId: proj.active,
       enabledMcp: connectors.enabled,
       enabledPlugins: pluginMgr.enabled,
@@ -103,7 +106,7 @@ export default function App() {
         ...(view === "code" ? { text_editor: true, bash: true, subagents: true } : {}),
       },
     }),
-    [active, proj.active, connectors.enabled, pluginMgr.enabled, view, planMode],
+    [active, proj.active, connectors.enabled, pluginMgr.enabled, view, planMode, approvalMode],
   );
   const {
     state,
@@ -157,6 +160,7 @@ export default function App() {
       .get()
       .then((s) => {
         setProfileName(s.profile?.call_me || s.profile?.name || "");
+        setApprovalMode(s.permission_mode ?? "ask");
         const seeded = (d: ChatOptions): ChatOptions => ({
           ...d,
           provider: s.provider ?? d.provider,
@@ -169,6 +173,13 @@ export default function App() {
       .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Refresh the autonomy mode whenever the Settings modal closes, so a change there
+  // takes effect on the next turn without a reload.
+  useEffect(() => {
+    if (settingsPage !== null) return;
+    settingsApi.get().then((s) => setApprovalMode(s.permission_mode ?? "ask")).catch(() => {});
+  }, [settingsPage]);
 
   // Project knowledge for the info rail (loaded only while the rail is open).
   const projDetail = useProjectDetail(showInfo ? proj.active : null);

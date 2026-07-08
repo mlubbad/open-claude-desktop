@@ -76,8 +76,15 @@ DEFAULT_SETTINGS = {"model": AGENT_MODEL,
                     #   "local"  — always run locally on this device (no container).
                     #   "off"    — code execution disabled.
                     # Every run is still gated by the HITL approval prompt.
-                    "code_execution": os.getenv("CODE_EXECUTION_MODE", "auto")}
+                    "code_execution": os.getenv("CODE_EXECUTION_MODE", "auto"),
+                    # How much the agent asks before acting (HITL autonomy):
+                    #   "strict" — ask before EVERY tool (approve each step)
+                    #   "ask"    — ask before sensitive actions only (code/shell/files/DB) [default]
+                    #   "auto"   — autonomous: never ask (auto-pilot)
+                    "permission_mode": os.getenv("PERMISSION_MODE", "ask")}
 CODE_EXECUTION_MODES = ("auto", "docker", "local", "off")
+# User-selectable HITL autonomy levels (plan mode is a separate per-turn toggle).
+PERMISSION_MODE_CHOICES = ("strict", "ask", "auto")
 SETTINGS_FILE = REPO_ROOT / "settings.json"
 
 # --- projects / conversations ---

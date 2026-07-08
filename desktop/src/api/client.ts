@@ -84,6 +84,7 @@ export interface AppSettings {
   search_provider?: string; // "ddg" (keyless default) | "searxng"
   searxng_url?: string;
   code_execution?: string; // "auto" | "docker" | "local" | "off"
+  permission_mode?: string; // "strict" | "ask" | "auto" (HITL autonomy)
 }
 
 export const settings = {

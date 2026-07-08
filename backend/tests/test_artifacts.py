@@ -22,6 +22,15 @@ def test_unknown_kind_falls_back_to_markdown():
     assert a["kind"] == "markdown"
 
 
+def test_csv_is_a_creatable_kind():
+    # The model must be able to hand back tabular data as a downloadable table artifact
+    # (kind=csv) instead of pasting rows into the chat reply.
+    a = artifact_tools.create(
+        {"title": "Merged", "kind": "csv", "content": "a,b\n1,2"}, {})
+    assert a["kind"] == "csv"
+    assert "csv" in artifact_tools.KINDS
+
+
 def test_completion_events_emit_artifact_triple():
     out = {
         "id": "c1", "name": "create_artifact", "ok": True, "summary": "Chart · html",

@@ -9,6 +9,7 @@ import {
   previewMarkdown,
   printableHtml,
   slug,
+  sniffDelimiter,
   typeTag,
 } from "./artifactExport";
 
@@ -88,6 +89,15 @@ describe("parseCsv", () => {
   it("ignores a trailing newline and handles CRLF", () => {
     expect(parseCsv("a,b\r\n1,2\r\n").rows).toEqual([["1", "2"]]);
     expect(parseCsv("").columns).toEqual([]);
+  });
+
+  it("auto-detects a semicolon delimiter (European CSV) and tabs", () => {
+    expect(sniffDelimiter("Campaign ID;Date;Country;Clicks")).toBe(";");
+    expect(sniffDelimiter("a,b,c")).toBe(",");
+    expect(sniffDelimiter("a\tb\tc")).toBe("\t");
+    const { columns, rows } = parseCsv("Campaign ID;Date;Country;Clicks\n412;02-07-2026;Saudi Arabia;14");
+    expect(columns).toEqual(["Campaign ID", "Date", "Country", "Clicks"]);
+    expect(rows).toEqual([["412", "02-07-2026", "Saudi Arabia", "14"]]);
   });
 });
 

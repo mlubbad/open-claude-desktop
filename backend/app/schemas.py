@@ -88,6 +88,7 @@ class SettingsBody(BaseModel):
     search_provider: str | None = None
     searxng_url: str | None = None
     code_execution: str | None = None   # auto | docker | local | off
+    permission_mode: str | None = None  # strict | ask | auto (HITL autonomy)
 
 
 class TitleRequest(BaseModel):

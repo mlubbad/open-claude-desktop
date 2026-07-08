@@ -56,10 +56,25 @@ export function mime(kind: string): string {
   return map[kind] ?? "text/plain";
 }
 
-// Parse CSV text into { columns, rows } for the artifact table preview. Handles quoted
-// fields, escaped quotes ("") and commas/newlines inside quotes. Framework-free + tested;
-// the first row is treated as the header.
-export function parseCsv(text: string): { columns: string[]; rows: string[][] } {
+// Sniff the field delimiter from the first (header) line: whichever of comma, semicolon,
+// or tab appears most outside quotes. Models often emit ';'-separated data (European CSV),
+// which would otherwise render as a single column.
+export function sniffDelimiter(text: string): string {
+  const firstLine = text.replace(/\r\n?/g, "\n").split("\n", 1)[0] ?? "";
+  let inQuotes = false;
+  const counts: Record<string, number> = { ",": 0, ";": 0, "\t": 0 };
+  for (const c of firstLine) {
+    if (c === '"') inQuotes = !inQuotes;
+    else if (!inQuotes && c in counts) counts[c]++;
+  }
+  return [",", ";", "\t"].reduce((best, d) => (counts[d] > counts[best] ? d : best), ",");
+}
+
+// Parse CSV/DSV text into { columns, rows } for the artifact table preview. Auto-detects
+// the delimiter (comma/semicolon/tab) and handles quoted fields, escaped quotes ("") and
+// delimiters/newlines inside quotes. Framework-free + tested; the first row is the header.
+export function parseCsv(text: string, delimiter?: string): { columns: string[]; rows: string[][] } {
+  const sep = delimiter ?? sniffDelimiter(text);
   const records: string[][] = [];
   let field = "";
   let row: string[] = [];
@@ -80,7 +95,7 @@ export function parseCsv(text: string): { columns: string[]; rows: string[][] } 
       }
     } else if (c === '"') {
       inQuotes = true;
-    } else if (c === ",") {
+    } else if (c === sep) {
       row.push(field);
       field = "";
     } else if (c === "\n") {

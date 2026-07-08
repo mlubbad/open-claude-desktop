@@ -13,6 +13,7 @@ import {
   printableHtml,
   typeTag,
 } from "../state/artifactExport";
+import { projects as projectApi } from "../api/client";
 import { getDriveClientId, saveToDrive, setDriveClientId } from "../state/gdrive";
 import { type ArtifactDoc, contentAtVersion } from "../state/transcript";
 import { Icon } from "./Icon";
@@ -26,9 +27,17 @@ import { Icon } from "./Icon";
 export function ArtifactPanel({
   doc,
   onClose,
+  projectId = null,
+  projectName = null,
+  onAdded,
 }: {
   doc: ArtifactDoc;
   onClose: () => void;
+  // The conversation's active project (null = General/no project). When set, the
+  // export menu offers "Add to project" to file this artifact into its knowledge base.
+  projectId?: string | null;
+  projectName?: string | null;
+  onAdded?: () => void;
 }) {
   const previewable = isPreviewable(doc.kind);
   const iframePreview = IFRAME_KINDS.has(doc.kind);
@@ -37,6 +46,7 @@ export function ArtifactPanel({
   const [copied, setCopied] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [driveOpen, setDriveOpen] = useState(false);
+  const [addState, setAddState] = useState<"idle" | "adding" | "added" | "error">("idle");
   // Bumping remounts the iframe — the reference's refresh control.
   const [renderKey, setRenderKey] = useState(0);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -97,6 +107,27 @@ export function ArtifactPanel({
     a.download = filename(doc);
     a.click();
     URL.revokeObjectURL(url);
+  }
+
+  // File the current version into the active project's knowledge base, so the agent
+  // can cite it in later turns of the same conversation (Claude-Desktop parity). Uses
+  // the same name/mime the Download action would, so the stored file is well-formed.
+  async function addToProject() {
+    if (!projectId || addState === "adding") return;
+    setAddState("adding");
+    try {
+      const file = new File([shownContent], filename(doc), { type: mime(doc.kind) });
+      await projectApi.uploadFile(projectId, file);
+      setAddState("added");
+      onAdded?.();
+      setTimeout(() => {
+        setMenuOpen(false);
+        setAddState("idle");
+      }, 1200);
+    } catch {
+      setAddState("error");
+      setTimeout(() => setAddState("idle"), 2400);
+    }
   }
 
   function printPdf() {
@@ -206,6 +237,25 @@ export function ArtifactPanel({
                 <button role="menuitem" onClick={() => { setMenuOpen(false); printPdf(); }}>
                   Print as PDF
                 </button>
+                {projectId && (
+                  <>
+                    <div className="artifact-menu-sep" role="separator" />
+                    <button
+                      role="menuitem"
+                      className={addState === "added" ? "is-added" : ""}
+                      disabled={addState === "adding"}
+                      onClick={() => void addToProject()}
+                    >
+                      {addState === "adding"
+                        ? "Adding…"
+                        : addState === "added"
+                          ? "Added ✓"
+                          : addState === "error"
+                            ? "Couldn't add — retry"
+                            : `Add to ${projectName || "project"}`}
+                    </button>
+                  </>
+                )}
               </div>
             )}
           </div>

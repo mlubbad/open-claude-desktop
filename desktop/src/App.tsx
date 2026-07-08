@@ -658,7 +658,15 @@ export default function App() {
         )}
       </div>
 
-      {openDoc && <ArtifactPanel doc={openDoc} onClose={closeArtifact} />}
+      {openDoc && (
+        <ArtifactPanel
+          doc={openDoc}
+          onClose={closeArtifact}
+          projectId={proj.active}
+          projectName={proj.active ? activeProjectName : null}
+          onAdded={() => void projDetail.reload()}
+        />
+      )}
 
       {!openDoc && showInfo && view !== "cowork" && (
         <InfoPanel

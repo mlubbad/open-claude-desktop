@@ -10,16 +10,19 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from . import config, integrations
+from . import integrations
 
 # Directories that only add noise to a code workspace tree.
 _IGNORE_DIRS = {".git", "node_modules", "__pycache__", ".venv", "venv", ".mypy_cache",
-                ".pytest_cache", ".ruff_cache", "dist", "build", ".next", "target"}
+                ".pytest_cache", ".ruff_cache", "dist", "build", ".next", "target",
+                ".exec"}  # code_execution's transient script scratch dir
 
 
 def workspace_root(project: str | None) -> Path:
-    """The on-disk workspace directory for a project (created on demand)."""
-    root = integrations.SANDBOX_ROOT / (project or config.GENERAL_ID)
+    """The on-disk workspace directory for a project (created on demand). The project id
+    is reduced to a safe slug segment so a crafted ``project=../../..`` can't escape
+    SANDBOX_ROOT (the tree/file/download routes all resolve paths under this root)."""
+    root = integrations.SANDBOX_ROOT / integrations.safe_project(project)
     root.mkdir(parents=True, exist_ok=True)
     return root
 
@@ -41,6 +44,16 @@ def list_tree(project: str | None, max_entries: int = 4000) -> list[dict]:
         if len(out) >= max_entries:
             break
     return out
+
+
+def file_path(project: str | None, relpath: str) -> Path | None:
+    """The absolute on-disk path for a workspace file, traversal-jailed. Returns None if
+    the path escapes the workspace or isn't an existing file (used by the download route)."""
+    root = workspace_root(project)
+    target = integrations._jail_path(root, relpath)
+    if target is None or not target.is_file():
+        return None
+    return target
 
 
 def read_file(project: str | None, relpath: str, max_bytes: int = 400_000) -> dict:

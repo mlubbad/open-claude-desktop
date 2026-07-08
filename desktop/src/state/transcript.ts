@@ -4,7 +4,7 @@
 // semantics: thinking-block coalescing with elapsed labels, answer streaming,
 // per-call tool cards upserted by id, sources, and HITL approval prompts.
 
-import type { AgentEvent, ArtifactKind, Source, Usage } from "../api/events";
+import type { AgentEvent, ArtifactKind, ProducedFile, Source, Usage } from "../api/events";
 
 export interface ArtifactDoc {
   id: string;
@@ -39,6 +39,11 @@ export interface ToolCard {
   error?: string;
   table?: { columns: string[]; rows: Record<string, unknown>[]; total: number; bytes: number };
   sources?: Source[];
+  // Live-streamed stdout/stderr from a code_execution run.
+  output?: string;
+  // Files the run produced (workspace-relative) + the project they live under (download).
+  files?: ProducedFile[];
+  filesProject?: string;
 }
 
 export interface ThinkingBlock {
@@ -323,6 +328,13 @@ export function applyEvent(prev: TranscriptState, ev: AgentEvent): TranscriptSta
 
     case "tool_error":
       return updateTool(state, assistant, ev.id, (t) => ({ ...t, status: "error", error: ev.text }));
+
+    case "tool_output_delta":
+      // Append live stdout/stderr to the tool card's running log (streams as it prints).
+      return updateTool(state, assistant, ev.id, (t) => ({ ...t, output: (t.output ?? "") + ev.text }));
+
+    case "files":
+      return updateTool(state, assistant, ev.id, (t) => ({ ...t, files: ev.items, filesProject: ev.project }));
 
     case "table":
       return updateTool(state, assistant, ev.id, (t) => ({

@@ -21,6 +21,10 @@ export type AgentEvent =
     }
   | { type: "tool_result"; id: string; name: string; summary: string }
   | { type: "tool_error"; id: string; name: string; text: string }
+  // Live stdout/stderr from a code_execution run (streamed as the process prints).
+  | { type: "tool_output_delta"; id: string; stream: "stdout" | "stderr"; text: string }
+  // Files a code_execution run produced (saved in the workspace, downloadable).
+  | { type: "files"; id: string; project: string; items: ProducedFile[] }
   | {
       type: "table";
       id: string;
@@ -73,4 +77,12 @@ export interface Source {
   favicon?: string;
 }
 
-export type ArtifactKind = "html" | "react" | "svg" | "mermaid" | "code" | "markdown";
+// A file produced by a code_execution run. `kind` is a display hint ("csv", "image",
+// "code", "binary"…); `path` is workspace-relative.
+export interface ProducedFile {
+  path: string;
+  size: number;
+  kind: string;
+}
+
+export type ArtifactKind = "html" | "react" | "svg" | "mermaid" | "code" | "markdown" | "csv";

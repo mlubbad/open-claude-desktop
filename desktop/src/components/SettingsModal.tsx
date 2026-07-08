@@ -294,6 +294,7 @@ function ProvidersPage({
 function CapabilitiesPage() {
   const [searchProvider, setSearchProvider] = useState("ddg");
   const [searxngUrl, setSearxngUrl] = useState("");
+  const [codeExecution, setCodeExecution] = useState("auto");
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
@@ -302,13 +303,19 @@ function CapabilitiesPage() {
       .then((s) => {
         setSearchProvider(s.search_provider ?? "ddg");
         setSearxngUrl(s.searxng_url ?? "");
+        setCodeExecution(s.code_execution ?? "auto");
       })
       .catch(() => {});
   }, []);
 
-  function save(next: { search_provider?: string; searxng_url?: string }) {
+  function save(next: { search_provider?: string; searxng_url?: string; code_execution?: string }) {
     void settingsApi
-      .save({ search_provider: searchProvider, searxng_url: searxngUrl, ...next })
+      .save({
+        search_provider: searchProvider,
+        searxng_url: searxngUrl,
+        code_execution: codeExecution,
+        ...next,
+      })
       .catch((e) => setErr(String(e)));
   }
 
@@ -337,6 +344,28 @@ function CapabilitiesPage() {
             onBlur={() => save({})}
           />
         )}
+      </div>
+
+      <label className="field-label" htmlFor="cap-exec">Code execution</label>
+      <div className="profile-form">
+        <select
+          id="cap-exec"
+          value={codeExecution}
+          onChange={(e) => {
+            setCodeExecution(e.target.value);
+            save({ code_execution: e.target.value });
+          }}
+        >
+          <option value="auto">Automatic — Docker sandbox if available, else this device</option>
+          <option value="docker">Docker only — strongest isolation (requires Docker)</option>
+          <option value="local">This device — jailed workspace, resource-limited</option>
+          <option value="off">Off — never run code</option>
+        </select>
+        <p className="settings-hint">
+          Lets the agent actually run Python and produce files (a CSV, a chart). Every run is
+          still gated by the Approve prompt. Docker gives the strongest isolation; local mode
+          runs in a confined workspace folder with CPU/output/time limits.
+        </p>
       </div>
     </>
   );

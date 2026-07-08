@@ -5,6 +5,7 @@ import {
   filename,
   isPreviewable,
   mime,
+  parseCsv,
   previewMarkdown,
   printableHtml,
   slug,
@@ -54,6 +55,39 @@ describe("isPreviewable", () => {
   });
   it("is not previewable for unknown kinds", () => {
     expect(isPreviewable("binary")).toBe(false);
+  });
+});
+
+describe("csv artifact", () => {
+  it("is previewable and maps to a .csv/text-csv download", () => {
+    expect(isPreviewable("csv")).toBe(true);
+    expect(ext("csv")).toBe("csv");
+    expect(mime("csv")).toBe("text/csv");
+    expect(typeTag("csv")).toBe("CSV");
+    expect(filename({ title: "Merged Campaign Data", kind: "csv", language: "" })).toBe("merged-campaign-data.csv");
+  });
+});
+
+describe("parseCsv", () => {
+  it("splits a header row and body rows", () => {
+    const { columns, rows } = parseCsv("Country,Clicks\nUS,134\nEgypt,111");
+    expect(columns).toEqual(["Country", "Clicks"]);
+    expect(rows).toEqual([
+      ["US", "134"],
+      ["Egypt", "111"],
+    ]);
+  });
+
+  it("honours quoted fields with commas, escaped quotes, and newlines", () => {
+    const { columns, rows } = parseCsv('a,b\n"x, y","she said ""hi"""\n"multi\nline",z');
+    expect(columns).toEqual(["a", "b"]);
+    expect(rows[0]).toEqual(["x, y", 'she said "hi"']);
+    expect(rows[1]).toEqual(["multi\nline", "z"]);
+  });
+
+  it("ignores a trailing newline and handles CRLF", () => {
+    expect(parseCsv("a,b\r\n1,2\r\n").rows).toEqual([["1", "2"]]);
+    expect(parseCsv("").columns).toEqual([]);
   });
 });
 

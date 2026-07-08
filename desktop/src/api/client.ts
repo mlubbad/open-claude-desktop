@@ -83,6 +83,7 @@ export interface AppSettings {
   profile?: UserProfile;
   search_provider?: string; // "ddg" (keyless default) | "searxng"
   searxng_url?: string;
+  code_execution?: string; // "auto" | "docker" | "local" | "off"
 }
 
 export const settings = {
@@ -343,6 +344,23 @@ export const code = {
       `/code/file?path=${encodeURIComponent(path)}${project ? `&project=${encodeURIComponent(project)}` : ""}`,
     ),
 };
+
+// Download a workspace file a code_execution run produced (a chart PNG, the merged CSV…).
+// Fetches with auth (a plain <a href> wouldn't carry the token), then saves it as a blob.
+export async function downloadWorkspaceFile(path: string, project?: string): Promise<void> {
+  const url =
+    `${BASE}/code/download?path=${encodeURIComponent(path)}` +
+    (project ? `&project=${encodeURIComponent(project)}` : "");
+  const resp = await fetch(url, { headers: authHeaders() });
+  if (!resp.ok) throw new ApiError(resp.status, resp.statusText);
+  const blob = await resp.blob();
+  const objUrl = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = objUrl;
+  a.download = path.split("/").pop() || "file";
+  a.click();
+  URL.revokeObjectURL(objUrl);
+}
 
 export interface SkillSummary {
   name: string;

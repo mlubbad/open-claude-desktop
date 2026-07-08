@@ -8,6 +8,7 @@ import {
   IFRAME_KINDS,
   isPreviewable,
   mime,
+  parseCsv,
   previewMarkdown,
   printableHtml,
   typeTag,
@@ -231,6 +232,8 @@ export function ArtifactPanel({
             sandbox="allow-scripts"
             srcDoc={srcDoc}
           />
+        ) : tab === "preview" && shownDoc.kind === "csv" ? (
+          <CsvTable text={shownContent} />
         ) : tab === "preview" && previewable ? (
           <div className="artifact-render">
             <Markdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
@@ -244,6 +247,46 @@ export function ArtifactPanel({
         )}
       </div>
     </section>
+  );
+}
+
+// Render a CSV artifact as a scrollable table (matching Claude Desktop's data preview).
+// Caps the rendered rows so a huge export can't jank the panel; the Code tab and Download
+// still give the full file.
+const CSV_PREVIEW_ROWS = 500;
+
+function CsvTable({ text }: { text: string }) {
+  const { columns, rows } = useMemo(() => parseCsv(text), [text]);
+  if (columns.length === 0) return <div className="artifact-render">(empty CSV)</div>;
+  const shown = rows.slice(0, CSV_PREVIEW_ROWS);
+  return (
+    <div className="artifact-csv">
+      <table>
+        <thead>
+          <tr>
+            <th className="csv-rownum" aria-hidden="true"></th>
+            {columns.map((c, i) => (
+              <th key={i}>{c}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {shown.map((r, ri) => (
+            <tr key={ri}>
+              <td className="csv-rownum">{ri + 1}</td>
+              {columns.map((_, ci) => (
+                <td key={ci}>{r[ci] ?? ""}</td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {rows.length > CSV_PREVIEW_ROWS && (
+        <div className="csv-more">
+          Showing {CSV_PREVIEW_ROWS} of {rows.length} rows — open Code or Download for all.
+        </div>
+      )}
+    </div>
   );
 }
 

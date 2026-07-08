@@ -1085,3 +1085,33 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-
 .hljs-deletion { color: var(--danger); }
 .hljs-emphasis { font-style: italic; }
 .hljs-strong { font-weight: 700; }
+
+/* ---- code_execution: live output log + produced-files list on the tool card ---- */
+.tool-output { margin: 8px 0 0; padding: 10px 12px; max-height: 260px; overflow: auto;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-sm);
+  font-family: var(--mono); font-size: 12.5px; line-height: 1.55; white-space: pre-wrap;
+  word-break: break-word; color: var(--text); }
+.tool-files { margin-top: 8px; display: flex; flex-direction: column; gap: 4px; }
+.tool-files-label { font-size: 12px; color: var(--muted); margin-bottom: 2px; }
+.tool-file { display: flex; align-items: center; gap: 8px; padding: 5px 8px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-sm); }
+.tool-file-icon { color: var(--muted); display: inline-flex; }
+.tool-file-name { flex: 1; min-width: 0; font-size: 13px; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); }
+.tool-file-size { font-size: 11.5px; color: var(--faint); white-space: nowrap; }
+.tool-file-dl { display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; border-radius: var(--r-sm); color: var(--muted); cursor: pointer; }
+.tool-file-dl:hover { background: var(--card); color: var(--accent); }
+
+/* ---- CSV artifact table preview ---- */
+.artifact-csv { overflow: auto; height: 100%; font-size: 13px; }
+.artifact-csv table { border-collapse: collapse; width: max-content; min-width: 100%; }
+.artifact-csv th, .artifact-csv td { border: 1px solid var(--border); padding: 5px 10px;
+  text-align: left; white-space: nowrap; max-width: 360px; overflow: hidden;
+  text-overflow: ellipsis; }
+.artifact-csv thead th { position: sticky; top: 0; background: var(--card);
+  font-weight: 600; z-index: 1; }
+.artifact-csv tbody tr:nth-child(even) { background: var(--surface); }
+.artifact-csv .csv-rownum { color: var(--faint); text-align: right; font-variant-numeric: tabular-nums;
+  background: var(--card); position: sticky; left: 0; }
+.artifact-csv .csv-more { padding: 10px 12px; font-size: 12px; color: var(--muted); }

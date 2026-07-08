@@ -4,23 +4,23 @@ from fastapi import APIRouter, Depends, HTTPException
 from ocd_core import projects
 
 from ..deps import current_user
-from ..schemas import AllowlistBody, ProjectCreate, TextBody
+from ..schemas import AllowlistBody, ProjectCreate, ProjectPatch, TextBody
 
 router = APIRouter(prefix="/projects")
 
 
 @router.get("")
-def list_projects(view: str = "", user: str = Depends(current_user)) -> list[dict]:
-    rows = projects.list_projects()
+def list_projects(view: str = "", archived: bool = False,
+                  user: str = Depends(current_user)) -> list[dict]:
+    rows = projects.list_projects(include_archived=archived)
     if view == "card":
-        rows = sorted(rows, key=lambda p: p.get("created_at", ""), reverse=True)
         return [projects.project_card_view(p) for p in rows]
     return rows
 
 
 @router.post("")
 def create_project(body: ProjectCreate, user: str = Depends(current_user)) -> dict:
-    return projects.create_project(body.name)
+    return projects.create_project(body.name, body.description or "")
 
 
 @router.get("/{pid}")
@@ -29,6 +29,17 @@ def get_project(pid: str, user: str = Depends(current_user)) -> dict:
     if not p:
         raise HTTPException(404, "not found")
     return p
+
+
+@router.patch("/{pid}")
+def patch_project(pid: str, body: ProjectPatch, user: str = Depends(current_user)) -> dict:
+    """Edit details (name/description) or toggle pinned/archived. Only sent fields change."""
+    updated = projects.update_project(
+        pid, name=body.name, description=body.description,
+        pinned=body.pinned, archived=body.archived)
+    if not updated:
+        raise HTTPException(404, "not found")
+    return updated
 
 
 @router.delete("/{pid}")

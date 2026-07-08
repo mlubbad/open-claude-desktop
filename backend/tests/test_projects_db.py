@@ -1,13 +1,48 @@
 from ocd_core import projects
 
 
-def test_create_get_list_lean_shape(db):
-    meta = projects.create_project("My Cool Project")
-    assert meta == {"id": "my-cool-project", "name": "My Cool Project",
-                    "created_at": meta["created_at"]}
+def test_create_get_list_card_shape(db):
+    meta = projects.create_project("My Cool Project", "Build a cool thing")
+    # Rich card metadata (Claude-Desktop projects grid): name/description/pinned/archived
+    # + created/updated timestamps and a relative "updated" string.
+    assert meta["id"] == "my-cool-project" and meta["name"] == "My Cool Project"
+    assert meta["description"] == "Build a cool thing"
+    assert meta["pinned"] is False and meta["archived"] is False
     assert isinstance(meta["created_at"], str) and "T" in meta["created_at"]  # ISO string
+    assert isinstance(meta["updated_rel"], str)
     assert projects.get_project("my-cool-project")["name"] == "My Cool Project"
     assert [p["id"] for p in projects.list_projects()] == ["my-cool-project"]
+
+
+def test_update_details_pin_archive(db):
+    projects.create_project("Proj", "old desc")
+    # Edit details (name + description) — only sent fields change.
+    projects.update_project("proj", name="Proj Renamed", description="new desc")
+    p = projects.get_project("proj")
+    assert p["name"] == "Proj Renamed" and p["description"] == "new desc"
+    # Pin toggles independently of the other fields.
+    projects.update_project("proj", pinned=True)
+    p = projects.get_project("proj")
+    assert p["pinned"] is True and p["name"] == "Proj Renamed"  # name untouched
+    # Unknown project -> None.
+    assert projects.update_project("nope", pinned=True) is None
+
+
+def test_archived_excluded_from_default_list(db):
+    projects.create_project("Keep")
+    projects.create_project("Gone")
+    projects.update_project("gone", archived=True)
+    assert [p["id"] for p in projects.list_projects()] == ["keep"]
+    ids = {p["id"] for p in projects.list_projects(include_archived=True)}
+    assert ids == {"keep", "gone"}
+
+
+def test_list_sorted_by_updated_desc(db):
+    projects.create_project("First")
+    projects.create_project("Second")
+    # Touching "first" makes it the most-recently-updated -> sorts to the front.
+    projects.update_project("first", description="touched")
+    assert [p["id"] for p in projects.list_projects()][0] == "first"
 
 
 def test_duplicate_name_gets_unique_id(db):

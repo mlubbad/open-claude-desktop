@@ -32,6 +32,9 @@ export type IconName =
   | "chev-down"
   | "chev-right"
   | "dots"
+  | "archive"
+  | "trash"
+  | "image"
   | "mic"
   | "waveform"
   | "arrow-up"
@@ -162,6 +165,27 @@ const PATHS: Record<IconName, React.ReactNode> = {
       <circle cx="3.5" cy="8" r="1.1" fill="currentColor" stroke="none" />
       <circle cx="8" cy="8" r="1.1" fill="currentColor" stroke="none" />
       <circle cx="12.5" cy="8" r="1.1" fill="currentColor" stroke="none" />
+    </>
+  ),
+  archive: (
+    <>
+      <path d="M2 4.5h12V7H2z" />
+      <path d="M3 7v6.5h10V7" />
+      <path d="M6.5 9.5h3" />
+    </>
+  ),
+  trash: (
+    <>
+      <path d="M3 4.5h10" />
+      <path d="M5.5 4.5V3h5v1.5" />
+      <path d="M4 4.5l.7 9h6.6l.7-9" />
+    </>
+  ),
+  image: (
+    <>
+      <rect x="2.5" y="3" width="11" height="10" rx="1.5" />
+      <circle cx="6" cy="6.5" r="1" />
+      <path d="M3 12l3-3 2.5 2.5L11 8l2 2" />
     </>
   ),
 };

@@ -15,9 +15,9 @@ export function Sidebar({
   onView,
   projects,
   activeProject,
-  onSelectProject,
-  onNewProject,
-  onManageProject,
+  projectsActive,
+  onProjects,
+  onOpenProject,
   onArtifacts,
   list,
   currentId,
@@ -35,9 +35,9 @@ export function Sidebar({
   onView: (v: SurfaceView) => void;
   projects: Project[];
   activeProject: string | null;
-  onSelectProject: (pid: string | null) => void;
-  onNewProject: (name: string) => void;
-  onManageProject: () => void;
+  projectsActive: boolean;
+  onProjects: () => void;
+  onOpenProject: (pid: string) => void;
   onArtifacts: () => void;
   list: ConversationSummary[];
   currentId: string | null;
@@ -51,21 +51,13 @@ export function Sidebar({
   onCustomize: () => void;
   modelLabel: string;
 }) {
-  const [projectsOpen, setProjectsOpen] = useState(false);
-  const [newProjectDraft, setNewProjectDraft] = useState<string | null>(null);
   const [renaming, setRenaming] = useState<{ id: string; draft: string } | null>(null);
   const [menuFor, setMenuFor] = useState<string | null>(null); // conv id with its ⋮ menu open
   const [pinnedOpen, setPinnedOpen] = useState(true);
-  const activeName = projects.find((p) => p.id === activeProject)?.name;
   // Pinned chats get their own section above Recents; the rest stay in Recents.
   const pinned = list.filter((c) => c.pinned);
   const recents = list.filter((c) => !c.pinned);
-
-  function commitNewProject() {
-    const name = (newProjectDraft ?? "").trim();
-    if (name) onNewProject(name);
-    setNewProjectDraft(null);
-  }
+  const pinnedProjects = projects.filter((p) => p.pinned);
 
   function commitRename(c: ConversationSummary, pid: string) {
     const title = (renaming?.draft ?? "").trim();
@@ -166,73 +158,25 @@ export function Sidebar({
           {view === "cowork" ? "New task" : "New chat"}
         </button>
         <button
-          className="side-row"
-          aria-expanded={projectsOpen}
-          onClick={() => setProjectsOpen((o) => !o)}
+          className={`side-row ${projectsActive ? "active" : ""}`}
+          aria-current={projectsActive ? "page" : undefined}
+          onClick={onProjects}
         >
           <span className="side-ic"><Icon name="folder" /></span> Projects
-          {activeName && <span className="side-current">{activeName}</span>}
-          <span className="side-caret">{projectsOpen ? "▾" : "▸"}</span>
         </button>
-        {projectsOpen && (
-          <div className="project-flyout">
-            <button
-              className={`project-row ${activeProject === null ? "active" : ""}`}
-              onClick={() => onSelectProject(null)}
-            >
-              General
-            </button>
-            {projects.map((p) => (
+        {pinnedProjects.length > 0 && (
+          <div className="side-pinned-projects">
+            {pinnedProjects.map((p) => (
               <button
                 key={p.id}
                 className={`project-row ${p.id === activeProject ? "active" : ""}`}
-                onClick={() => onSelectProject(p.id)}
+                title={p.name}
+                onClick={() => onOpenProject(p.id)}
               >
-                {p.name}
+                <span className="project-row-pin" aria-hidden="true"><Icon name="pin-filled" size={11} /></span>
+                <span className="project-row-name">{p.name}</span>
               </button>
             ))}
-            {newProjectDraft === null ? (
-              <button className="project-row new" onClick={() => setNewProjectDraft("")}>
-                ＋ New project…
-              </button>
-            ) : (
-              // Cancel only when focus leaves the whole row — Tab from the input to
-              // the Add button must not discard the draft (keyboard path).
-              <div
-                className="project-new-row"
-                onBlur={(e) => {
-                  if (!e.currentTarget.contains(e.relatedTarget as Node)) setNewProjectDraft(null);
-                }}
-              >
-                <input
-                  className="project-new-input"
-                  autoFocus
-                  placeholder="Project name"
-                  aria-label="New project name"
-                  value={newProjectDraft}
-                  onChange={(e) => setNewProjectDraft(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") commitNewProject();
-                    if (e.key === "Escape") setNewProjectDraft(null);
-                  }}
-                />
-                {/* mousedown fires before the input's blur — the click always lands. */}
-                <button
-                  className="project-new-add"
-                  aria-label="Create project"
-                  disabled={!(newProjectDraft ?? "").trim()}
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={commitNewProject}
-                >
-                  Add
-                </button>
-              </div>
-            )}
-            {activeProject && (
-              <button className="project-row manage" onClick={onManageProject}>
-                Manage “{activeName}”
-              </button>
-            )}
           </div>
         )}
         <button className="side-row" onClick={onArtifacts}>

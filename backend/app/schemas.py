@@ -51,6 +51,14 @@ class PermissionReply(BaseModel):
 
 class ProjectCreate(BaseModel):
     name: str
+    description: str = ""
+
+
+class ProjectPatch(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    pinned: bool | None = None
+    archived: bool | None = None
 
 
 class TextBody(BaseModel):       # instructions / memory

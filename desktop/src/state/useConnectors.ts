@@ -10,6 +10,33 @@ export function toggleId(ids: string[], id: string): string[] {
   return ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id];
 }
 
+const ENABLED_KEY = "ocd.enabledConnectors";
+
+function loadEnabled(): string[] {
+  try {
+    const v = JSON.parse(localStorage.getItem(ENABLED_KEY) ?? "[]");
+    return Array.isArray(v) ? v.filter((x) => typeof x === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveEnabled(ids: string[]): void {
+  try {
+    localStorage.setItem(ENABLED_KEY, JSON.stringify(ids));
+  } catch {
+    /* storage unavailable */
+  }
+}
+
+// Keep only enabled ids whose server is present AND not erroring — so a connector
+// that has since failed (auth expired, process gone) is dropped from the set fed to
+// the model instead of lingering and being reached for on every turn. Pure for tests.
+export function reconcileEnabled(enabled: string[], servers: { id: string; status: string }[]): string[] {
+  const healthy = new Set(servers.filter((s) => s.status !== "error").map((s) => s.id));
+  return enabled.filter((id) => healthy.has(id));
+}
+
 // The user_config fields an extension REQUIRES the user to supply before it can
 // launch. Fields with a default are pre-filled by the backend, so only
 // required-and-defaultless ones need prompting. Kept pure for testing.
@@ -23,12 +50,16 @@ export function requiredFields(
 
 export function useConnectors() {
   const [servers, setServers] = useState<McpServer[]>([]);
-  const [enabled, setEnabled] = useState<string[]>([]);
+  // Enabled set persists across sessions (a user's on/off choice sticks), and is
+  // reconciled against the live server list so an erroring connector drops out.
+  const [enabled, setEnabled] = useState<string[]>(loadEnabled);
   const [err, setErr] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
-      setServers(await mcp.list());
+      const list = await mcp.list();
+      setServers(list);
+      setEnabled((ids) => reconcileEnabled(ids, list));
     } catch (e) {
       setErr(String(e));
     }
@@ -37,6 +68,11 @@ export function useConnectors() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // Mirror every change to the enabled set into localStorage.
+  useEffect(() => {
+    saveEnabled(enabled);
+  }, [enabled]);
 
   const add = useCallback(
     async (body: AddMcpBody) => {

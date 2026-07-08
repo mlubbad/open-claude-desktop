@@ -222,13 +222,17 @@ def test_connector(cid: str) -> str:
 
 def list_connectors() -> list[dict]:
     connectors = []
-    try:
-        bigquery.get_bq_client()
-        connectors.append({"id": "bigquery", "name": "BigQuery", "type": "builtin",
-                           "status": "connected", "detail": config.PROJECT_ID})
-    except Exception as e:
-        connectors.append({"id": "bigquery", "name": "BigQuery", "type": "builtin",
-                           "status": "error", "detail": str(e)[:80]})
+    # BigQuery is an OPT-IN builtin: only advertise (and only touch Google auth) when
+    # it's actually configured. A general model-agnostic install must not surface a
+    # permanent "BigQuery — error" connector or run gcloud auth on every listing.
+    if config.BIGQUERY_ENABLED:
+        try:
+            bigquery.get_bq_client()
+            connectors.append({"id": "bigquery", "name": "BigQuery", "type": "builtin",
+                               "status": "connected", "detail": config.PROJECT_ID})
+        except Exception as e:
+            connectors.append({"id": "bigquery", "name": "BigQuery", "type": "builtin",
+                               "status": "error", "detail": str(e)[:80]})
     try:
         chroma._get_chroma()
         connectors.append({"id": "chromadb", "name": "ChromaDB (KB)", "type": "builtin",
@@ -762,6 +766,26 @@ def mcp_tools(enabled_ids: list[str]) -> list[dict]:
     return out
 
 
+# A tool result carrying one of these means the connector needs re-auth, not that
+# the model learned a fact — so we tag it to stop the agent inventing conclusions.
+_AUTH_FAILURE_SIGNATURES = (
+    "reauthentication", "gcloud auth", "application-default login", "invalid_grant",
+    "invalid_rapt", "refresherror", "could not automatically determine credentials",
+    "unauthorized", "permission denied", "access token", "not authenticated",
+)
+
+
+def _tag_auth_failure(result: str) -> str:
+    """If a tool result reads like an auth failure, append a directive so a weak model
+    doesn't treat the error text as data and hallucinate about the app."""
+    if any(sig in result.lower() for sig in _AUTH_FAILURE_SIGNATURES):
+        return (result + "\n\n[TOOL UNAVAILABLE — authentication problem. Do NOT infer "
+                "anything about this application or its design from this error. Either "
+                "answer from your own knowledge or tell the user the connector needs to "
+                "be reconnected. Do not retry this tool.]")
+    return result
+
+
 def call_mcp(full_name: str, args: dict) -> str:
     for s in _load_mcp_servers():
         prefix = f"mcp_{s['id']}_"
@@ -769,9 +793,9 @@ def call_mcp(full_name: str, args: dict) -> str:
             tool = full_name[len(prefix):]
             if any(t["name"] == tool for t in s.get("tools", [])):
                 try:
-                    return mcp_registry.registry.call(_resolve_cfg(s), tool, args or {})
+                    return _tag_auth_failure(mcp_registry.registry.call(_resolve_cfg(s), tool, args or {}))
                 except Exception as e:
-                    return f"MCP '{s['id']}' call failed: {str(e)[:200]}"
+                    return _tag_auth_failure(f"MCP '{s['id']}' call failed: {str(e)[:200]}")
     return f"MCP tool '{full_name}' not found."
 
 

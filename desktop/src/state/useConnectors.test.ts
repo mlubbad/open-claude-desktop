@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { requiredFields, toggleId } from "./useConnectors";
+import { reconcileEnabled, requiredFields, toggleId } from "./useConnectors";
 
 describe("toggleId", () => {
   it("adds an id that is absent", () => {
@@ -27,5 +27,23 @@ describe("requiredFields", () => {
   it("handles missing/empty user_config", () => {
     expect(requiredFields(undefined)).toEqual([]);
     expect(requiredFields({})).toEqual([]);
+  });
+});
+
+describe("reconcileEnabled", () => {
+  const servers = [
+    { id: "slack", status: "connected" },
+    { id: "bigquery", status: "error" }, // auth failed → must drop out
+    { id: "gmail", status: "connected" },
+  ];
+  it("drops enabled ids that are erroring or gone", () => {
+    // bigquery is enabled but now erroring → removed; a stale id ("old") → removed.
+    expect(reconcileEnabled(["slack", "bigquery", "old"], servers)).toEqual(["slack"]);
+  });
+  it("keeps healthy enabled ids", () => {
+    expect(reconcileEnabled(["slack", "gmail"], servers)).toEqual(["slack", "gmail"]);
+  });
+  it("is empty when nothing is enabled", () => {
+    expect(reconcileEnabled([], servers)).toEqual([]);
   });
 });

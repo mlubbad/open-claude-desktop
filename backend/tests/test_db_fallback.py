@@ -23,8 +23,8 @@ def test_unreachable_postgres_falls_back_to_sqlite(monkeypatch, tmp_path):
     # The live engine now speaks SQLite, and a round-trip works.
     assert engine.get_engine().url.get_backend_name() == "sqlite"
     engine.init_db()
-    from sqlmodel import select
     from ocd_core.db.models import Project
+    from sqlmodel import select
     with engine.session() as s:
         s.add(Project(id="fb1", name="Fallback works"))
     with engine.session() as s:

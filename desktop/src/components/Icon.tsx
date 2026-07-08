@@ -38,7 +38,11 @@ export type IconName =
   | "arrow-right"
   | "share"
   | "search"
-  | "pin-angle";
+  | "pin-angle"
+  | "eye"
+  | "code"
+  | "expand"
+  | "cloud-up";
 
 const PATHS: Record<IconName, React.ReactNode> = {
   pencil: <path d="M11.3 2.7l2 2L5 13H3v-2l8.3-8.3zM10 4l2 2" />,
@@ -139,6 +143,20 @@ const PATHS: Record<IconName, React.ReactNode> = {
     </>
   ),
   "pin-angle": <path d="M9.5 2.5l4 4-2 .5-3 3-.5 2.5-4-4 2.5-.5 3-3 .5-2z" />,
+  eye: (
+    <>
+      <path d="M1.8 8s2.3-4 6.2-4 6.2 4 6.2 4-2.3 4-6.2 4-6.2-4-6.2-4z" />
+      <circle cx="8" cy="8" r="1.8" />
+    </>
+  ),
+  code: <path d="M5.5 4.5L2 8l3.5 3.5M10.5 4.5L14 8l-3.5 3.5" />,
+  expand: <path d="M9.5 2.5h4v4M13.5 2.5L9 7M6.5 13.5h-4v-4M2.5 13.5L7 9" />,
+  "cloud-up": (
+    <>
+      <path d="M4.5 12.5a3 3 0 0 1-.3-6A4 4 0 0 1 12 7.6a2.5 2.5 0 0 1-.5 4.9" />
+      <path d="M8 13.5V8.5M5.9 10.4L8 8.3l2.1 2.1" />
+    </>
+  ),
   dots: (
     <>
       <circle cx="3.5" cy="8" r="1.1" fill="currentColor" stroke="none" />

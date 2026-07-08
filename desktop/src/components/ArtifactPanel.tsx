@@ -1,11 +1,16 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
+import { filename, mime, printableHtml, typeTag } from "../state/artifactExport";
+import { getDriveClientId, saveToDrive, setDriveClientId } from "../state/gdrive";
 import { type ArtifactDoc, contentAtVersion } from "../state/transcript";
+import { Icon } from "./Icon";
 
-// Renders an artifact in a side panel with a Preview/Code toggle and version
-// navigation. Preview runs in a sandboxed iframe (sandbox="allow-scripts" WITHOUT
-// allow-same-origin) so model-generated HTML/SVG/React/Mermaid cannot touch the host
-// page, cookies, or storage.
+// Renders an artifact in a side panel, matching the reference chrome: an eye/code
+// view toggle on the left of the title (with its type tag), and on the right a
+// Save-to-Drive button, a Copy split-button (Download / Print as PDF), refresh,
+// expand (full-screen), and close. Preview runs in a sandboxed iframe
+// (sandbox="allow-scripts" WITHOUT allow-same-origin) so model-generated
+// HTML/SVG/React/Mermaid cannot touch the host page, cookies, or storage.
 export function ArtifactPanel({
   doc,
   onClose,
@@ -15,6 +20,14 @@ export function ArtifactPanel({
 }) {
   const previewable = doc.kind === "html" || doc.kind === "svg" || doc.kind === "mermaid" || doc.kind === "react";
   const [tab, setTab] = useState<"preview" | "code">(previewable ? "preview" : "code");
+  const [expanded, setExpanded] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [driveOpen, setDriveOpen] = useState(false);
+  // Bumping remounts the iframe — the reference's refresh control.
+  const [renderKey, setRenderKey] = useState(0);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const driveRef = useRef<HTMLDivElement>(null);
 
   // Which version is on screen. Snap to the newest whenever a new version lands so a
   // fresh revision is shown live; the user can then page back through the history.
@@ -29,24 +42,86 @@ export function ArtifactPanel({
 
   const srcDoc = useMemo(() => (previewable ? buildSrcDoc(shownDoc) : ""), [shownDoc, previewable]);
 
+  // Dismiss popovers on outside click / Escape (Escape swallowed from the global handler).
+  useEffect(() => {
+    if (!menuOpen && !driveOpen) return;
+    function onDoc(e: MouseEvent) {
+      if (!menuRef.current?.contains(e.target as Node)) setMenuOpen(false);
+      if (!driveRef.current?.contains(e.target as Node)) setDriveOpen(false);
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        e.preventDefault();
+        setMenuOpen(false);
+        setDriveOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey, true);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKey, true);
+    };
+  }, [menuOpen, driveOpen]);
+
   function copy() {
     void navigator.clipboard?.writeText(shownContent);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1200);
   }
+
   function download() {
-    const blob = new Blob([shownContent], { type: "text/plain" });
+    const blob = new Blob([shownContent], { type: mime(doc.kind) });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${slug(doc.title)}.${ext(doc)}`;
+    a.download = filename(doc);
     a.click();
     URL.revokeObjectURL(url);
   }
 
+  function printPdf() {
+    const html = printableHtml(doc.title, shownContent, previewable ? srcDoc : undefined);
+    const w = window.open("", "_blank");
+    if (!w) return;
+    w.document.write(html);
+    w.document.close();
+    // Give the document (and any scripts, e.g. mermaid) a beat to render.
+    setTimeout(() => w.print(), 400);
+  }
+
+  const tag = typeTag(doc.kind, doc.language);
+
   return (
-    <section className="artifact-panel">
+    <section className={`artifact-panel ${expanded ? "expanded" : ""}`}>
       <header className="artifact-head">
+        <div className="artifact-view-toggle" role="tablist" aria-label="View mode">
+          <button
+            role="tab"
+            aria-selected={tab === "preview"}
+            className={tab === "preview" ? "active" : ""}
+            title="Preview"
+            aria-label="Preview"
+            disabled={!previewable}
+            onClick={() => setTab("preview")}
+          >
+            <Icon name="eye" size={15} />
+          </button>
+          <button
+            role="tab"
+            aria-selected={tab === "code"}
+            className={tab === "code" ? "active" : ""}
+            title="Code"
+            aria-label="Code"
+            onClick={() => setTab("code")}
+          >
+            <Icon name="code" size={15} />
+          </button>
+        </div>
         <div className="artifact-title" title={doc.title}>
-          {doc.title}
+          <span className="artifact-title-text">{doc.title}</span>
+          <span className="artifact-tag">· {tag}</span>
           {total > 1 && (
             <span className="artifact-vernav">
               <button
@@ -73,30 +148,67 @@ export function ArtifactPanel({
           {doc.streaming && <span className="artifact-streaming">•••</span>}
         </div>
         <div className="artifact-actions">
-          {previewable && (
-            <div className="artifact-tabs">
-              <button className={tab === "preview" ? "active" : ""} onClick={() => setTab("preview")}>
-                Preview
-              </button>
-              <button className={tab === "code" ? "active" : ""} onClick={() => setTab("code")}>
-                Code
-              </button>
-            </div>
-          )}
-          <button onClick={copy} title="Copy">
-            Copy
+          <div className="artifact-pop-anchor" ref={driveRef}>
+            <button
+              className="artifact-ic"
+              title="Save to Google Drive"
+              aria-label="Save to Google Drive"
+              aria-expanded={driveOpen}
+              onClick={() => setDriveOpen((o) => !o)}
+            >
+              <Icon name="cloud-up" size={16} />
+            </button>
+            {driveOpen && (
+              <DrivePopover
+                name={filename(doc)}
+                mimeType={mime(doc.kind)}
+                content={shownContent}
+                onClose={() => setDriveOpen(false)}
+              />
+            )}
+          </div>
+          <div className="artifact-split" ref={menuRef}>
+            <button className="artifact-split-main" onClick={copy}>
+              {copied ? "Copied" : "Copy"}
+            </button>
+            <button
+              className="artifact-split-caret"
+              title="Export options"
+              aria-label="Export options"
+              aria-expanded={menuOpen}
+              onClick={() => setMenuOpen((o) => !o)}
+            >
+              <Icon name="chev-down" size={12} />
+            </button>
+            {menuOpen && (
+              <div className="artifact-menu" role="menu" aria-label="Export">
+                <button role="menuitem" onClick={() => { setMenuOpen(false); download(); }}>
+                  Download as {tag}
+                </button>
+                <button role="menuitem" onClick={() => { setMenuOpen(false); printPdf(); }}>
+                  Print as PDF
+                </button>
+              </div>
+            )}
+          </div>
+          <button className="artifact-ic" title="Refresh preview" aria-label="Refresh preview"
+                  onClick={() => setRenderKey((k) => k + 1)}>
+            <Icon name="retry" size={15} />
           </button>
-          <button onClick={download} title="Download">
-            ↓
+          <button className="artifact-ic" title={expanded ? "Collapse" : "Expand"}
+                  aria-label={expanded ? "Collapse" : "Expand"} aria-pressed={expanded}
+                  onClick={() => setExpanded((e) => !e)}>
+            <Icon name="expand" size={15} />
           </button>
-          <button onClick={onClose} title="Close">
-            ✕
+          <button className="artifact-ic" onClick={onClose} title="Close" aria-label="Close">
+            <Icon name="x" size={15} />
           </button>
         </div>
       </header>
       <div className="artifact-body">
         {tab === "preview" && previewable ? (
           <iframe
+            key={renderKey}
             className="artifact-preview"
             title={doc.title}
             sandbox="allow-scripts"
@@ -109,6 +221,107 @@ export function ArtifactPanel({
         )}
       </div>
     </section>
+  );
+}
+
+// The Save-to-Drive popover. BYOK: uploads with the USER'S OWN Google OAuth Client
+// ID (stored locally); first use asks for it with pointers, later uses are one click.
+function DrivePopover({
+  name,
+  mimeType,
+  content,
+  onClose,
+}: {
+  name: string;
+  mimeType: string;
+  content: string;
+  onClose: () => void;
+}) {
+  const [clientId, setClientId] = useState(getDriveClientId());
+  const [draft, setDraft] = useState(clientId);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [link, setLink] = useState<string | null>(null);
+
+  async function upload() {
+    setBusy(true);
+    setErr(null);
+    try {
+      const res = await saveToDrive({ clientId, name, mimeType, content });
+      setLink(res.link);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="drive-pop" role="dialog" aria-label="Save to Google Drive">
+      <div className="drive-title">Save to Google Drive</div>
+      {!clientId ? (
+        <>
+          <p className="drive-help">
+            Bring your own Google OAuth <strong>Client ID</strong> (Web application type,
+            with this app's origin authorized). It's stored only on this device and the
+            upload goes straight from your browser to your Drive.
+          </p>
+          <input
+            className="drive-input"
+            placeholder="xxxxxxxx.apps.googleusercontent.com"
+            aria-label="Google OAuth Client ID"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+          />
+          <div className="drive-actions">
+            <button className="btn-secondary" onClick={onClose}>Cancel</button>
+            <button
+              className="btn-primary"
+              disabled={!draft.trim()}
+              onClick={() => {
+                setDriveClientId(draft);
+                setClientId(draft.trim());
+              }}
+            >
+              Save
+            </button>
+          </div>
+        </>
+      ) : link ? (
+        <>
+          <p className="drive-help">
+            Saved as <strong>{name}</strong>.{" "}
+            <a href={link} target="_blank" rel="noreferrer">Open in Drive</a>
+          </p>
+          <div className="drive-actions">
+            <button className="btn-secondary" onClick={onClose}>Done</button>
+          </div>
+        </>
+      ) : (
+        <>
+          <p className="drive-help">
+            Upload <strong>{name}</strong> to your Drive (scope: files this app created only).
+          </p>
+          {err && <p className="drive-err">{err}</p>}
+          <div className="drive-actions">
+            <button
+              className="drive-reset"
+              title="Change Client ID"
+              onClick={() => {
+                setDriveClientId("");
+                setClientId("");
+              }}
+            >
+              Change ID
+            </button>
+            <button className="btn-secondary" onClick={onClose}>Cancel</button>
+            <button className="btn-primary" disabled={busy} onClick={() => void upload()}>
+              {busy ? "Uploading…" : "Upload"}
+            </button>
+          </div>
+        </>
+      )}
+    </div>
   );
 }
 
@@ -139,20 +352,4 @@ function buildSrcDoc(doc: ArtifactDoc): string {
 
 function escapeHtml(s: string): string {
   return s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c] ?? c);
-}
-
-function slug(s: string): string {
-  return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "artifact";
-}
-
-function ext(doc: ArtifactDoc): string {
-  const map: Record<string, string> = {
-    html: "html",
-    svg: "svg",
-    mermaid: "mmd",
-    react: "jsx",
-    markdown: "md",
-    code: doc.language || "txt",
-  };
-  return map[doc.kind] ?? "txt";
 }

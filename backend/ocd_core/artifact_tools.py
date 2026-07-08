@@ -8,19 +8,22 @@ the per-turn artifact store live here; the agent loop emits `artifact_open` /
 """
 from __future__ import annotations
 
-KINDS = ("html", "react", "svg", "mermaid", "code", "markdown")
+KINDS = ("html", "react", "svg", "mermaid", "code", "markdown", "csv")
 
 CREATE_ARTIFACT_TOOL = {"type": "function", "function": {
     "name": "create_artifact",
     "description": "Create a standalone, renderable document shown in the side panel: a "
                    "complete HTML page, a React component, an SVG, a Mermaid diagram, a "
-                   "code file, or a long Markdown document. Use this for substantial, "
-                   "self-contained content the user will view, copy, or iterate on — NOT "
-                   "for short inline snippets. Provide the FULL content.",
+                   "code file, a long Markdown document, or a CSV data table (kind=csv, "
+                   "shown as a downloadable table). Use this for substantial, "
+                   "self-contained content the user will view, copy, download, or iterate "
+                   "on — NOT for short inline snippets. Provide the FULL content.",
     "parameters": {"type": "object", "properties": {
         "title": {"type": "string", "description": "Short human title for the artifact."},
         "kind": {"type": "string", "enum": list(KINDS),
-                 "description": "The artifact type."},
+                 "description": "The artifact type. Use 'csv' for tabular/spreadsheet data "
+                                "(comma-separated; it renders as a table and downloads as a "
+                                ".csv the user can open in Excel/Sheets)."},
         "language": {"type": "string",
                      "description": "For kind=code, the language (e.g. python, ts)."},
         "content": {"type": "string", "description": "The COMPLETE artifact content."}},
@@ -43,12 +46,20 @@ TOOL_NAMES = frozenset(t["function"]["name"] for t in TOOL_SPECS)
 def system_prompt_section() -> str:
     return """# ARTIFACTS
 When you produce substantial, self-contained content the user will view, run, copy, \
-or iterate on — a complete HTML page, a React component, an SVG or Mermaid diagram, a \
-code file, or a long Markdown document — call `create_artifact` with the FULL content \
-instead of putting it inline in your reply. Keep your chat message a brief description; \
-the artifact opens in a side panel. To revise it, call `update_artifact` with the \
-artifact id and the complete new content. Use short inline code blocks (not artifacts) \
-for small snippets."""
+download, or iterate on — a complete HTML page, a React component, an SVG or Mermaid \
+diagram, a code file, a long Markdown document, or a DATA TABLE / spreadsheet — call \
+`create_artifact` with the FULL content instead of putting it inline in your reply. Keep \
+your chat message a brief description; the artifact opens in a side panel. To revise it, \
+call `update_artifact` with the artifact id and the complete new content. Use short inline \
+code blocks (not artifacts) for small snippets.
+
+When the user asks for a FILE, spreadsheet, or CSV of data, you MUST deliver it as an \
+artifact — never paste the rows into your chat reply and never tell the user to \
+copy-paste the text into a text editor and save it. For tabular data use \
+`create_artifact` with kind=csv (comma-separated; it renders as a table and downloads as \
+a .csv). If the data must be COMPUTED, merged, or read from files first, use the \
+`code_execution` tool to build it and write the file (e.g. `df.to_csv('out.csv', \
+index=False)`) — the file it writes is shown to the user as a downloadable artifact."""
 
 
 def create(args: dict, store: dict, artifact_id: str | None = None) -> dict:

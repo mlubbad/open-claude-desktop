@@ -295,6 +295,7 @@ function CapabilitiesPage() {
   const [searchProvider, setSearchProvider] = useState("ddg");
   const [searxngUrl, setSearxngUrl] = useState("");
   const [codeExecution, setCodeExecution] = useState("auto");
+  const [permissionMode, setPermissionMode] = useState("ask");
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
@@ -304,16 +305,23 @@ function CapabilitiesPage() {
         setSearchProvider(s.search_provider ?? "ddg");
         setSearxngUrl(s.searxng_url ?? "");
         setCodeExecution(s.code_execution ?? "auto");
+        setPermissionMode(s.permission_mode ?? "ask");
       })
       .catch(() => {});
   }, []);
 
-  function save(next: { search_provider?: string; searxng_url?: string; code_execution?: string }) {
+  function save(next: {
+    search_provider?: string;
+    searxng_url?: string;
+    code_execution?: string;
+    permission_mode?: string;
+  }) {
     void settingsApi
       .save({
         search_provider: searchProvider,
         searxng_url: searxngUrl,
         code_execution: codeExecution,
+        permission_mode: permissionMode,
         ...next,
       })
       .catch((e) => setErr(String(e)));
@@ -362,9 +370,31 @@ function CapabilitiesPage() {
           <option value="off">Off — never run code</option>
         </select>
         <p className="settings-hint">
-          Lets the agent actually run Python and produce files (a CSV, a chart). Every run is
-          still gated by the Approve prompt. Docker gives the strongest isolation; local mode
-          runs in a confined workspace folder with CPU/output/time limits.
+          Lets the agent actually run Python and produce files (a CSV, a chart). Docker gives
+          the strongest isolation; local mode runs in a confined workspace folder with
+          CPU/memory/output/time limits. How often it asks you first is set below.
+        </p>
+      </div>
+
+      <label className="field-label" htmlFor="cap-perm">Approvals &amp; autonomy</label>
+      <div className="profile-form">
+        <select
+          id="cap-perm"
+          value={permissionMode}
+          onChange={(e) => {
+            setPermissionMode(e.target.value);
+            save({ permission_mode: e.target.value });
+          }}
+        >
+          <option value="strict">Approve every step — confirm before each tool runs</option>
+          <option value="ask">Approve sensitive steps — confirm code, shell, file &amp; data actions (default)</option>
+          <option value="auto">Autonomous — run everything without asking (auto-pilot)</option>
+        </select>
+        <p className="settings-hint">
+          Controls how often the agent pauses for your approval. “Autonomous” lets it run
+          code and multi-step tasks end-to-end without prompting — convenient for trusted
+          work, but it will execute tool actions (including code) on its own. The Plan-mode
+          toggle in the composer still works on top of this.
         </p>
       </div>
     </>

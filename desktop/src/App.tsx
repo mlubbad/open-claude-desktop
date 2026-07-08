@@ -333,7 +333,17 @@ export default function App() {
   // Composer control wiring (contract §2/§3/§4). Model + effort persist per
   // conversation via applyOptions; Research / Web-search flow into the request options.
   const addMenu: AddMenuInfo = {
-    onAddToProject: () => (proj.active ? setShowProject(true) : setShowCreateProject(true)),
+    projects: proj.list.map((p) => ({ id: p.id, name: p.name })),
+    activeProjectId: proj.active,
+    // File this conversation under the picked project (null = General). A saved chat is
+    // moved server-side (move() keeps current.pid + Recents in sync); an unsaved one just
+    // sets the context so its first message lands in that project.
+    onPickProject: (id) => {
+      const dstPid = id ?? "general";
+      if (current?.cid && current.pid !== dstPid) void move(current.cid, current.pid, dstPid);
+      setActiveProject(id);
+    },
+    onCreateProject: () => setShowCreateProject(true),
     onAddFromGitHub: () => setSettingsPage("connectors"),
     openSkills: () => setSettingsPage("skills"),
     openConnectors: () => setSettingsPage("connectors"),

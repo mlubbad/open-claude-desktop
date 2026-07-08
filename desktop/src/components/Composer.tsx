@@ -10,10 +10,21 @@ import { ModelPicker } from "./ModelPicker";
 // Backwards-compatible effort list (kept for existing imports/tests).
 export const EFFORT_LEVELS = ["Low", "Medium", "High", "Extra", "Max"] as const;
 
+// A project the current conversation can be filed under (null id slot = General).
+export interface ProjectRef {
+  id: string;
+  name: string;
+}
+
 // The full `+` Add menu (contract §2): file/project/GitHub adds, the Skills/
 // Connectors/Plugins jumps, and the Research / Web-search request toggles.
 export interface AddMenuInfo {
-  onAddToProject: () => void;
+  // "Add to project" flyout: the projects to file THIS conversation under, the one
+  // it currently lives in (null = General), and the pick / create handlers.
+  projects: ProjectRef[];
+  activeProjectId: string | null;
+  onPickProject: (id: string | null) => void;
+  onCreateProject: () => void;
   onAddFromGitHub: () => void;
   openSkills: () => void;
   openConnectors: () => void;
@@ -72,6 +83,7 @@ export function Composer({
   const [sel, setSel] = useState(0);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [addOpen, setAddOpen] = useState(false);
+  const [projSub, setProjSub] = useState(false); // "Add to project" flyout open
   const [modelOpen, setModelOpen] = useState(false);
   const [micOpen, setMicOpen] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -115,7 +127,10 @@ export function Composer({
   // Dismiss the add menu on outside click / Escape (Escape swallowed so it doesn't
   // reach the global handler that stops generation).
   useEffect(() => {
-    if (!addOpen) return;
+    if (!addOpen) {
+      setProjSub(false); // collapse the project flyout when the menu closes
+      return;
+    }
     function onDoc(e: MouseEvent) {
       if (!addRef.current?.contains(e.target as Node)) setAddOpen(false);
     }
@@ -275,11 +290,57 @@ export function Composer({
                 Add files or photos
                 <span className="add-shortcut">Ctrl+U</span>
               </button>
-              <button role="menuitem" onClick={() => { setAddOpen(false); addMenu.onAddToProject(); }}>
-                <span className="add-ic"><Icon name="folder" size={15} /></span>
-                Add to project
-                <span className="add-chev" aria-hidden="true"><Icon name="chev-right" size={13} /></span>
-              </button>
+              <div
+                className="add-submenu-anchor"
+                onMouseEnter={() => setProjSub(true)}
+                onMouseLeave={() => setProjSub(false)}
+              >
+                <button
+                  role="menuitem"
+                  aria-haspopup="menu"
+                  aria-expanded={projSub}
+                  onClick={() => setProjSub((v) => !v)}
+                >
+                  <span className="add-ic"><Icon name="folder" size={15} /></span>
+                  Add to project
+                  <span className="add-chev" aria-hidden="true"><Icon name="chev-right" size={13} /></span>
+                </button>
+                {projSub && (
+                  <div className="add-submenu" role="menu" aria-label="Add to project">
+                    <button
+                      role="menuitemradio"
+                      aria-checked={addMenu.activeProjectId === null}
+                      onClick={() => { setAddOpen(false); addMenu.onPickProject(null); }}
+                    >
+                      General
+                      {addMenu.activeProjectId === null && (
+                        <span className="add-check" aria-hidden="true"><Icon name="check" size={13} /></span>
+                      )}
+                    </button>
+                    {addMenu.projects.map((p) => (
+                      <button
+                        key={p.id}
+                        role="menuitemradio"
+                        aria-checked={addMenu.activeProjectId === p.id}
+                        onClick={() => { setAddOpen(false); addMenu.onPickProject(p.id); }}
+                      >
+                        <span className="add-submenu-name">{p.name}</span>
+                        {addMenu.activeProjectId === p.id && (
+                          <span className="add-check" aria-hidden="true"><Icon name="check" size={13} /></span>
+                        )}
+                      </button>
+                    ))}
+                    <div className="add-divider" />
+                    <button
+                      role="menuitem"
+                      onClick={() => { setAddOpen(false); addMenu.onCreateProject(); }}
+                    >
+                      <span className="add-ic"><Icon name="plus" size={14} /></span>
+                      New project
+                    </button>
+                  </div>
+                )}
+              </div>
               <button role="menuitem" onClick={() => { setAddOpen(false); addMenu.onAddFromGitHub(); }}>
                 <span className="add-ic"><Icon name="book" size={15} /></span>
                 Add from GitHub

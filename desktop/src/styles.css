@@ -949,6 +949,13 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-
 .add-chev { margin-left: auto; color: var(--faint); display: inline-flex; }
 .add-check { margin-left: auto; color: var(--accent); display: inline-flex; }
 .add-divider { height: 1px; background: var(--border); margin: 5px 4px; }
+/* "Add to project" flyout — opens to the right of the Add menu, lists the projects. */
+.add-submenu-anchor { position: relative; }
+.add-submenu { position: absolute; left: calc(100% + 5px); top: -7px; z-index: 41; min-width: 190px;
+  max-height: 320px; overflow-y: auto;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg);
+  box-shadow: 0 12px 34px rgba(0,0,0,0.18); padding: 6px; display: flex; flex-direction: column; gap: 1px; }
+.add-submenu-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ---- Mic / device picker (§4) ---- */
 .mic-pop { position: absolute; bottom: calc(100% + 8px); right: 0; z-index: 40; min-width: 280px;

@@ -37,27 +37,71 @@ def database_url() -> str:
     return os.getenv("DATABASE_URL", DEFAULT_DATABASE_URL)
 
 
+def _build_engine(url: str):
+    if url.startswith("sqlite"):
+        kw = {"connect_args": {"check_same_thread": False}}
+        if ":memory:" in url or url == "sqlite://":
+            kw["poolclass"] = StaticPool
+        return create_engine(url, **kw)
+    return create_engine(url, pool_pre_ping=True)
+
+
+# When a configured (non-SQLite) DB is unreachable, we fall back to this URL so the
+# app keeps working locally instead of 500-ing on every request. Set once by
+# ensure_reachable(); get_engine() honours it thereafter.
+_fallback_url: str | None = None
+
+
 def get_engine():
-    """Lazy singleton engine built from DATABASE_URL on first use."""
+    """Lazy singleton engine built from DATABASE_URL (or the local-SQLite fallback if
+    the configured DB was found unreachable at startup)."""
     global _engine
     if _engine is None:
-        url = database_url()
-        if url.startswith("sqlite"):
-            kw = {"connect_args": {"check_same_thread": False}}
-            if ":memory:" in url or url == "sqlite://":
-                kw["poolclass"] = StaticPool
-            _engine = create_engine(url, **kw)
-        else:
-            _engine = create_engine(url, pool_pre_ping=True)
+        _engine = _build_engine(_fallback_url or database_url())
     return _engine
 
 
+def ensure_reachable() -> str | None:
+    """Probe the configured database once; if it's a non-SQLite URL that can't be
+    reached, fall back to the local SQLite default so persistence never hard-fails.
+
+    Returns the fallback URL if a fallback happened, else None. Opt out by setting
+    OCD_DB_FALLBACK=0 (a strict server deployment that should fail loudly instead).
+    Local-first by default: a desktop user with a stale Postgres URL still gets a
+    working app.
+    """
+    global _fallback_url
+    url = database_url()
+    if url.startswith("sqlite"):
+        return None  # SQLite can't have an auth/network failure to fall back from
+    if os.getenv("OCD_DB_FALLBACK", "1").strip().lower() in ("0", "false", "no"):
+        return None
+    try:
+        eng = _build_engine(url)
+        with eng.connect():
+            pass
+        eng.dispose()
+        return None
+    except Exception as e:  # unreachable / auth failure / driver missing
+        import logging
+        reset_engine()                       # clears _engine + any prior fallback
+        _fallback_url = DEFAULT_DATABASE_URL  # next get_engine() builds local SQLite
+        logging.getLogger("ocd").warning(
+            "Database %s is unreachable (%s). Falling back to local SQLite at %s so the "
+            "app keeps working. Fix DATABASE_URL or unset it to silence this; set "
+            "OCD_DB_FALLBACK=0 to fail instead.",
+            url.split("@")[-1], str(e).splitlines()[0][:200], DEFAULT_DATABASE_URL,
+        )
+        return _fallback_url
+
+
 def reset_engine() -> None:
-    """Dispose + clear the cached engine (tests swap DATABASE_URL between cases)."""
-    global _engine
+    """Dispose + clear the cached engine + any fallback (tests swap DATABASE_URL between cases)."""
+    global _engine, _fallback_url
     if _engine is not None:
         _engine.dispose()
     _engine = None
+    _fallback_url = None
 
 
 def init_db() -> None:

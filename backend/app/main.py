@@ -51,10 +51,14 @@ async def lifespan(_: FastAPI):
     # C1: fail closed on network exposure. A non-loopback bind with auth disabled
     # (the historical default) is an unauthenticated-RCE surface — refuse to start.
     netguard.assert_safe_binding()
-    # Local-first convenience: auto-create the schema for a SQLite DB so a fresh
-    # `pip install` + run works with zero migration steps. Postgres deployments own
-    # their schema via Alembic (`python -m ocd_core.db.migrate`), so skip it there.
-    if db_engine.database_url().startswith("sqlite"):
+    # Resilience: if the configured (non-SQLite) database is unreachable — a stale
+    # DATABASE_URL, a Postgres that isn't running, wrong password — fall back to a
+    # local SQLite file so the app keeps working instead of 500-ing on every request.
+    fell_back = db_engine.ensure_reachable()
+    # Local-first convenience: auto-create the schema for a SQLite DB (the default, or
+    # the fallback we just switched to) so a fresh `pip install` + run works with zero
+    # migration steps. A healthy Postgres owns its schema via Alembic, so skip it there.
+    if fell_back or db_engine.database_url().startswith("sqlite"):
         with contextlib.suppress(Exception):
             db_engine.init_db()
     # Background ticker for scheduled ("automation") Cowork tasks. Disable with

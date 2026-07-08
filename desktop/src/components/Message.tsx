@@ -2,6 +2,8 @@ import { type ReactNode, useEffect, useRef, useState } from "react";
 import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
+import { downloadWorkspaceFile } from "../api/client";
+import type { ProducedFile } from "../api/events";
 import { type Attachment, parseAttachments } from "../state/attachments";
 import { Icon } from "./Icon";
 import { QuestionCard } from "./QuestionCard";
@@ -292,6 +294,10 @@ function Tool({ block }: { block: ToolCard }) {
         {block.summary && <span className="tool-summary">{block.summary}</span>}
       </div>
       {block.input && <pre className="tool-input">{block.input}</pre>}
+      {block.output && <pre className="tool-output">{block.output}</pre>}
+      {block.files && block.files.length > 0 && (
+        <ProducedFiles files={block.files} project={block.filesProject} />
+      )}
       {block.error && <div className="tool-error">{block.error}</div>}
       {block.table && <ResultTable columns={block.table.columns} rows={block.table.rows} />}
       {block.sources && block.sources.length > 0 && (
@@ -305,6 +311,43 @@ function Tool({ block }: { block: ToolCard }) {
           ))}
         </ul>
       )}
+    </div>
+  );
+}
+
+// Human-readable byte size for a produced file chip.
+function fmtSize(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+// The files a code_execution run wrote to the workspace, each with a Download button
+// (authenticated blob fetch). The primary text file (e.g. the CSV) also opens as an
+// artifact in the side panel; this list makes every output — including images — savable.
+function ProducedFiles({ files, project }: { files: ProducedFile[]; project?: string }) {
+  return (
+    <div className="tool-files">
+      <div className="tool-files-label">
+        {files.length} file{files.length === 1 ? "" : "s"} produced
+      </div>
+      {files.map((f) => (
+        <div className="tool-file" key={f.path}>
+          <span className="tool-file-icon" aria-hidden="true">
+            <Icon name="file" size={15} />
+          </span>
+          <span className="tool-file-name">{f.path}</span>
+          <span className="tool-file-size">{fmtSize(f.size)}</span>
+          <button
+            className="tool-file-dl"
+            title={`Download ${f.path}`}
+            aria-label={`Download ${f.path}`}
+            onClick={() => void downloadWorkspaceFile(f.path, project)}
+          >
+            <Icon name="download" size={14} />
+          </button>
+        </div>
+      ))}
     </div>
   );
 }

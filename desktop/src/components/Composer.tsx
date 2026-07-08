@@ -22,6 +22,8 @@ export interface AddMenuInfo {
   onResearch: (on: boolean) => void;
   webSearch: boolean;
   onWebSearch: (on: boolean) => void;
+  codeExec: boolean;
+  onCodeExec: (on: boolean) => void;
 }
 
 // The model + effort control (contract §3), rendered as a pill that opens the
@@ -310,6 +312,13 @@ export function Composer({
                 <span className="add-ic"><Icon name="book" size={15} /></span>
                 Web search
                 {addMenu.webSearch && <span className="add-check" aria-hidden="true"><Icon name="check" size={14} /></span>}
+              </button>
+              <button role="menuitemcheckbox" aria-checked={addMenu.codeExec}
+                      onClick={() => addMenu.onCodeExec(!addMenu.codeExec)}
+                      title="Let the agent run Python and produce files (each run asks for approval)">
+                <span className="add-ic"><Icon name="code" size={15} /></span>
+                Code execution
+                {addMenu.codeExec && <span className="add-check" aria-hidden="true"><Icon name="check" size={14} /></span>}
               </button>
             </div>
           )}

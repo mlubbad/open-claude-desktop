@@ -97,9 +97,10 @@ export default function App() {
       options: {
         web_search: active.webSearch,
         research: active.research,
-        ...(view === "code"
-          ? { text_editor: true, bash: true, code_exec: true, subagents: true }
-          : {}),
+        // Code execution can be turned on per-chat from the + menu; the Code tab also
+        // brings the file + shell + subagent tools over the workspace.
+        code_exec: active.codeExec || view === "code",
+        ...(view === "code" ? { text_editor: true, bash: true, subagents: true } : {}),
       },
     }),
     [active, proj.active, connectors.enabled, pluginMgr.enabled, view, planMode],
@@ -277,6 +278,8 @@ export default function App() {
     onResearch: (on) => applyOptions({ research: on }),
     webSearch: active.webSearch,
     onWebSearch: (on) => applyOptions({ webSearch: on }),
+    codeExec: active.codeExec,
+    onCodeExec: (on) => applyOptions({ codeExec: on }),
   };
   const modelControl: ModelControlInfo = {
     provider: active.provider,

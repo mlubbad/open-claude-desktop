@@ -10,6 +10,9 @@ export interface ChatOptions {
   thinking: boolean;
   webSearch: boolean;
   research: boolean;
+  // Let the agent actually run code (code_execution tool) in this chat — every run is
+  // still gated by the Approve prompt. The Code tab forces this on regardless.
+  codeExec: boolean;
 }
 
 export const DEFAULT_CHAT_OPTIONS: ChatOptions = {
@@ -19,6 +22,7 @@ export const DEFAULT_CHAT_OPTIONS: ChatOptions = {
   thinking: false,
   webSearch: false,
   research: false,
+  codeExec: false,
 };
 
 // Merge a conversation's override onto the workspace defaults.

@@ -11,7 +11,7 @@ export const IFRAME_KINDS = new Set(["html", "svg", "mermaid", "react"]);
 // so every artifact is previewable (matching the reference's always-on eye toggle).
 export function isPreviewable(kind: string): boolean {
   return IFRAME_KINDS.has(kind) || kind === "markdown" || kind === "code" ||
-    kind === "" || kind === "text";
+    kind === "csv" || kind === "" || kind === "text";
 }
 
 // The markdown fed to the in-panel renderer for non-iframe kinds: a markdown
@@ -37,6 +37,7 @@ export function ext(kind: string, language = ""): string {
     mermaid: "mmd",
     react: "jsx",
     markdown: "md",
+    csv: "csv",
     code: language || "txt",
   };
   return map[kind] ?? "txt";
@@ -49,9 +50,56 @@ export function mime(kind: string): string {
     markdown: "text/markdown",
     mermaid: "text/plain",
     react: "text/plain",
+    csv: "text/csv",
     code: "text/plain",
   };
   return map[kind] ?? "text/plain";
+}
+
+// Parse CSV text into { columns, rows } for the artifact table preview. Handles quoted
+// fields, escaped quotes ("") and commas/newlines inside quotes. Framework-free + tested;
+// the first row is treated as the header.
+export function parseCsv(text: string): { columns: string[]; rows: string[][] } {
+  const records: string[][] = [];
+  let field = "";
+  let row: string[] = [];
+  let inQuotes = false;
+  const src = text.replace(/\r\n?/g, "\n");
+  for (let i = 0; i < src.length; i++) {
+    const c = src[i];
+    if (inQuotes) {
+      if (c === '"') {
+        if (src[i + 1] === '"') {
+          field += '"';
+          i++;
+        } else {
+          inQuotes = false;
+        }
+      } else {
+        field += c;
+      }
+    } else if (c === '"') {
+      inQuotes = true;
+    } else if (c === ",") {
+      row.push(field);
+      field = "";
+    } else if (c === "\n") {
+      row.push(field);
+      records.push(row);
+      field = "";
+      row = [];
+    } else {
+      field += c;
+    }
+  }
+  // Flush the trailing field/row unless the text ended on a clean newline.
+  if (field !== "" || row.length > 0) {
+    row.push(field);
+    records.push(row);
+  }
+  if (records.length === 0) return { columns: [], rows: [] };
+  const [header, ...body] = records;
+  return { columns: header, rows: body };
 }
 
 export function filename(doc: Pick<ArtifactDoc, "title" | "kind" | "language">): string {

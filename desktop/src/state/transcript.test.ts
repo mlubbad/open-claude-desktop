@@ -82,6 +82,36 @@ describe("transcript reducer", () => {
     expect(tool.error).toBe("boom");
   });
 
+  it("streams code_execution output and lists produced files on the tool card", () => {
+    const s = drive([
+      { type: "tool", id: "cx", name: "code_execution", input: "df.to_csv('out.csv')", label_running: "Running code", label_done: "Ran code", icon: "square-terminal" },
+      { type: "tool_output_delta", id: "cx", stream: "stdout", text: "processing\n" },
+      { type: "tool_output_delta", id: "cx", stream: "stdout", text: "wrote out.csv\n" },
+      { type: "tool_result", id: "cx", name: "code_execution", summary: "ran ok · 1 file · local" },
+      { type: "files", id: "cx", project: "general", items: [{ path: "out.csv", size: 42, kind: "csv" }] },
+    ]);
+    const tool = assistant(s).blocks.find((b) => b.kind === "tool") as ToolCard;
+    expect(tool.status).toBe("done");
+    expect(tool.output).toBe("processing\nwrote out.csv\n"); // deltas accumulate in order
+    expect(tool.files).toEqual([{ path: "out.csv", size: 42, kind: "csv" }]);
+    expect(tool.filesProject).toBe("general");
+  });
+
+  it("opens a produced CSV as a csv artifact in the side panel", () => {
+    const s = drive([
+      { type: "tool", id: "cx", name: "code_execution", input: "", label_running: "Running code", label_done: "Ran code", icon: "square-terminal" },
+      { type: "tool_result", id: "cx", name: "code_execution", summary: "ran ok" },
+      { type: "artifact_open", id: "cx::out.csv", title: "out.csv", kind: "csv", language: "csv" },
+      { type: "artifact_delta", id: "cx::out.csv", text: "a,b\n1,2\n" },
+      { type: "artifact_close", id: "cx::out.csv", version: 1 },
+    ]);
+    const arts = listArtifacts(s.messages);
+    const csv = arts.find((a) => a.id === "cx::out.csv")!;
+    expect(csv.kind).toBe("csv");
+    expect(csv.content).toBe("a,b\n1,2\n");
+    expect(s.openArtifactId).toBe("cx::out.csv");
+  });
+
   it("folds a pre-tool narration answer back into a thinking block", () => {
     const s = drive([
       { type: "answer_open" },

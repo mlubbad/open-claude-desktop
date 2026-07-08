@@ -1181,35 +1181,337 @@ def web_fetch(url: str) -> tuple[str, list[dict]]:
     return out, src
 
 
-# ---- code_execution (default OFF, sandboxed) ---- #
-def run_python(code: str) -> str:
-    """Run a Python snippet in a best-effort sandbox: Docker --network none if
-    available, else `python -I` in an ephemeral temp dir with a scrubbed env +
-    30s timeout. Returns return_code/stdout/stderr (Windows: reduced isolation)."""
-    import shutil
-    import subprocess
-    import tempfile
-    _ensure_dir(SANDBOX_ROOT)
-    workdir = tempfile.mkdtemp(prefix="code_", dir=str(SANDBOX_ROOT))
+# --------------------------------------------------------------------------- #
+#  code_execution — real, streaming, file-producing Python execution.
+#
+#  Runs in the PERSISTENT per-project workspace (SANDBOX_ROOT/<project>) so files the
+#  script writes (a CSV, a chart PNG…) survive the call and can be surfaced to the user
+#  and browsed in the Code tab. Two engines behind the `code_execution` setting:
+#    * "docker" — an isolated container (network off, memory/CPU/pids capped). Preferred.
+#    * "local"  — a jailed subprocess on this device (cwd = workspace, scrubbed env,
+#                 POSIX resource limits, timeout). Used when Docker is absent so the
+#                 feature works out of the box; less isolation than a container.
+#  "auto" picks docker-if-present else local; "off" disables it. Output streams line by
+#  line via an on_output(stream, text) callback so the UI can show the run live. Every
+#  run is still gated by the HITL approval prompt on interactive turns.
+# --------------------------------------------------------------------------- #
+_EXEC_TIMEOUT_SEC = 60
+_EXEC_OUTPUT_CAP = 24_000        # max chars of combined stdout+stderr kept/streamed
+_EXEC_FILE_TEXT_CAP = 400_000    # max bytes of a produced text file inlined as an artifact
+_EXEC_MAX_FILES = 20
+# Produced text files we can show inline as an artifact -> artifact kind. Anything else
+# (images, xlsx, pdf, zip…) is surfaced as a download only.
+_TEXT_FILE_KIND = {
+    ".csv": "csv", ".tsv": "csv", ".json": "code", ".md": "markdown", ".markdown": "markdown",
+    ".txt": "text", ".log": "text", ".py": "code", ".js": "code", ".ts": "code",
+    ".html": "html", ".svg": "svg", ".xml": "code", ".yaml": "code", ".yml": "code",
+    ".sql": "code", ".sh": "code",
+}
+_IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}
+
+
+def _code_execution_mode() -> str:
+    from . import settings
+    m = (settings.get_settings().get("code_execution") or "auto").strip().lower()
+    return m if m in config.CODE_EXECUTION_MODES else "auto"
+
+
+def safe_project(project: str | None) -> str:
+    """Reduce a project id to a single safe path segment (slug chars only). Blocks the
+    ``project=../../etc`` traversal that would otherwise let a workspace root escape
+    SANDBOX_ROOT (the code tree/file/download routes all resolve paths under it)."""
+    slug = re.sub(r"[^A-Za-z0-9_-]", "", project or "")
+    return slug or config.GENERAL_ID
+
+
+def _exec_workdir(project: str | None) -> Path:
+    root = SANDBOX_ROOT / safe_project(project)
+    _ensure_dir(root)
+    return root
+
+
+def _within(root: Path, p: Path) -> bool:
+    """Whether ``p`` really resolves to somewhere inside ``root`` (blocks a symlink the
+    sandboxed code plants to a host file being read/surfaced)."""
     try:
-        if not shutil.which("docker"):
-            # C3: do NOT fall back to host execution. `python -I` does not sandbox the
-            # filesystem/network/OS — running model-written code on the host is RCE.
-            return ("code_execution disabled: a container runtime (Docker) is required "
-                    "for isolated execution. Refusing to run model-written code on the host.")
-        cmd = ["docker", "run", "--rm", "--network", "none", "--memory", "512m",
-               "--pids-limit", "64", "--cpus", "1", "-v", f"{workdir}:/w:rw",
-               "-w", "/w", "python:3.11-slim", "python", "-I", "-c", code or ""]
-        proc = subprocess.run(cmd, cwd=workdir, env=None, capture_output=True,
-                              text=True, timeout=30)
-        return (f"return_code: {proc.returncode}\n--- stdout ---\n"
-                f"{_cap(proc.stdout, 16000)}\n--- stderr ---\n{_cap(proc.stderr, 8000)}")
+        p.resolve().relative_to(root.resolve())
+        return True
+    except (OSError, ValueError):
+        return False
+
+
+def _snapshot(root: Path) -> dict:
+    """Map every REAL file under ``root`` to (mtime_ns, size) so a post-run diff finds the
+    files a script created or modified. Symlinks are skipped (a sandboxed script must not
+    exfiltrate a host file by symlinking it in) and the private ``.exec`` scratch dir is
+    ignored."""
+    snap: dict = {}
+    for p in root.rglob("*"):
+        rel = p.relative_to(root)
+        if ".exec" in rel.parts or p.is_symlink() or not p.is_file():
+            continue
+        if not _within(root, p):
+            continue
+        try:
+            st = p.stat()
+            snap[p] = (st.st_mtime_ns, st.st_size)
+        except OSError:
+            pass
+    return snap
+
+
+def _classify_produced(p: Path, root: Path) -> dict:
+    ext = p.suffix.lower()
+    text_kind = _TEXT_FILE_KIND.get(ext)
+    is_image = ext in _IMAGE_EXTS
+    info = {"path": p.relative_to(root).as_posix(), "size": p.stat().st_size,
+            "kind": text_kind or ("image" if is_image else "binary")}
+    if text_kind and info["size"] <= _EXEC_FILE_TEXT_CAP:
+        try:
+            info["text"] = p.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            pass
+    return info
+
+
+def _produced_files(before: dict, root: Path) -> list[dict]:
+    """Files that are new or changed since ``before`` (sorted, capped)."""
+    out: list[dict] = []
+    for p in sorted(_snapshot(root), key=lambda x: x.as_posix()):
+        try:
+            st = p.stat()
+        except OSError:
+            continue
+        if before.get(p) != (st.st_mtime_ns, st.st_size):
+            try:
+                out.append(_classify_produced(p, root))
+            except OSError:
+                continue
+        if len(out) >= _EXEC_MAX_FILES:
+            break
+    return out
+
+
+def _scrubbed_env(workdir: Path) -> dict:
+    """A minimal, secret-free environment for a local run: keep only PATH/locale/temp,
+    drop every API key and PYTHON* override, and point HOME at the workspace."""
+    keep = ("PATH", "SYSTEMROOT", "WINDIR", "COMSPEC", "TEMP", "TMP", "LANG", "LC_ALL", "TZ")
+    env = {k: os.environ[k] for k in keep if k in os.environ}
+    env["HOME"] = str(workdir)
+    env["PYTHONIOENCODING"] = "utf-8"
+    env["PYTHONUNBUFFERED"] = "1"
+    env["MPLBACKEND"] = "Agg"  # headless matplotlib (charts render to files, not a window)
+    return env
+
+
+def _posix_limits():  # pragma: no cover - runs only in the child process before exec
+    """Best-effort resource limits for a local child (POSIX). Each cap is applied
+    independently so one unsupported limit doesn't abort the run."""
+    import os as _os
+    import resource
+    _os.setsid()  # own process group, so a timeout can kill the whole tree
+    for res, soft in ((resource.RLIMIT_CPU, _EXEC_TIMEOUT_SEC + 5),
+                      (resource.RLIMIT_FSIZE, 256 * 1024 * 1024),
+                      (resource.RLIMIT_AS, 4 * 1024 * 1024 * 1024),  # cap memory so a run can't OOM the host
+                      (resource.RLIMIT_CORE, 0)):
+        try:
+            resource.setrlimit(res, (soft, soft))
+        except Exception:
+            pass
+
+
+def _isolation_popen_extra(local: bool) -> dict:
+    """Popen kwargs that put the child in its OWN session/process group so a timeout can
+    kill just the run's tree — never the backend's. Local also installs resource limits
+    via preexec_fn (which calls setsid); Docker uses start_new_session for the CLI child."""
+    import sys
+    if sys.platform == "win32":
+        import subprocess
+        return {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+    return {"preexec_fn": _posix_limits} if local else {"start_new_session": True}
+
+
+def _kill_proc(proc, own_group: bool):
+    """Kill a timed-out run. Only killpg the child's process GROUP when we started it in
+    its own session (``own_group``) — otherwise the child shares the backend's group and
+    killpg would SIGKILL the server itself. Falls back to killing just the process."""
+    import signal
+    import sys
+    if own_group and sys.platform != "win32":
+        try:
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            return
+        except Exception:
+            pass
+    try:
+        proc.kill()
+    except Exception:
+        pass
+
+
+def _stream_subprocess(cmd, cwd, env, on_output, timeout, stdin_data=None,
+                       popen_extra=None):
+    """Run ``cmd`` streaming stdout/stderr line-by-line to ``on_output(stream, text)``.
+    Returns (return_code, stdout, stderr, timed_out). Output is capped at
+    ``_EXEC_OUTPUT_CAP`` combined chars. The child is always started in its own session
+    (``popen_extra``) so a timeout kill can't reach the backend."""
+    import subprocess
+    import threading
+    # errors="replace": the child may print bytes that aren't valid in the host locale;
+    # decode leniently so the reader threads never die mid-stream.
+    proc = subprocess.Popen(
+        cmd, cwd=str(cwd), env=env, text=True, bufsize=1, encoding="utf-8", errors="replace",
+        stdin=(subprocess.PIPE if stdin_data is not None else None),
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, **(popen_extra or {}))
+    own_group = bool(popen_extra) and ("preexec_fn" in popen_extra or "start_new_session" in popen_extra)
+    captured: dict = {"stdout": [], "stderr": []}
+    total = {"n": 0}
+    lock = threading.Lock()
+
+    def _reader(name, pipe):
+        try:
+            for line in iter(pipe.readline, ""):
+                with lock:
+                    remaining = _EXEC_OUTPUT_CAP - total["n"]
+                    if remaining <= 0:
+                        continue  # keep draining (so the child doesn't block) but discard
+                    piece = line[:remaining]  # cap mid-line so one huge print can't overflow
+                    total["n"] += len(piece)
+                    captured[name].append(piece)
+                    cb = on_output
+                if cb:
+                    try:
+                        cb(name, piece)
+                    except Exception:
+                        pass
+        finally:
+            try:
+                pipe.close()
+            except Exception:
+                pass
+
+    threads = [threading.Thread(target=_reader, args=(n, p), daemon=True)
+               for n, p in (("stdout", proc.stdout), ("stderr", proc.stderr))]
+    for t in threads:
+        t.start()
+    if stdin_data is not None:
+        try:
+            proc.stdin.write(stdin_data)
+            proc.stdin.close()
+        except Exception:
+            pass
+    timed_out = False
+    try:
+        proc.wait(timeout=timeout)
     except subprocess.TimeoutExpired:
-        return "return_code: 124\n--- stderr ---\nTimed out after 30s."
-    except Exception as e:
-        return f"return_code: 1\n--- stderr ---\n{str(e)[:300]}"
+        timed_out = True
+        _kill_proc(proc, own_group)
+        try:
+            proc.wait(timeout=5)
+        except Exception:
+            pass
+    for t in threads:
+        t.join(timeout=2)
+    out = "".join(captured["stdout"])
+    err = "".join(captured["stderr"])
+    if total["n"] >= _EXEC_OUTPUT_CAP:
+        err += "\n…[output truncated]…"
+    return (proc.returncode if proc.returncode is not None else -1), out, err, timed_out
+
+
+def _run_docker(code: str, workdir: Path, on_output) -> tuple:
+    cmd = ["docker", "run", "--rm", "-i", "--network", "none", "--memory", "512m",
+           "--pids-limit", "128", "--cpus", "1", "-v", f"{workdir}:/w:rw", "-w", "/w",
+           "python:3.11-slim", "python", "-I", "-u", "-"]
+    # Own session for the `docker run` CLI child so a timeout kill can't reach the backend.
+    return _stream_subprocess(cmd, workdir, None, on_output, _EXEC_TIMEOUT_SEC,
+                              stdin_data=code or "",
+                              popen_extra=_isolation_popen_extra(local=False))
+
+
+def _run_local(code: str, workdir: Path, on_output) -> tuple:
+    import sys
+    import tempfile
+    scratch = workdir / ".exec"
+    _ensure_dir(scratch)
+    fd, script = tempfile.mkstemp(suffix=".py", dir=str(scratch))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(code or "")
+        # -I isolated (ignore env/user site), -B no .pyc, -u unbuffered for live streaming.
+        cmd = [sys.executable, "-I", "-B", "-u", script]
+        return _stream_subprocess(cmd, workdir, _scrubbed_env(workdir), on_output,
+                                  _EXEC_TIMEOUT_SEC,
+                                  popen_extra=_isolation_popen_extra(local=True))
     finally:
-        shutil.rmtree(workdir, ignore_errors=True)
+        try:
+            os.unlink(script)
+        except OSError:
+            pass
+
+
+def execute_code(code: str, project: str | None = None, on_output=None) -> dict:
+    """Execute Python for the `code_execution` tool. Runs in the project workspace so
+    produced files persist. Returns a structured result:
+    ``{ok, return_code, engine, stdout, stderr, timed_out, files:[{path,size,kind,text?}]}``.
+    ``on_output(stream, text)`` streams output live. Never raises."""
+    mode = _code_execution_mode()
+    if mode == "off":
+        return {"ok": False, "return_code": 126, "engine": "off", "stdout": "",
+                "stderr": "Code execution is turned off in Settings.",
+                "files": [], "timed_out": False}
+    import shutil
+    has_docker = bool(shutil.which("docker"))
+    if mode in ("docker", "auto") and has_docker:
+        engine = "docker"
+    elif mode in ("local", "auto"):
+        engine = "local"
+    else:  # mode == "docker" and no docker available
+        return {"ok": False, "return_code": 126, "engine": "docker-missing", "stdout": "",
+                "stderr": ("Docker is required for 'docker' execution mode but was not found. "
+                           "Install Docker Desktop, or set code execution to 'auto'/'local' "
+                           "in Settings."),
+                "files": [], "timed_out": False}
+    root = _exec_workdir(project)
+    before = _snapshot(root)
+    runner = _run_docker if engine == "docker" else _run_local
+    try:
+        rc, out, err, timed = runner(code, root, on_output)
+    except FileNotFoundError as e:
+        return {"ok": False, "return_code": 127, "engine": engine, "stdout": "",
+                "stderr": f"Execution engine unavailable: {str(e)[:200]}",
+                "files": [], "timed_out": False}
+    except Exception as e:  # noqa: BLE001 - surface any launch failure as a clean result
+        return {"ok": False, "return_code": 1, "engine": engine, "stdout": "",
+                "stderr": str(e)[:300], "files": [], "timed_out": False}
+    files = _produced_files(before, root)
+    return {"ok": (rc == 0 and not timed), "return_code": rc, "engine": engine,
+            "stdout": out, "stderr": err, "files": files, "timed_out": timed}
+
+
+def format_execution_result(res: dict) -> str:
+    """Render an execute_code result as the text the model reads back (return code,
+    captured output, and the list of files produced so it can reference them)."""
+    if res["engine"] in ("off", "docker-missing"):
+        return res["stderr"]
+    lines = [f"return_code: {res['return_code']} (engine: {res['engine']})"]
+    if res.get("timed_out"):
+        lines.append(f"TIMED OUT after {_EXEC_TIMEOUT_SEC}s.")
+    lines.append("--- stdout ---\n" + _cap(res.get("stdout", ""), 16000))
+    if res.get("stderr"):
+        lines.append("--- stderr ---\n" + _cap(res.get("stderr", ""), 8000))
+    if res.get("files"):
+        listing = "\n".join(f"- {f['path']} ({f['kind']}, {f['size']} bytes)"
+                            for f in res["files"])
+        lines.append("--- files produced (saved in the workspace, shown to the user) ---\n"
+                     + listing)
+    return "\n".join(lines)
+
+
+def run_python(code: str) -> str:
+    """Back-compat string wrapper around execute_code: runs in the general workspace and
+    returns the formatted return_code/stdout/stderr text (no streaming, no file list)."""
+    return format_execution_result(execute_code(code, None))
 
 
 # ---- bash (default OFF, allowlisted + cwd-jailed) ---- #

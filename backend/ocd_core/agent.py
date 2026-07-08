@@ -24,6 +24,10 @@ yields; the API layer appends a terminal {"type": "done"} after the stream ends.
                           "label_running": str, "label_done": str, "icon": str}
   {"type": "tool_result", "id": str, "name": str, "summary": str}   # non-table output
   {"type": "tool_error",  "id": str, "name": str, "text": str}      # tool failed
+  {"type": "tool_output_delta", "id": str, "stream": str,           # live stdout/stderr
+                          "text": str}                              #   from code_execution
+  {"type": "files",       "id": str, "items": list}                # files a run produced
+                          # items: [{"path": str, "size": int, "kind": str}]
   {"type": "table",       "id": str, "columns": list, "rows": list, # SELECT result
                           "total": int, "bytes": int}
   {"type": "sources",     "id": str, "items": list}          # web/research citations
@@ -206,6 +210,19 @@ MEMORY_TOOL = {"type": "function", "function": {
         "new_path": {"type": "string"},
         "view_range": {"type": "array", "items": {"type": "integer"}}},
         "required": ["command"]}}}
+
+CODE_EXEC_SECTION = (
+    "# RUNNING CODE\n"
+    "You can actually EXECUTE Python with the `code_execution` tool — it runs in a "
+    "sandboxed workspace and returns the REAL stdout/stderr. When the user asks you to "
+    "run something, compute a result, process data, or produce a file, CALL "
+    "`code_execution` and use its actual output. Files your code writes to the working "
+    "directory (e.g. `df.to_csv('merged.csv')`) are saved and shown to the user as "
+    "downloadable artifacts — so when they ask for a file, WRITE it to disk rather than "
+    "printing it. NEVER say you ran a script, executed code, or generated a file unless a "
+    "`code_execution` call actually did it, and never invent output, row counts, or file "
+    "paths. If execution is unavailable or fails, say so plainly and provide the code."
+)
 
 PLAN_MODE_SECTION = (
     "## Plan mode\n"
@@ -525,11 +542,29 @@ def _tool_input(name: str, args: dict) -> str:
     return json.dumps(args, default=str)[:300]
 
 
+def _exec_summary(res: dict) -> str:
+    """One-line status for a code_execution outcome (engine + result + file count)."""
+    if res.get("engine") in ("off", "docker-missing"):
+        return (res.get("stderr") or "unavailable")[:120]
+    n = len(res.get("files") or [])
+    files = f" · {n} file{'' if n == 1 else 's'}" if n else ""
+    if res.get("timed_out"):
+        status = "timed out"
+    elif res.get("ok"):
+        status = "ran ok"
+    else:
+        status = f"exit {res.get('return_code')}"
+    return f"{status}{files} · {res.get('engine')}"
+
+
 async def _run_one_tool(name, args, tc_id, active_project, goal, top_k,
-                        artifact_store=None, subagent=None) -> dict:
+                        artifact_store=None, subagent=None, emit=None) -> dict:
     """Execute ONE tool to completion and return a structured outcome (no UI events).
     Never raises — failures become {ok: False, ...} so the loop survives and the model
-    can retry (Claude's is_error protocol, expressed in the tool-result string)."""
+    can retry (Claude's is_error protocol, expressed in the tool-result string).
+
+    ``emit(event)`` is an optional thread-safe sink for INTERIM UI events (used by
+    code_execution to stream stdout/stderr live); it may be called from worker threads."""
     try:
         if name == "spawn_subagent":
             if subagent is None:
@@ -616,12 +651,19 @@ async def _run_one_tool(name, args, tc_id, active_project, goal, top_k,
 
         if name == "code_execution":
             from . import integrations
-            result = await asyncio.to_thread(integrations.run_python,
-                                             args.get("code", ""))
-            ok = result.startswith("return_code: 0")
-            out = {"id": tc_id, "name": name, "ok": ok, "result": result,
-                   "summary": result[:400]}
-            if not ok:
+
+            def _on_output(stream: str, text: str) -> None:
+                if emit is not None:
+                    emit({"type": "tool_output_delta", "id": tc_id,
+                          "stream": stream, "text": text})
+
+            res = await asyncio.to_thread(integrations.execute_code,
+                                          args.get("code", ""), active_project, _on_output)
+            result = integrations.format_execution_result(res)
+            out = {"id": tc_id, "name": name, "ok": bool(res.get("ok")), "result": result,
+                   "summary": _exec_summary(res), "exec_files": res.get("files", []),
+                   "exec_project": active_project or "general"}
+            if not res.get("ok"):
                 out["error"] = result
             return out
 
@@ -665,14 +707,53 @@ async def _run_one_tool(name, args, tc_id, active_project, goal, top_k,
                            "Fix the input and retry, or proceed without it.")}
 
 
+# Produced-file kind (from execute_code) -> artifact kind for in-panel display. Text
+# files open as artifacts (the CSV etc.); images/binaries surface as downloads only.
+_EXEC_ARTIFACT_KIND = {"csv": "csv", "markdown": "markdown", "html": "html",
+                       "svg": "svg", "code": "code", "text": "code"}
+_EXEC_MAX_FILE_ARTIFACTS = 4
+
+
+def _exec_file_events(out: dict):
+    """For a code_execution outcome: a `files` event listing everything produced, then
+    an artifact (open/delta/close) for each small enough TEXT file so it opens in the
+    side panel with Preview/Download (the CSV the user asked for)."""
+    files = out.get("exec_files") or []
+    if not files:
+        return []
+    evs = [{"type": "files", "id": out["id"], "project": out.get("exec_project", "general"),
+            "items": [{"path": f["path"], "size": f["size"], "kind": f["kind"]}
+                      for f in files]}]
+    shown = 0
+    for f in files:
+        if shown >= _EXEC_MAX_FILE_ARTIFACTS or "text" not in f:
+            continue
+        kind = _EXEC_ARTIFACT_KIND.get(f["kind"])
+        if not kind:
+            continue
+        lang = f["path"].rsplit(".", 1)[-1] if "." in f["path"] else ""
+        aid = f"{out['id']}::{f['path']}"
+        evs.append({"type": "artifact_open", "id": aid, "title": f["path"],
+                    "kind": kind, "language": lang})
+        evs.append({"type": "artifact_delta", "id": aid, "text": f["text"]})
+        evs.append({"type": "artifact_close", "id": aid, "version": 1})
+        shown += 1
+    return evs
+
+
 def _completion_events(out: dict, streamed_artifacts: set | None = None):
     """Derive the UI completion event(s) for a finished tool outcome (id-keyed). Artifacts
     whose content was already streamed live get only a final ``artifact_close`` (no repeat
     open + full-content delta)."""
     streamed_artifacts = streamed_artifacts or set()
     if not out.get("ok"):
-        return [{"type": "tool_error", "id": out["id"], "name": out["name"],
-                 "text": out.get("error") or out.get("result", "Tool failed.")}]
+        evs = [{"type": "tool_error", "id": out["id"], "name": out["name"],
+                "text": out.get("error") or out.get("result", "Tool failed.")}]
+        # A run that errored may still have written files (e.g. a chart, then crashed) —
+        # surface them so the work isn't lost.
+        if out.get("exec_files"):
+            evs.extend(_exec_file_events(out))
+        return evs
     evs = [{"type": "tool_result", "id": out["id"], "name": out["name"],
             "summary": out.get("summary", "")}]
     if "table" in out:
@@ -681,6 +762,8 @@ def _completion_events(out: dict, streamed_artifacts: set | None = None):
                     "rows": t["rows"], "total": t["total"], "bytes": t["bytes"]})
     if out.get("sources"):
         evs.append({"type": "sources", "id": out["id"], "items": out["sources"]})
+    if out.get("exec_files"):
+        evs.extend(_exec_file_events(out))
     if out.get("artifact"):
         a = out["artifact"]
         if a["id"] not in streamed_artifacts:
@@ -732,6 +815,8 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
         extra_sections.append(bigquery_tools.system_prompt_section())
     if artifacts:
         extra_sections.append(artifact_tools.system_prompt_section())
+    if code_exec:
+        extra_sections.append(CODE_EXEC_SECTION)
     # Long-horizon context management: compact older turns so a long conversation
     # never overflows the model's context window (catalog handles a provider/ prefix).
     history, _ = context.compact_for_model(list(history or []), model)
@@ -978,25 +1063,45 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
             calls.append((tc.id, name, args))
 
         streamed = done.get("streamed_artifacts") or set()
-        if parallel and len(calls) > 1:
-            tasks = [asyncio.create_task(
-                _run_one_tool(n, a, i, active_project, goal, top_k, artifact_store,
-                              subagent=subagent_runner))
-                for (i, n, a) in calls]
-            outcomes = []
-            for fut in asyncio.as_completed(tasks):
-                out = await fut
-                outcomes.append(out)
-                for ev in _completion_events(out, streamed):
-                    yield ev
-        else:
-            outcomes = []
-            for (i, n, a) in calls:
-                out = await _run_one_tool(n, a, i, active_project, goal, top_k, artifact_store,
-                                          subagent=subagent_runner)
-                outcomes.append(out)
-                for ev in _completion_events(out, streamed):
-                    yield ev
+        outcomes = []
+        if calls:
+            loop = asyncio.get_running_loop()
+            # Interim UI events (live code_execution output) flow through this queue;
+            # `_emit` is thread-safe so execute_code's reader threads can push deltas.
+            # `interim`/`loop` are bound as defaults so the closures capture THIS
+            # iteration's queue (they are created and fully drained within it).
+            interim: asyncio.Queue = asyncio.Queue()
+
+            def _emit(ev, _q=interim, _loop=loop):
+                _loop.call_soon_threadsafe(_q.put_nowait, ev)
+
+            async def _runner(i, n, a, _q=interim):
+                # Always enqueue a done sentinel — even if _run_one_tool escapes with an
+                # unexpected error — so the drain loop below can never hang waiting on it.
+                try:
+                    out = await _run_one_tool(n, a, i, active_project, goal, top_k,
+                                              artifact_store, subagent=subagent_runner, emit=_emit)
+                except BaseException as e:  # noqa: BLE001 - convert to a tool failure, never hang
+                    out = {"id": i, "name": n, "ok": False, "error": str(e)[:300],
+                           "result": f"ERROR: {n} crashed: {str(e)[:200]}"}
+                _q.put_nowait(("__done__", out))
+
+            # One concurrent group when parallel; otherwise one-call groups run in order.
+            groups = [calls] if (parallel and len(calls) > 1) else [[c] for c in calls]
+            for group in groups:
+                tasks = [asyncio.create_task(_runner(*c)) for c in group]
+                pending = len(group)
+                while pending:
+                    item = await interim.get()
+                    if isinstance(item, tuple) and item and item[0] == "__done__":
+                        out = item[1]
+                        outcomes.append(out)
+                        for ev in _completion_events(out, streamed):
+                            yield ev
+                        pending -= 1
+                    else:
+                        yield item  # live tool_output_delta
+                await asyncio.gather(*tasks)
 
         # Feed every tool result back to the model, one message per tool_call_id
         # (executed + any blocked-by-enablement calls, preserving the model's order).

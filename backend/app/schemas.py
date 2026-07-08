@@ -87,6 +87,7 @@ class SettingsBody(BaseModel):
     profile: dict | None = None
     search_provider: str | None = None
     searxng_url: str | None = None
+    code_execution: str | None = None   # auto | docker | local | off
 
 
 class TitleRequest(BaseModel):

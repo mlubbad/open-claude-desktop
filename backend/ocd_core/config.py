@@ -68,7 +68,16 @@ DEFAULT_SETTINGS = {"model": AGENT_MODEL,
                     # JSON API — the recommended free/open-source option; set searxng_url)
                     # falls back to the keyless "ddg" HTML endpoint when unset/unreachable.
                     "search_provider": os.getenv("SEARCH_PROVIDER", "ddg"),
-                    "searxng_url": os.getenv("SEARXNG_URL", "")}
+                    "searxng_url": os.getenv("SEARXNG_URL", ""),
+                    # Code-execution engine for the `code_execution` tool:
+                    #   "auto"   — Docker's isolated sandbox when available, else a jailed
+                    #              local run on this device (resource-limited). [default]
+                    #   "docker" — Docker only (feature unavailable without a container runtime).
+                    #   "local"  — always run locally on this device (no container).
+                    #   "off"    — code execution disabled.
+                    # Every run is still gated by the HITL approval prompt.
+                    "code_execution": os.getenv("CODE_EXECUTION_MODE", "auto")}
+CODE_EXECUTION_MODES = ("auto", "docker", "local", "off")
 SETTINGS_FILE = REPO_ROOT / "settings.json"
 
 # --- projects / conversations ---

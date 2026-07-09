@@ -346,8 +346,15 @@ export default function App() {
     onCreateProject: () => setShowCreateProject(true),
     onAddFromGitHub: () => setSettingsPage("connectors"),
     openSkills: () => setSettingsPage("skills"),
+    connectors: connectors.servers.map((s) => ({ id: s.id, name: s.name, status: s.status })),
+    enabledConnectors: connectors.enabled,
+    onToggleConnector: connectors.toggle,
     openConnectors: () => setSettingsPage("connectors"),
+    pluginsList: pluginMgr.installed.map((p) => ({ name: p.name, description: p.description })),
+    enabledPlugins: pluginMgr.enabled,
+    onTogglePlugin: pluginMgr.toggle,
     openPlugins: () => setSettingsPage("plugins"),
+    openMarketplace: () => setSettingsPage("plugins"),
     research: active.research,
     onResearch: (on) => applyOptions({ research: on }),
     webSearch: active.webSearch,
@@ -789,12 +796,16 @@ export default function App() {
           plug={{
             installed: pluginMgr.installed,
             market: pluginMgr.market,
+            sources: pluginMgr.sources,
+            allowRemote: pluginMgr.allowRemote,
             enabled: pluginMgr.enabled,
             err: pluginMgr.err,
             busy: pluginMgr.busy,
             onToggle: pluginMgr.toggle,
             onInstall: (name) => void pluginMgr.install(name),
             onUninstall: (name) => void pluginMgr.uninstall(name),
+            onAddSource: pluginMgr.addSource,
+            onRemoveSource: (id) => void pluginMgr.removeSource(id),
           }}
         />
       )}

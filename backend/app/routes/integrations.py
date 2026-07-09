@@ -19,6 +19,12 @@ class PluginName(BaseModel):
     name: str
 
 
+class SourceBody(BaseModel):
+    url: str
+    ref: str = ""
+    name: str = ""
+
+
 class ConnectorBody(BaseModel):
     name: str
     base_url: str
@@ -44,8 +50,35 @@ def list_plugins(user: str = Depends(current_user)) -> list[dict]:
 
 @router.get("/marketplace")
 def marketplace_catalog(user: str = Depends(current_user)) -> list[dict]:
-    """Browse the bundled plugin catalog (each flagged `installed`)."""
+    """Browse the plugin catalog — bundled plugins plus any synced repository sources
+    (each flagged `installed`, with its `origin`)."""
     return marketplace.catalog()
+
+
+@router.get("/marketplace/sources")
+def marketplace_sources(user: str = Depends(current_user)) -> dict:
+    """The synced repository sources plus whether adding remote ones is allowed."""
+    return {"allow_remote": marketplace.remote_allowed(), "sources": marketplace.list_sources()}
+
+
+@router.post("/marketplace/sources")
+def marketplace_add_source(body: SourceBody, user: str = Depends(current_user)) -> dict:
+    """Sync a plugin marketplace from a git URL. Runs third-party plugin code on install,
+    so it is gated on MARKETPLACE_ALLOW_REMOTE and is an explicit, warned user action."""
+    if not marketplace.remote_allowed():
+        raise HTTPException(status_code=403, detail="remote marketplaces are disabled")
+    res = marketplace.add_source(body.url, body.ref, body.name)
+    if not res.get("ok"):
+        raise HTTPException(status_code=400, detail=res.get("detail", "could not add source"))
+    return res
+
+
+@router.delete("/marketplace/sources/{sid}")
+def marketplace_remove_source(sid: str, user: str = Depends(current_user)) -> dict:
+    res = marketplace.remove_source(sid)
+    if not res.get("ok"):
+        raise HTTPException(status_code=400, detail=res.get("detail", "could not remove source"))
+    return res
 
 
 @router.post("/marketplace/install")

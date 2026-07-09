@@ -805,6 +805,59 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-
 .badge-pill { display: inline-block; background: var(--surface-2); color: var(--text);
   font-size: 12px; font-weight: 500; border-radius: 999px; padding: 3px 10px; }
 
+/* Directory: card grids for Skills / Connectors / Plugins (contract: Claude-Desktop-
+   style browsable cards rather than dense tables). */
+.dir-search { display: flex; align-items: center; gap: 8px; border: 1px solid var(--border);
+  border-radius: var(--r-md); padding: 7px 10px; background: var(--bg); color: var(--muted);
+  margin-bottom: 12px; max-width: 320px; }
+.dir-search input { flex: 1; border: none; background: none; color: var(--text); font: inherit;
+  font-size: 13px; outline: none; }
+.dir-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 10px; margin-bottom: 10px; }
+.dir-card { border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface);
+  padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.dir-card.is-on { border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); }
+.dir-card-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.dir-card-icon { display: inline-flex; color: var(--muted); flex: none; }
+.dir-card-title { font-weight: 600; font-size: 13.5px; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; }
+.dir-card-desc { margin: 0; font-size: 12.5px; color: var(--muted); line-height: 1.5;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.dir-card-foot { font-size: 11.5px; color: var(--faint); }
+.dir-card-actions { display: flex; align-items: center; justify-content: space-between;
+  margin-top: auto; padding-top: 4px; gap: 8px; }
+.dir-card-actions-right { display: flex; align-items: center; gap: 6px; }
+.dir-toggle { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted);
+  cursor: pointer; }
+.dir-toggle input:disabled { cursor: default; }
+.dir-remove { border: none; background: none; color: var(--faint); cursor: pointer;
+  display: inline-flex; padding: 2px; border-radius: 6px; }
+.dir-remove:hover { color: var(--danger); background: var(--surface-2); }
+.dir-origin { text-transform: none; }
+.dir-empty { color: var(--muted); text-align: center; padding: 28px 10px; font-size: 13px; }
+
+/* "Add marketplace" modal */
+.add-market-modal { background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--r-lg); width: min(440px, 92vw); max-height: 86vh; overflow-y: auto;
+  box-shadow: var(--shadow-1), 0 24px 60px rgba(20, 20, 19, 0.18); }
+.add-market-head { display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 20px 4px; }
+.add-market-head h2 { margin: 0; font-size: 18px; }
+.add-market-choices { padding: 8px 16px 18px; }
+.add-market-choice { width: 100%; display: flex; align-items: flex-start; gap: 12px; text-align: left;
+  border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface);
+  padding: 12px 14px; cursor: pointer; font: inherit; }
+.add-market-choice:hover { border-color: var(--border-strong); background: var(--surface-2); }
+.add-market-choice strong { display: block; font-size: 13.5px; margin-bottom: 2px; }
+.add-market-choice p { margin: 0; font-size: 12.5px; color: var(--muted); line-height: 1.4; }
+.add-market-form { padding: 4px 20px 18px; }
+.add-market-warn { font-size: 12.5px; line-height: 1.5; color: var(--warn, #9a5b12);
+  background: color-mix(in srgb, orange 12%, var(--surface-2)); border-radius: var(--r-md);
+  padding: 9px 11px; margin: 4px 0 10px; }
+.add-market-form input { width: 100%; border: 1px solid var(--border); border-radius: var(--r-md);
+  padding: 7px 9px; background: var(--bg); color: var(--text); font: inherit; font-size: 13px;
+  margin-bottom: 4px; box-sizing: border-box; }
+
 /* ---- Cowork home: hero + Active/Scheduled lists (+ Review view chrome) ---- */
 .cw-home { flex: 1; overflow-y: auto; padding: 48px 24px 32px;
   background-image: radial-gradient(color-mix(in srgb, var(--border) 65%, transparent) 1px, transparent 1px);
@@ -944,6 +997,8 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-
   border: none; background: none; color: var(--text); cursor: pointer; font: inherit;
   font-size: 13.5px; padding: 8px 10px; border-radius: var(--r-md); }
 .add-menu button:hover { background: var(--surface-2); }
+.add-menu button:disabled { opacity: 0.55; cursor: default; }
+.add-menu button:disabled:hover { background: none; }
 .add-ic { display: inline-flex; color: var(--muted); flex: none; }
 .add-shortcut { margin-left: auto; font-size: 11.5px; color: var(--faint); }
 .add-chev { margin-left: auto; color: var(--faint); display: inline-flex; }
@@ -956,6 +1011,12 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg);
   box-shadow: 0 12px 34px rgba(0,0,0,0.18); padding: 6px; display: flex; flex-direction: column; gap: 1px; }
 .add-submenu-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.add-submenu-sub { margin-left: 6px; font-size: 11px; color: var(--faint); }
+.add-submenu-empty { font-size: 12px; color: var(--muted); padding: 7px 10px; }
+.add-warn { margin-left: 6px; display: inline-flex; align-items: center; justify-content: center;
+  min-width: 16px; height: 16px; padding: 0 4px; border-radius: 999px; font-size: 10.5px;
+  font-weight: 600; background: var(--danger-soft, color-mix(in srgb, var(--danger) 18%, transparent));
+  color: var(--danger); }
 
 /* ---- Mic / device picker (§4) ---- */
 .mic-pop { position: absolute; bottom: calc(100% + 8px); right: 0; z-index: 40; min-width: 280px;

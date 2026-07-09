@@ -97,6 +97,17 @@ def test_import_skill_rejects_empty(tmp_path, monkeypatch):
     assert skills.list_skills() == []
 
 
+def test_import_skill_size_limit(tmp_path, monkeypatch):
+    """A large-but-reasonable upload (over the old 256KB bulk-scan cap) is accepted;
+    an absurd one is rejected with the limit in the message."""
+    monkeypatch.setattr(config, "SKILLS_DIR", tmp_path)
+    big = "name: big\ndescription: D\n\n" + ("x" * (500 * 1024))  # ~500 KB
+    assert skills.import_skill("big.md", big)["ok"] is True
+    huge = "name: huge\n\n" + ("y" * (3 * 1024 * 1024))            # ~3 MB
+    res = skills.import_skill("huge.md", huge)
+    assert res["ok"] is False and "MB" in res["detail"]
+
+
 def test_remove_refuses_non_imported(tmp_path, monkeypatch):
     """A bundled skill (present but not in the imported manifest) can't be removed."""
     monkeypatch.setattr(config, "SKILLS_DIR", tmp_path)

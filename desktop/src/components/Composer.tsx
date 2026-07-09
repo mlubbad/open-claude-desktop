@@ -401,10 +401,7 @@ export function Composer({
                     {skills.length === 0 && <span className="add-submenu-empty">No skills yet</span>}
                     <div className="add-divider" />
                     <button role="menuitem" onClick={() => { setAddOpen(false); addMenu.openSkills(); }}>
-                      Manage skills
-                    </button>
-                    <button role="menuitem" onClick={() => { setAddOpen(false); addMenu.openMarketplace(); }}>
-                      Browse skills
+                      Manage &amp; import skills
                     </button>
                   </div>
                 )}

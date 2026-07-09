@@ -85,7 +85,7 @@ export default function App() {
   const proj = useProjects();
   const connectors = useConnectors();
   const pluginMgr = usePlugins();
-  const skills = useSkills();
+  const skillsMgr = useSkills();
   const theme = useTheme();
   const codeWs = useCode(proj.active ?? undefined, view === "code");
   const cowork = useCowork(
@@ -515,7 +515,7 @@ export default function App() {
                 busy={busy}
                 onSend={sendFromProject}
                 onStop={stop}
-                skills={skills}
+                skills={skillsMgr.list}
                 draftKey={`project-${projectDetail}`}
                 placeholder="How can I help with this project?"
                 addMenu={addMenu}
@@ -586,7 +586,7 @@ export default function App() {
                   busy={busy}
                   onSend={send}
                   onStop={stop}
-                  skills={skills}
+                  skills={skillsMgr.list}
                   draftKey={current?.cid ?? "new"}
                   initialText={getDraft(drafts, current?.cid ?? "new")}
                   onTextChange={(t) => setDrafts((d) => setDraft(d, current?.cid ?? "new", t))}
@@ -659,7 +659,7 @@ export default function App() {
               busy={busy}
               onSend={send}
               onStop={stop}
-              skills={skills}
+              skills={skillsMgr.list}
               draftKey={current?.cid ?? "new"}
               initialText={getDraft(drafts, current?.cid ?? "new")}
               onTextChange={(t) => setDrafts((d) => setDraft(d, current?.cid ?? "new", t))}
@@ -780,7 +780,14 @@ export default function App() {
             setDefaults((d) => ({ ...d, provider: p, model: m }));
             applyOptions({ provider: p, model: m });
           }}
-          skills={skills}
+          skills={{
+            list: skillsMgr.list,
+            busy: skillsMgr.busy,
+            allowRemote: pluginMgr.allowRemote,
+            importFile: skillsMgr.importFile,
+            importFromRepo: skillsMgr.importFromRepo,
+            onRemove: (name) => void skillsMgr.remove(name),
+          }}
           conn={{
             servers: connectors.servers,
             enabled: connectors.enabled,

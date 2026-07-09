@@ -27,6 +27,8 @@ MARKETPLACE_ALLOW_REMOTE = os.getenv(
     "MARKETPLACE_ALLOW_REMOTE", "1").strip().lower() in ("1", "true", "yes")
 MARKETPLACE_CLONE_TIMEOUT_SEC = int(os.getenv("MARKETPLACE_CLONE_TIMEOUT_SEC", "90"))
 MARKETPLACE_MAX_SOURCE_BYTES = int(os.getenv("MARKETPLACE_MAX_SOURCE_MB", "40")) * 1024 * 1024
+# Ceiling on how many repository sources can be registered (bounds aggregate disk use).
+MARKETPLACE_MAX_SOURCES = int(os.getenv("MARKETPLACE_MAX_SOURCES", "50"))
 
 # --- BigQuery (optional connector, Phase 2) ---
 PROJECT_ID = os.getenv("GCP_PROJECT_ID", "")

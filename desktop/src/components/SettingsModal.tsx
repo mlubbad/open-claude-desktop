@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   type AddMcpBody,
@@ -40,6 +40,15 @@ const NAV: { group: string; items: { id: SettingsPage; label: string }[] }[] = [
     ],
   },
 ];
+
+export interface SkillControls {
+  list: SkillSummary[];
+  busy: boolean;
+  allowRemote: boolean;
+  importFile: (filename: string, content: string) => Promise<string | null>;
+  importFromRepo: (url: string, ref?: string) => Promise<string | null>;
+  onRemove: (name: string) => void;
+}
 
 export interface ConnectorControls {
   servers: McpServer[];
@@ -87,7 +96,7 @@ export function SettingsModal({
   onClose: () => void;
   active: { provider: string; model: string };
   onPick: (provider: string, model: string) => void;
-  skills: SkillSummary[];
+  skills: SkillControls;
   conn: ConnectorControls;
   plug: PluginControls;
 }) {
@@ -130,7 +139,7 @@ export function SettingsModal({
             {page === "general" && <GeneralPage />}
             {page === "providers" && <ProvidersPage active={active} onPick={onPick} />}
             {page === "capabilities" && <CapabilitiesPage />}
-            {page === "skills" && <SkillsPage skills={skills} />}
+            {page === "skills" && <SkillsPage c={skills} />}
             {page === "connectors" && <ConnectorsPage c={conn} />}
             {page === "plugins" && <PluginsPage p={plug} />}
           </div>
@@ -409,6 +418,25 @@ function CapabilitiesPage() {
 
 /* ---------------- Directory shared bits (Skills / Connectors / Plugins) ---------------- */
 
+// Escape closes just this dialog. A capture-phase window listener runs before the
+// app-wide Escape handler (which would otherwise close the whole Settings modal) and
+// stops it, regardless of where focus currently sits.
+function useDialogEscape(onClose: () => void): void {
+  const ref = useRef(onClose);
+  ref.current = onClose;
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        e.preventDefault();
+        ref.current();
+      }
+    }
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, []);
+}
+
 // The search box atop each Directory grid page.
 function DirToolbar({ q, onQ, placeholder }: { q: string; onQ: (v: string) => void; placeholder: string }) {
   return (
@@ -424,20 +452,52 @@ function DirToolbar({ q, onQ, placeholder }: { q: string; onQ: (v: string) => vo
   );
 }
 
-/* ---------------- Skills table ---------------- */
+/* ---------------- Skills directory (browse + import) ---------------- */
 
-function SkillsPage({ skills }: { skills: SkillSummary[] }) {
+function SkillsPage({ c }: { c: SkillControls }) {
   const [q, setQ] = useState("");
-  const rows = skills.filter((s) =>
+  const [showRepo, setShowRepo] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const rows = c.list.filter((s) =>
     (s.name + " " + (s.description ?? "")).toLowerCase().includes(q.trim().toLowerCase()),
   );
+
+  async function onFile(file: File | undefined) {
+    if (!file) return;
+    setErr(null);
+    const text = await file.text();
+    const failure = await c.importFile(file.name, text);
+    if (failure) setErr(failure);
+  }
+
   return (
     <>
+      {err && <div className="settings-err">{err}</div>}
       <p className="settings-hint">
-        Skills are markdown instruction packs in the <code>skills/</code> folder. Type{" "}
-        <code>/</code> in the composer to invoke one; auto skills trigger on matching messages.
+        Skills are markdown instruction packs. Type <code>/</code> in the composer to invoke one;
+        auto skills trigger on matching messages. Import your own or sync a repository of skills.
       </p>
-      <DirToolbar q={q} onQ={setQ} placeholder="Search skills…" />
+      <div className="settings-toolbar">
+        <DirToolbar q={q} onQ={setQ} placeholder="Search skills…" />
+        <span className="settings-toolbar-spacer" />
+        <label className="settings-add-file">
+          Import skill
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".md,.markdown,text/markdown,text/plain"
+            style={{ display: "none" }}
+            onChange={(e) => {
+              void onFile(e.target.files?.[0]);
+              e.target.value = "";
+            }}
+          />
+        </label>
+        <button className="settings-add" onClick={() => setShowRepo(true)}>
+          <Icon name="plus" size={13} /> Add from repository
+        </button>
+      </div>
       <div className="dir-grid">
         {rows.map((s) => (
           <div className="dir-card" key={s.name}>
@@ -445,18 +505,111 @@ function SkillsPage({ skills }: { skills: SkillSummary[] }) {
               <span className="dir-card-icon"><Icon name="bulb" size={16} /></span>
               <span className="dir-card-title">/{s.name}</span>
               {s.auto && <span className="badge-pill">auto</span>}
+              {s.imported && <span className="badge-pill dir-origin">imported</span>}
             </div>
             <p className="dir-card-desc">{s.description || "No description."}</p>
-            {s.auto && (s.triggers ?? []).length > 0 && (
-              <div className="dir-card-foot">Triggers: {(s.triggers ?? []).join(", ")}</div>
-            )}
+            <div className="dir-card-actions">
+              {s.auto && (s.triggers ?? []).length > 0 ? (
+                <span className="dir-card-foot">Triggers: {(s.triggers ?? []).join(", ")}</span>
+              ) : (
+                <span />
+              )}
+              {s.imported && (
+                <button
+                  className="dir-remove"
+                  title="Remove imported skill"
+                  aria-label={`Remove ${s.name}`}
+                  onClick={() => c.onRemove(s.name)}
+                >
+                  <Icon name="x" size={14} />
+                </button>
+              )}
+            </div>
           </div>
         ))}
       </div>
       {rows.length === 0 && (
-        <div className="dir-empty">{skills.length === 0 ? "No skills installed yet." : "No matches."}</div>
+        <div className="dir-empty">{c.list.length === 0 ? "No skills yet — import one." : "No matches."}</div>
+      )}
+      {showRepo && (
+        <RepoSyncModal
+          title="Add skills from a repository"
+          blurb="Copy the markdown skill files from a GitHub repository or git URL into your skills."
+          allowRemote={c.allowRemote}
+          onSync={(url, ref) => c.importFromRepo(url, ref)}
+          onClose={() => setShowRepo(false)}
+        />
       )}
     </>
+  );
+}
+
+// Shared "sync from a git URL" modal used by the Skills and Plugins directories.
+function RepoSyncModal({
+  title,
+  blurb,
+  allowRemote,
+  onSync,
+  onClose,
+}: {
+  title: string;
+  blurb: string;
+  allowRemote: boolean;
+  onSync: (url: string, ref: string) => Promise<string | null>;
+  onClose: () => void;
+}) {
+  const [url, setUrl] = useState("");
+  const [ref, setRef] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  useDialogEscape(onClose); // Escape closes only this dialog, not the whole Settings modal
+
+  async function submit() {
+    if (!url.trim()) return;
+    setBusy(true);
+    setErr(null);
+    const failure = await onSync(url.trim(), ref.trim());
+    setBusy(false);
+    if (failure) setErr(failure);
+    else onClose();
+  }
+
+  return (
+    <div className="settings-overlay" onClick={onClose}>
+      <div
+        className="add-market-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <header className="add-market-head">
+          <h2>{title}</h2>
+          <button className="settings-close" aria-label="Close" title="Close" onClick={onClose}>✕</button>
+        </header>
+        <div className="add-market-form">
+          <p className="settings-hint" style={{ margin: "0 0 10px" }}>{blurb}</p>
+          {!allowRemote && (
+            <p className="settings-err">
+              Remote syncing is disabled on this install (MARKETPLACE_ALLOW_REMOTE=0).
+            </p>
+          )}
+          {err && <div className="settings-err">{err}</div>}
+          <label className="field-label" htmlFor="rs-url">Repository URL</label>
+          <input id="rs-url" placeholder="https://github.com/owner/repo.git"
+                 value={url} onChange={(e) => setUrl(e.target.value)} />
+          <label className="field-label" htmlFor="rs-ref">Branch or tag (optional)</label>
+          <input id="rs-ref" placeholder="main" value={ref} onChange={(e) => setRef(e.target.value)} />
+          <div className="drive-actions">
+            <button className="btn-secondary" onClick={onClose}>Cancel</button>
+            <button className="btn-primary" disabled={!url.trim() || busy || !allowRemote}
+                    onClick={() => void submit()}>
+              {busy ? "Syncing…" : "Sync"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -789,6 +942,7 @@ function AddMarketplaceModal({ p, onClose }: { p: PluginControls; onClose: () =>
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  useDialogEscape(onClose); // Escape closes only this dialog, not the whole Settings modal
 
   async function submit() {
     if (!url.trim()) return;
@@ -803,7 +957,11 @@ function AddMarketplaceModal({ p, onClose }: { p: PluginControls; onClose: () =>
   return (
     <div className="settings-overlay" onClick={onClose}>
       <div className="add-market-modal" role="dialog" aria-modal="true"
-           aria-labelledby="add-market-title" onClick={(e) => e.stopPropagation()}>
+           aria-labelledby="add-market-title" onClick={(e) => e.stopPropagation()}
+           onKeyDown={(e) => {
+             // Keep Escape local to this dialog — don't bubble up and close Settings.
+             if (e.key === "Escape") { e.stopPropagation(); onClose(); }
+           }}>
         <header className="add-market-head">
           <h2 id="add-market-title">Add marketplace</h2>
           <button className="settings-close" aria-label="Close" title="Close" onClick={onClose}>✕</button>

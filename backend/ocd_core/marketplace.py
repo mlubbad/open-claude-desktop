@@ -41,6 +41,7 @@ _HAS_RUN = re.compile(r'^\s*def\s+run\s*\(', re.M)
 
 _MAX_PLUGIN_BYTES = 256 * 1024   # per-file cap when scanning a synced repo
 _MAX_SOURCE_PLUGINS = 100        # per-source cap on discovered plugins
+_MAX_SCAN_FILES = 20000          # per-source cap on .py files examined during discovery
 
 
 # --------------------------------------------------------------------------- #
@@ -96,7 +97,10 @@ def _load_sources() -> list[dict]:
 def _save_sources(sources: list[dict]) -> None:
     f = _sources_file()
     f.parent.mkdir(parents=True, exist_ok=True)
-    f.write_text(json.dumps(sources, indent=2), encoding="utf-8")
+    # Atomic replace so a crash mid-write can't corrupt/truncate the registry.
+    tmp = f.with_name(f.name + ".tmp")
+    tmp.write_text(json.dumps(sources, indent=2), encoding="utf-8")
+    os.replace(tmp, f)
 
 
 def _source_id(url: str) -> str:
@@ -104,12 +108,14 @@ def _source_id(url: str) -> str:
 
 
 def _valid_git_url(url: str) -> bool:
-    """Accept https/http/git URLs and the git@host:path SSH form; reject local paths
-    (file://, bare paths) and anything with whitespace/control chars."""
+    """Accept only https:// and the git@host:path SSH form; reject plaintext transports
+    (http://, git://), local paths (file://, bare paths), and anything with
+    whitespace/control chars. Since a synced repo's code is later executed on install,
+    we refuse MITM-prone plaintext transports up front."""
     u = (url or "").strip()
     if not u or any(c.isspace() for c in u) or any(ord(c) < 32 for c in u):
         return False
-    if re.match(r'^(https?|git)://[^/].+', u):
+    if re.match(r'^https://[^/].+', u):
         return True
     if re.match(r'^[\w.+-]+@[\w.-]+:.+', u):   # scp-style ssh: git@github.com:owner/repo.git
         return True
@@ -162,10 +168,14 @@ def _dir_size(root: Path) -> int:
 
 def _discover(root: Path) -> list[Path]:
     """Plugin files inside a synced repo — .py files that textually look like plugins.
-    Skips .git, dotfiles, underscore-prefixed and oversized files; capped for safety."""
+    Skips .git, dotfiles, underscore-prefixed and oversized files; both the number of
+    plugins kept and the number of files scanned are capped so a repo with a huge file
+    tree can't make discovery expensive."""
     found: list[Path] = []
-    for f in sorted(root.rglob("*.py")):
-        if len(found) >= _MAX_SOURCE_PLUGINS:
+    scanned = 0
+    for f in root.rglob("*.py"):
+        scanned += 1
+        if scanned > _MAX_SCAN_FILES or len(found) >= _MAX_SOURCE_PLUGINS:
             break
         rel = f.relative_to(root)
         if any(part.startswith((".", "_")) for part in rel.parts):
@@ -180,7 +190,7 @@ def _discover(root: Path) -> list[Path]:
             continue
         if _looks_like_plugin(text):
             found.append(f)
-    return found
+    return sorted(found)
 
 
 def list_sources() -> list[dict]:
@@ -206,6 +216,9 @@ def add_source(url: str, ref: str = "", name: str = "") -> dict:
     if not _valid_git_url(url):
         return {"ok": False, "detail": "not a valid git URL (use https:// or git@…)"}
     sid = _source_id(url)
+    existing = _load_sources()
+    if not any(s.get("id") == sid for s in existing) and len(existing) >= config.MARKETPLACE_MAX_SOURCES:
+        return {"ok": False, "detail": f"source limit reached ({config.MARKETPLACE_MAX_SOURCES})"}
     dest = _sources_dir() / sid
     dest.parent.mkdir(parents=True, exist_ok=True)
     if dest.exists():
@@ -260,16 +273,26 @@ def _entries() -> list[dict]:
 
     Each entry carries an internal ``path`` (the catalog file to copy) and ``dest`` (the
     filename it installs AS inside PLUGINS_DIR). Bundled entries keep their own filename;
-    source entries are namespaced ``<sourceid>__<stem>.py`` so sources never collide.
+    source entries are namespaced ``<sourceid>__<stem>_<hash>.py`` so sources never
+    collide. Names are deduped (first wins, bundled before sources), so a synced source
+    can neither shadow nor duplicate an existing catalog name — install/uninstall by
+    name is therefore deterministic and always targets the row the UI shows.
     """
     entries: list[dict] = []
+    seen: set[str] = set()
+
+    def _add(entry: dict) -> None:
+        if entry["name"] in seen:
+            return
+        seen.add(entry["name"])
+        entries.append(entry)
+
     for f in _catalog_files():
         try:
             meta = _meta(f.read_text(encoding="utf-8"), f.stem)
         except OSError:
             continue
-        entries.append({**meta, "origin": "bundled", "source_id": None,
-                        "path": f, "dest": f.name})
+        _add({**meta, "origin": "bundled", "source_id": None, "path": f, "dest": f.name})
     for s in _load_sources():
         d = _sources_dir() / s["id"]
         if not d.is_dir():
@@ -279,10 +302,11 @@ def _entries() -> list[dict]:
                 meta = _meta(f.read_text(encoding="utf-8"), f.stem)
             except OSError:
                 continue
-            tag = hashlib.sha1(str(f.relative_to(d)).encode()).hexdigest()[:4]
-            entries.append({**meta, "origin": s.get("name", _repo_name(s.get("url", ""))),
-                            "source_id": s["id"], "path": f,
-                            "dest": f"{s['id']}__{f.stem}_{tag}.py"})
+            # 48-bit tag keyed on the repo-relative path: collision-resistant across a
+            # source's plugins so two files never map to the same install filename.
+            tag = hashlib.sha1(str(f.relative_to(d)).encode()).hexdigest()[:12]
+            _add({**meta, "origin": s.get("name", _repo_name(s.get("url", ""))),
+                  "source_id": s["id"], "path": f, "dest": f"{s['id']}__{f.stem}_{tag}.py"})
     return entries
 
 
@@ -311,7 +335,11 @@ def install(name: str) -> dict:
         return {"ok": False, "name": name, "detail": "not in the marketplace"}
     dest_dir = Path(integrations.PLUGINS_DIR)
     dest_dir.mkdir(parents=True, exist_ok=True)
-    dst = dest_dir / entry["dest"]
+    dst = (dest_dir.resolve() / entry["dest"]).resolve()
+    # Defensive path jail (mirrors uninstall): the install target must sit directly
+    # inside PLUGINS_DIR, so a future change to how `dest` is derived can't traverse out.
+    if dst.parent != dest_dir.resolve():
+        return {"ok": False, "name": name, "detail": "refused: path outside plugins dir"}
     try:
         shutil.copyfile(entry["path"], dst)
     except OSError as e:

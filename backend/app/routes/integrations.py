@@ -97,9 +97,42 @@ def marketplace_uninstall(body: PluginName, user: str = Depends(current_user)) -
     return res
 
 
+class SkillImport(BaseModel):
+    filename: str = "skill.md"
+    content: str
+
+
 @router.get("/skills")
 def list_skills(user: str = Depends(current_user)) -> list[dict]:
     return skills.list_skills()
+
+
+@router.post("/skills")
+def import_skill(body: SkillImport, user: str = Depends(current_user)) -> dict:
+    """Import a skill from an uploaded markdown file."""
+    res = skills.import_skill(body.filename, body.content)
+    if not res.get("ok"):
+        raise HTTPException(status_code=400, detail=res.get("detail", "import failed"))
+    return res
+
+
+@router.post("/skills/from-repo")
+def import_skills_from_repo(body: SourceBody, user: str = Depends(current_user)) -> dict:
+    """Sync skills from a git repository (one-shot copy of its markdown skill files)."""
+    if not marketplace.remote_allowed():
+        raise HTTPException(status_code=403, detail="remote marketplaces are disabled")
+    res = skills.import_skills_from_repo(body.url, body.ref)
+    if not res.get("ok"):
+        raise HTTPException(status_code=400, detail=res.get("detail", "could not sync"))
+    return res
+
+
+@router.delete("/skills/{name}")
+def remove_skill(name: str, user: str = Depends(current_user)) -> dict:
+    res = skills.remove_skill(name)
+    if not res.get("ok"):
+        raise HTTPException(status_code=400, detail=res.get("detail", "could not remove"))
+    return res
 
 
 @router.get("/connectors")

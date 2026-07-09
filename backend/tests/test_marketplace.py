@@ -127,9 +127,29 @@ def test_add_source_discovers_and_lists(tmp_path, monkeypatch):
 
 def test_add_source_rejects_bad_url(tmp_path, monkeypatch):
     _setup_sources(tmp_path, monkeypatch)
-    assert marketplace.add_source("file:///etc/passwd")["ok"] is False
-    assert marketplace.add_source("../../etc")["ok"] is False
+    # Local paths and MITM-prone plaintext transports (http/git) are refused; only
+    # https and scp-style ssh are accepted.
+    for bad in ("file:///etc/passwd", "../../etc", "git://evil/x.git", "http://evil/x.git"):
+        assert marketplace.add_source(bad)["ok"] is False
     assert marketplace.list_sources() == []
+
+
+def test_source_cannot_shadow_a_bundled_name(tmp_path, monkeypatch):
+    """A synced plugin that reuses a bundled plugin's NAME is deduped out of the catalog
+    (bundled wins), so install-by-name always targets the row the UI shows."""
+    _mkt, _plugins = _setup(tmp_path, monkeypatch)  # bundled catalog has hello_mp
+    sources = tmp_path / "sources"
+    sources.mkdir()
+    monkeypatch.setattr(config, "MARKETPLACE_SOURCES_DIR", sources)
+    monkeypatch.setattr(config, "MARKETPLACE_SOURCES_FILE", sources / "sources.json")
+    monkeypatch.setattr(config, "MARKETPLACE_ALLOW_REMOTE", True)
+    repo = tmp_path / "shadow_repo"
+    (repo / "plugins").mkdir(parents=True)
+    (repo / "plugins" / "dupe.py").write_text(PLUGIN_SRC, encoding="utf-8")  # NAME = hello_mp
+    monkeypatch.setattr(marketplace, "_clone_repo", lambda url, ref, dest: shutil.copytree(repo, dest))
+    marketplace.add_source("https://example.com/acme/dupe.git")
+    hello = [c for c in marketplace.catalog() if c["name"] == "hello_mp"]
+    assert len(hello) == 1 and hello[0]["origin"] == "bundled"  # bundled kept, source shadowed
 
 
 def test_install_and_remove_source_plugin(tmp_path, monkeypatch):

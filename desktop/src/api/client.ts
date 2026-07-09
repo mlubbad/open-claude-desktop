@@ -382,10 +382,16 @@ export interface SkillSummary {
   description?: string;
   auto?: boolean;
   triggers?: string[];
+  imported?: boolean; // user-imported (removable) vs bundled
 }
 
 export const skills = {
   list: () => api.get<SkillSummary[]>("/skills"),
+  import: (filename: string, content: string) =>
+    api.post<{ ok: boolean; name: string }>("/skills", { filename, content }),
+  importFromRepo: (url: string, ref = "") =>
+    api.post<{ ok: boolean; count: number; names: string[] }>("/skills/from-repo", { url, ref }),
+  remove: (name: string) => api.del<{ ok: boolean }>(`/skills/${encodeURIComponent(name)}`),
 };
 
 export interface PluginSummary {

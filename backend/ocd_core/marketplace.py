@@ -130,19 +130,26 @@ def _repo_name(url: str) -> str:
 def _clone_repo(url: str, ref: str, dest: Path) -> None:
     """Shallow-clone ``url`` into ``dest``. Isolated here so tests can monkeypatch it.
 
-    Never prompts for credentials, never fetches submodules, and is time-bounded.
-    Raises RuntimeError with a clean message on any failure.
+    Never fetches submodules, never blocks on an interactive prompt, and is time-bounded.
+    Inherits the caller's environment so proxy settings (HTTPS_PROXY), the CA bundle,
+    HOME/git-config, credential helpers, and loader paths all apply — a hand-built
+    minimal env silently breaks cloning behind a proxy (``getaddrinfo() thread failed to
+    start``) or with a non-standard git. Raises RuntimeError with a clean message on
+    any failure. Cloning only fetches data; git does not execute a remote repo's hooks,
+    so passing the real environment here is safe (repo code runs only on install).
     """
+    # NOTE: we deliberately do NOT pin protocol.http.allow=never. Proxy setups (incl.
+    # this app's own agent proxy) route git via a gitconfig `insteadOf` rule that rewrites
+    # https://github.com/ to a plaintext http:// proxy URL — blocking http would break
+    # cloning behind a proxy. The residual "a machine's gitconfig could downgrade the URL"
+    # risk is low, not attacker-injectable, and no worse than any tool running git here.
     cmd = ["git", "clone", "--depth", "1", "--no-tags", "--single-branch"]
     if ref.strip():
         cmd += ["--branch", ref.strip()]
     cmd += ["--", url, str(dest)]
-    env = {
-        "GIT_TERMINAL_PROMPT": "0",
-        "GIT_ASKPASS": "true",
-        "GIT_CONFIG_NOSYSTEM": "1",
-        "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
-    }
+    env = dict(os.environ)
+    env["GIT_TERMINAL_PROMPT"] = "0"      # fail fast instead of hanging for a password
+    env.setdefault("GIT_LFS_SKIP_SMUDGE", "1")  # don't pull large LFS blobs on checkout
     try:
         subprocess.run(cmd, env=env, check=True, capture_output=True,
                        timeout=config.MARKETPLACE_CLONE_TIMEOUT_SEC)

@@ -191,16 +191,28 @@ def remove_skill(name: str) -> dict:
     return {"ok": True, "name": name}
 
 
+# Directories that hold a skill's supporting material, not skills themselves.
+_SKILL_SUPPORT_DIRS = {"references", "reference", "assets", "examples", "example",
+                       "images", "img", "scripts", "templates", "node_modules"}
+
+
 def _discover_skill_files(root: Path) -> list[Path]:
-    """Skill .md files in a synced repo: those under a skills/ dir OR carrying skill
-    frontmatter. Skips dot/underscore paths, symlinks, and oversized files."""
-    out: list[Path] = []
+    """Skill files in a synced repo. Prefers the canonical Agent-Skills layout —
+    ``skills/<name>/SKILL.md`` — so a repo that uses it imports one skill per folder and
+    ignores its ``references/`` support docs. Falls back, for flat repos, to ``.md`` files
+    under a skills/ dir or carrying skill frontmatter. Skips dot/underscore paths,
+    supporting-material dirs, symlinks, and oversized files."""
     front = re.compile(r"(?im)^\s*(name|description|triggers|auto)\s*:")
+    skill_mds: list[Path] = []
+    loose: list[Path] = []
     for f in sorted(root.rglob("*.md")):
-        if len(out) >= 100:
+        if len(skill_mds) >= 100 and len(loose) >= 100:
             break
         rel = f.relative_to(root)
-        if any(part.startswith((".", "_")) for part in rel.parts):
+        parts = rel.parts
+        if any(p.startswith((".", "_")) for p in parts):
+            continue
+        if any(p.lower() in _SKILL_SUPPORT_DIRS for p in parts[:-1]):
             continue
         if f.is_symlink() or not f.is_file():
             continue
@@ -210,10 +222,18 @@ def _discover_skill_files(root: Path) -> list[Path]:
             text = f.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
             continue
-        in_skills_dir = any(p.lower() in ("skill", "skills") for p in rel.parts[:-1])
-        if in_skills_dir or front.search(text[:600]):
-            out.append(f)
-    return out
+        if f.name.lower() == "skill.md":
+            skill_mds.append(f)
+        elif any(p.lower() in ("skill", "skills") for p in parts[:-1]) or front.search(text[:600]):
+            loose.append(f)
+    # Canonical SKILL.md layout wins outright; otherwise take the loose matches.
+    return skill_mds[:100] if skill_mds else loose[:100]
+
+
+def _skill_fallback_name(f: Path) -> str:
+    """Name to use when a skill file has no explicit frontmatter name — the containing
+    folder for a SKILL.md (skills/ab-testing/SKILL.md -> 'ab-testing'), else the stem."""
+    return f.parent.name if f.name.lower() == "skill.md" else f.stem
 
 
 def import_skills_from_repo(url: str, ref: str = "") -> dict:
@@ -244,8 +264,11 @@ def import_skills_from_repo(url: str, ref: str = "") -> dict:
                 continue
             if not _valid_skill(content):
                 continue
-            name = _parse(content, f.stem)["name"]
-            path = _unique_path(d, _safe_stem(name or f.stem), set(imported.values()))
+            # SKILL.md files fall back to their folder name, not the stem "skill".
+            name = _parse(content, _skill_fallback_name(f))["name"]
+            if name in imported:
+                continue  # already imported this skill by name; don't duplicate
+            path = _unique_path(d, _safe_stem(name), set(imported.values()))
             path.write_text(content, encoding="utf-8")
             imported[name] = path.name
             names.append(name)

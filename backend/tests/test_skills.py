@@ -126,3 +126,28 @@ def test_import_skills_from_repo(tmp_path, monkeypatch):
 def test_import_skills_from_repo_rejects_bad_url(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "SKILLS_DIR", tmp_path)
     assert skills.import_skills_from_repo("file:///etc")["ok"] is False
+
+
+def test_import_skills_canonical_skill_md_layout(tmp_path, monkeypatch):
+    """A repo using skills/<name>/SKILL.md imports one skill per folder — its references/
+    docs are ignored, and a SKILL.md without a name falls back to its folder name."""
+    from ocd_core import marketplace
+    monkeypatch.setattr(config, "SKILLS_DIR", tmp_path / "skills")
+    monkeypatch.setattr(config, "MARKETPLACE_ALLOW_REMOTE", True)
+    repo = tmp_path / "repo"
+    (repo / "skills" / "ab-testing" / "references").mkdir(parents=True)
+    (repo / "skills" / "ab-testing" / "SKILL.md").write_text(
+        "---\nname: ab-testing\ndescription: AB\n---\nRun clean A/B tests.", encoding="utf-8")
+    (repo / "skills" / "ab-testing" / "references" / "guide.md").write_text(
+        "name: guide\n\nreference material", encoding="utf-8")  # must be ignored
+    (repo / "skills" / "ad-creative").mkdir(parents=True)
+    (repo / "skills" / "ad-creative" / "SKILL.md").write_text(
+        "no frontmatter here — just the body of the ad-creative skill.", encoding="utf-8")
+    (repo / "README.md").write_text("# repo readme", encoding="utf-8")
+    monkeypatch.setattr(marketplace, "_clone_repo", lambda url, ref, dest: shutil.copytree(repo, dest))
+
+    res = skills.import_skills_from_repo("https://example.com/x/marketingskills.git")
+    assert res["ok"] is True
+    # SKILL.md only; references/README ignored; nameless SKILL.md -> folder name.
+    assert set(res["names"]) == {"ab-testing", "ad-creative"}
+    assert "guide" not in {s["name"] for s in skills.list_skills()}

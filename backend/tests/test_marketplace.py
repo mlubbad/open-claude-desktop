@@ -166,6 +166,27 @@ def test_install_and_remove_source_plugin(tmp_path, monkeypatch):
     assert not any(c["name"] == "remote_tool" for c in marketplace.catalog())
 
 
+def test_clone_repo_inherits_env_for_proxy(monkeypatch):
+    """_clone_repo must inherit the process env (proxy, CA bundle, HOME, git config) —
+    a minimal hand-built env breaks cloning behind a proxy. Guards that regression."""
+    captured = {}
+
+    def fake_run(cmd, **kw):
+        captured["cmd"] = cmd
+        captured["env"] = kw.get("env")
+
+        class _R:
+            returncode = 0
+        return _R()
+
+    monkeypatch.setenv("HTTPS_PROXY", "http://proxy.example:8080")
+    monkeypatch.setattr(marketplace.subprocess, "run", fake_run)
+    marketplace._clone_repo("https://example.com/x.git", "", Path("/tmp/zz"))
+    assert captured["env"]["HTTPS_PROXY"] == "http://proxy.example:8080"  # inherited
+    assert captured["env"]["GIT_TERMINAL_PROMPT"] == "0"                  # non-interactive
+    assert captured["cmd"][-2:] == ["https://example.com/x.git", "/tmp/zz"]  # url/dest after --
+
+
 def test_add_source_no_plugins_is_rejected(tmp_path, monkeypatch):
     _setup_sources(tmp_path, monkeypatch)
 

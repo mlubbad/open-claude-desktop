@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   type AddMcpBody,
   type MarketplacePlugin,
+  type MarketplaceSource,
   type McpServer,
   type PluginSummary,
   type ProviderInfo,
@@ -11,6 +12,7 @@ import {
   type SkillSummary,
   type UserProfile,
 } from "../api/client";
+import { Icon } from "./Icon";
 
 export type SettingsPage =
   | "general"
@@ -39,6 +41,15 @@ const NAV: { group: string; items: { id: SettingsPage; label: string }[] }[] = [
   },
 ];
 
+export interface SkillControls {
+  list: SkillSummary[];
+  busy: boolean;
+  allowRemote: boolean;
+  importFile: (filename: string, content: string) => Promise<string | null>;
+  importFromRepo: (url: string, ref?: string) => Promise<string | null>;
+  onRemove: (name: string) => void;
+}
+
 export interface ConnectorControls {
   servers: McpServer[];
   enabled: string[];
@@ -55,12 +66,16 @@ export interface ConnectorControls {
 export interface PluginControls {
   installed: PluginSummary[];
   market: MarketplacePlugin[];
+  sources: MarketplaceSource[];
+  allowRemote: boolean;
   enabled: string[];
   err: string | null;
   busy: string | null;
   onToggle: (name: string) => void;
   onInstall: (name: string) => void;
   onUninstall: (name: string) => void;
+  onAddSource: (url: string, ref?: string, name?: string) => Promise<string | null>;
+  onRemoveSource: (id: string) => void;
 }
 
 // The unified Settings modal: grouped left-nav + a page pane, hosting every
@@ -81,7 +96,7 @@ export function SettingsModal({
   onClose: () => void;
   active: { provider: string; model: string };
   onPick: (provider: string, model: string) => void;
-  skills: SkillSummary[];
+  skills: SkillControls;
   conn: ConnectorControls;
   plug: PluginControls;
 }) {
@@ -124,7 +139,7 @@ export function SettingsModal({
             {page === "general" && <GeneralPage />}
             {page === "providers" && <ProvidersPage active={active} onPick={onPick} />}
             {page === "capabilities" && <CapabilitiesPage />}
-            {page === "skills" && <SkillsPage skills={skills} />}
+            {page === "skills" && <SkillsPage c={skills} />}
             {page === "connectors" && <ConnectorsPage c={conn} />}
             {page === "plugins" && <PluginsPage p={plug} />}
           </div>
@@ -401,39 +416,200 @@ function CapabilitiesPage() {
   );
 }
 
-/* ---------------- Skills table ---------------- */
+/* ---------------- Directory shared bits (Skills / Connectors / Plugins) ---------------- */
 
-function SkillsPage({ skills }: { skills: SkillSummary[] }) {
+// Escape closes just this dialog. A capture-phase window listener runs before the
+// app-wide Escape handler (which would otherwise close the whole Settings modal) and
+// stops it, regardless of where focus currently sits.
+function useDialogEscape(onClose: () => void): void {
+  const ref = useRef(onClose);
+  ref.current = onClose;
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        e.preventDefault();
+        ref.current();
+      }
+    }
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, []);
+}
+
+// The search box atop each Directory grid page.
+function DirToolbar({ q, onQ, placeholder }: { q: string; onQ: (v: string) => void; placeholder: string }) {
+  return (
+    <div className="dir-search">
+      <Icon name="search" size={14} />
+      <input
+        value={q}
+        onChange={(e) => onQ(e.target.value)}
+        placeholder={placeholder}
+        aria-label={placeholder}
+      />
+    </div>
+  );
+}
+
+/* ---------------- Skills directory (browse + import) ---------------- */
+
+function SkillsPage({ c }: { c: SkillControls }) {
+  const [q, setQ] = useState("");
+  const [showRepo, setShowRepo] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const rows = c.list.filter((s) =>
+    (s.name + " " + (s.description ?? "")).toLowerCase().includes(q.trim().toLowerCase()),
+  );
+
+  async function onFile(file: File | undefined) {
+    if (!file) return;
+    setErr(null);
+    const text = await file.text();
+    const failure = await c.importFile(file.name, text);
+    if (failure) setErr(failure);
+  }
+
   return (
     <>
+      {err && <div className="settings-err">{err}</div>}
       <p className="settings-hint">
-        Skills are markdown instruction packs in the <code>skills/</code> folder. Type{" "}
-        <code>/</code> in the composer to invoke one; auto skills trigger on matching messages.
+        Skills are markdown instruction packs. Type <code>/</code> in the composer to invoke one;
+        auto skills trigger on matching messages. Import your own or sync a repository of skills.
       </p>
-      <table className="stable">
-        <thead>
-          <tr>
-            <th>Skill</th>
-            <th>Description</th>
-            <th>Auto</th>
-          </tr>
-        </thead>
-        <tbody>
-          {skills.map((s) => (
-            <tr key={s.name}>
-              <td className="stable-name">/{s.name}</td>
-              <td>{s.description || "—"}</td>
-              <td>{s.auto ? (s.triggers ?? []).join(", ") || "yes" : "—"}</td>
-            </tr>
-          ))}
-          {skills.length === 0 && (
-            <tr>
-              <td colSpan={3} className="stable-empty">No skills installed yet.</td>
-            </tr>
-          )}
-        </tbody>
-      </table>
+      <div className="settings-toolbar">
+        <DirToolbar q={q} onQ={setQ} placeholder="Search skills…" />
+        <span className="settings-toolbar-spacer" />
+        <label className="settings-add-file">
+          Import skill
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".md,.markdown,text/markdown,text/plain"
+            style={{ display: "none" }}
+            onChange={(e) => {
+              void onFile(e.target.files?.[0]);
+              e.target.value = "";
+            }}
+          />
+        </label>
+        <button className="settings-add" onClick={() => setShowRepo(true)}>
+          <Icon name="plus" size={13} /> Add from repository
+        </button>
+      </div>
+      <div className="dir-grid">
+        {rows.map((s) => (
+          <div className="dir-card" key={s.name}>
+            <div className="dir-card-head">
+              <span className="dir-card-icon"><Icon name="bulb" size={16} /></span>
+              <span className="dir-card-title">/{s.name}</span>
+              {s.auto && <span className="badge-pill">auto</span>}
+              {s.imported && <span className="badge-pill dir-origin">imported</span>}
+            </div>
+            <p className="dir-card-desc">{s.description || "No description."}</p>
+            <div className="dir-card-actions">
+              {s.auto && (s.triggers ?? []).length > 0 ? (
+                <span className="dir-card-foot">Triggers: {(s.triggers ?? []).join(", ")}</span>
+              ) : (
+                <span />
+              )}
+              {s.imported && (
+                <button
+                  className="dir-remove"
+                  title="Remove imported skill"
+                  aria-label={`Remove ${s.name}`}
+                  onClick={() => c.onRemove(s.name)}
+                >
+                  <Icon name="x" size={14} />
+                </button>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+      {rows.length === 0 && (
+        <div className="dir-empty">{c.list.length === 0 ? "No skills yet — import one." : "No matches."}</div>
+      )}
+      {showRepo && (
+        <RepoSyncModal
+          title="Add skills from a repository"
+          blurb="Copy the markdown skill files from a GitHub repository or git URL into your skills."
+          allowRemote={c.allowRemote}
+          onSync={(url, ref) => c.importFromRepo(url, ref)}
+          onClose={() => setShowRepo(false)}
+        />
+      )}
     </>
+  );
+}
+
+// Shared "sync from a git URL" modal used by the Skills and Plugins directories.
+function RepoSyncModal({
+  title,
+  blurb,
+  allowRemote,
+  onSync,
+  onClose,
+}: {
+  title: string;
+  blurb: string;
+  allowRemote: boolean;
+  onSync: (url: string, ref: string) => Promise<string | null>;
+  onClose: () => void;
+}) {
+  const [url, setUrl] = useState("");
+  const [ref, setRef] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  useDialogEscape(onClose); // Escape closes only this dialog, not the whole Settings modal
+
+  async function submit() {
+    if (!url.trim()) return;
+    setBusy(true);
+    setErr(null);
+    const failure = await onSync(url.trim(), ref.trim());
+    setBusy(false);
+    if (failure) setErr(failure);
+    else onClose();
+  }
+
+  return (
+    <div className="settings-overlay" onClick={onClose}>
+      <div
+        className="add-market-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <header className="add-market-head">
+          <h2>{title}</h2>
+          <button className="settings-close" aria-label="Close" title="Close" onClick={onClose}>✕</button>
+        </header>
+        <div className="add-market-form">
+          <p className="settings-hint" style={{ margin: "0 0 10px" }}>{blurb}</p>
+          {!allowRemote && (
+            <p className="settings-err">
+              Remote syncing is disabled on this install (MARKETPLACE_ALLOW_REMOTE=0).
+            </p>
+          )}
+          {err && <div className="settings-err">{err}</div>}
+          <label className="field-label" htmlFor="rs-url">Repository URL</label>
+          <input id="rs-url" placeholder="https://github.com/owner/repo.git"
+                 value={url} onChange={(e) => setUrl(e.target.value)} />
+          <label className="field-label" htmlFor="rs-ref">Branch or tag (optional)</label>
+          <input id="rs-ref" placeholder="main" value={ref} onChange={(e) => setRef(e.target.value)} />
+          <div className="drive-actions">
+            <button className="btn-secondary" onClick={onClose}>Cancel</button>
+            <button className="btn-primary" disabled={!url.trim() || busy || !allowRemote}
+                    onClick={() => void submit()}>
+              {busy ? "Syncing…" : "Sync"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -560,20 +736,22 @@ function ConnectorsPage({ c }: { c: ConnectorControls }) {
         </div>
       )}
 
-      <table className="stable">
-        <thead>
-          <tr>
-            <th className="stable-check" aria-label="Enabled" />
-            <th>Connector</th>
-            <th>Type</th>
-            <th>Status</th>
-            <th aria-label="Actions" />
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((s) => (
-            <tr key={s.id}>
-              <td className="stable-check">
+      <div className="dir-grid">
+        {rows.map((s) => (
+          <div className={`dir-card ${s.status === "connected" ? "is-on" : ""}`} key={s.id}>
+            <div className="dir-card-head">
+              <span className="dir-card-icon"><Icon name="sliders" size={16} /></span>
+              <span className="dir-card-title">{s.name}</span>
+              {s.source === "mcpb" && <span className="badge-pill">extension{s.version ? ` v${s.version}` : ""}</span>}
+              {s.auth_mode === "oauth" && <span className="badge-pill">OAuth{s.authorized ? " ✓" : ""}</span>}
+            </div>
+            <p className="dir-card-desc">
+              <span className={`conn-status ${s.status}`}>{s.status}</span>
+              {" · "}{s.transport}
+              {s.status === "connected" && <> · {s.tool_count} tools</>}
+            </p>
+            <div className="dir-card-actions">
+              <label className="dir-toggle">
                 <input
                   type="checkbox"
                   aria-label={`Enable ${s.name}`}
@@ -581,38 +759,27 @@ function ConnectorsPage({ c }: { c: ConnectorControls }) {
                   disabled={s.status !== "connected"}
                   onChange={() => c.onToggle(s.id)}
                 />
-              </td>
-              <td className="stable-name">
-                {s.name}
-                {s.source === "mcpb" && <span className="conn-badge conn-ext">extension{s.version ? ` v${s.version}` : ""}</span>}
-                {s.auth_mode === "oauth" && <span className="conn-badge conn-ext">OAuth{s.authorized ? " ✓" : ""}</span>}
-              </td>
-              <td>{s.transport}</td>
-              <td>
-                <span className={`conn-status ${s.status}`}>{s.status}</span>
-                {s.status === "connected" && <span className="stable-sub"> · {s.tool_count} tools</span>}
-              </td>
-              <td className="stable-actions">
+                Enabled
+              </label>
+              <span className="dir-card-actions-right">
                 {s.auth_mode === "oauth" && !s.authorized && (
                   <button className="conn-authorize" title="Authorize (opens browser)" onClick={() => c.onAuthorize(s.id)}>
                     Authorize
                   </button>
                 )}
-                <button className="conn-del" title="Remove" aria-label={`Remove ${s.name}`} onClick={() => c.onRemove(s.id)}>
-                  ✕
+                <button className="dir-remove" title="Remove" aria-label={`Remove ${s.name}`} onClick={() => c.onRemove(s.id)}>
+                  <Icon name="x" size={14} />
                 </button>
-              </td>
-            </tr>
-          ))}
-          {rows.length === 0 && (
-            <tr>
-              <td colSpan={5} className="stable-empty">
-                {filter === "all" ? "No connectors yet — use Add or Install extension." : "Nothing here."}
-              </td>
-            </tr>
-          )}
-        </tbody>
-      </table>
+              </span>
+            </div>
+          </div>
+        ))}
+      </div>
+      {rows.length === 0 && (
+        <div className="dir-empty">
+          {filter === "all" ? "No connectors yet — use Add or Install extension." : "Nothing here."}
+        </div>
+      )}
     </>
   );
 }
@@ -621,91 +788,229 @@ function ConnectorsPage({ c }: { c: ConnectorControls }) {
 
 function PluginsPage({ p }: { p: PluginControls }) {
   const marketNames = new Set(p.market.map((m) => m.name));
+  const [q, setQ] = useState("");
+  const [category, setCategory] = useState("all");
+  const [showAddMarket, setShowAddMarket] = useState(false);
+  const categories = ["all", ...Array.from(new Set(p.market.map((m) => m.category))).sort()];
+  const needle = q.trim().toLowerCase();
+  const marketRows = p.market.filter(
+    (m) =>
+      (category === "all" || m.category === category) &&
+      (!needle || (m.name + " " + m.description).toLowerCase().includes(needle)),
+  );
+
   return (
     <>
       {p.err && <div className="settings-err">{p.err}</div>}
-      <h3 className="settings-subhead">Installed</h3>
-      <table className="stable">
-        <thead>
-          <tr>
-            <th className="stable-check" aria-label="Enabled" />
-            <th>Plugin</th>
-            <th>Description</th>
-            <th aria-label="Actions" />
-          </tr>
-        </thead>
-        <tbody>
-          {p.installed.map((pl) => (
-            <tr key={pl.name}>
-              <td className="stable-check">
-                <input
-                  type="checkbox"
-                  aria-label={`Enable ${pl.name}`}
-                  checked={p.enabled.includes(pl.name)}
-                  onChange={() => p.onToggle(pl.name)}
-                />
-              </td>
-              <td className="stable-name">{pl.name}</td>
-              <td>{pl.description || "—"}</td>
-              <td className="stable-actions">
-                {marketNames.has(pl.name) && (
-                  <button
-                    className="conn-del"
-                    title="Uninstall"
-                    aria-label={`Uninstall ${pl.name}`}
-                    disabled={p.busy === pl.name}
-                    onClick={() => p.onUninstall(pl.name)}
-                  >
-                    ✕
-                  </button>
-                )}
-              </td>
-            </tr>
-          ))}
-          {p.installed.length === 0 && (
-            <tr>
-              <td colSpan={4} className="stable-empty">No plugins installed yet.</td>
-            </tr>
-          )}
-        </tbody>
-      </table>
 
-      <h3 className="settings-subhead">Marketplace</h3>
-      <p className="settings-hint">Vetted, offline plugins bundled with the app.</p>
-      <table className="stable">
-        <thead>
-          <tr>
-            <th>Plugin</th>
-            <th>Category</th>
-            <th>Description</th>
-            <th aria-label="Actions" />
-          </tr>
-        </thead>
-        <tbody>
-          {p.market.map((m) => (
-            <tr key={m.name}>
-              <td className="stable-name">{m.name}</td>
-              <td>
-                <span className="badge-pill">{m.category}</span>
-              </td>
-              <td>{m.description}</td>
-              <td className="stable-actions">
-                {m.installed ? (
-                  <span className="plugin-installed">Installed ✓</span>
-                ) : (
-                  <button
-                    className="conn-install"
-                    disabled={p.busy === m.name}
-                    onClick={() => p.onInstall(m.name)}
-                  >
-                    {p.busy === m.name ? "Installing…" : "Install"}
-                  </button>
-                )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      {p.installed.length > 0 && (
+        <>
+          <h3 className="settings-subhead">Installed</h3>
+          <div className="dir-grid">
+            {p.installed.map((pl) => (
+              <div className="dir-card" key={pl.name}>
+                <div className="dir-card-head">
+                  <span className="dir-card-icon"><Icon name="panel" size={16} /></span>
+                  <span className="dir-card-title">{pl.name}</span>
+                </div>
+                <p className="dir-card-desc">{pl.description || "No description."}</p>
+                <div className="dir-card-actions">
+                  <label className="dir-toggle">
+                    <input
+                      type="checkbox"
+                      aria-label={`Enable ${pl.name}`}
+                      checked={p.enabled.includes(pl.name)}
+                      onChange={() => p.onToggle(pl.name)}
+                    />
+                    Enabled
+                  </label>
+                  {marketNames.has(pl.name) && (
+                    <button
+                      className="dir-remove"
+                      title="Uninstall"
+                      aria-label={`Uninstall ${pl.name}`}
+                      disabled={p.busy === pl.name}
+                      onClick={() => p.onUninstall(pl.name)}
+                    >
+                      <Icon name="x" size={14} />
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      <div className="settings-toolbar">
+        <h3 className="settings-subhead" style={{ margin: 0 }}>Marketplace</h3>
+        <span className="settings-toolbar-spacer" />
+        <button className="settings-add" onClick={() => setShowAddMarket(true)}>
+          <Icon name="plus" size={13} /> Add marketplace
+        </button>
+      </div>
+      <DirToolbar q={q} onQ={setQ} placeholder="Search plugins…" />
+      <div className="filter-chips" role="group" aria-label="Filter by category">
+        {categories.map((c) => (
+          <button
+            key={c}
+            className={`filter-chip ${category === c ? "active" : ""}`}
+            onClick={() => setCategory(c)}
+          >
+            {c === "all" ? "All" : c}
+          </button>
+        ))}
+      </div>
+      <div className="dir-grid">
+        {marketRows.map((m) => (
+          <div className="dir-card" key={m.name}>
+            <div className="dir-card-head">
+              <span className="dir-card-icon"><Icon name="panel" size={16} /></span>
+              <span className="dir-card-title">{m.name}</span>
+              <span className="badge-pill">{m.category}</span>
+              {m.origin && m.origin !== "bundled" && (
+                <span className="badge-pill dir-origin" title={`From ${m.origin}`}>{m.origin}</span>
+              )}
+            </div>
+            <p className="dir-card-desc">{m.description}</p>
+            <div className="dir-card-actions">
+              {m.installed ? (
+                <span className="plugin-installed">Installed ✓</span>
+              ) : (
+                <button
+                  className="conn-install"
+                  disabled={p.busy === m.name}
+                  onClick={() => p.onInstall(m.name)}
+                >
+                  {p.busy === m.name ? "Installing…" : "Install"}
+                </button>
+              )}
+            </div>
+          </div>
+        ))}
+        {marketRows.length === 0 && <div className="dir-empty">No matches.</div>}
+      </div>
+
+      {p.sources.length > 0 && (
+        <>
+          <h3 className="settings-subhead">Repository sources</h3>
+          <table className="stable">
+            <thead>
+              <tr>
+                <th>Source</th>
+                <th>URL</th>
+                <th>Plugins</th>
+                <th aria-label="Actions" />
+              </tr>
+            </thead>
+            <tbody>
+              {p.sources.map((s) => (
+                <tr key={s.id}>
+                  <td className="stable-name">{s.name}</td>
+                  <td className="stable-sub">{s.url}{s.ref ? ` @ ${s.ref}` : ""}</td>
+                  <td>{s.plugins}</td>
+                  <td className="stable-actions">
+                    <button
+                      className="conn-del"
+                      title="Remove source"
+                      aria-label={`Remove ${s.name}`}
+                      disabled={p.busy === s.id}
+                      onClick={() => p.onRemoveSource(s.id)}
+                    >
+                      ✕
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      )}
+
+      {showAddMarket && <AddMarketplaceModal p={p} onClose={() => setShowAddMarket(false)} />}
     </>
+  );
+}
+
+// "Add marketplace" — sync a plugin marketplace from a git repository. Installing from
+// here runs the repo's plugin CODE on this machine once you Install a specific plugin,
+// so the flow leads with an explicit risk warning (contract: opt-in, not a silent add).
+function AddMarketplaceModal({ p, onClose }: { p: PluginControls; onClose: () => void }) {
+  const [step, setStep] = useState<"choose" | "repo">("choose");
+  const [url, setUrl] = useState("");
+  const [ref, setRef] = useState("");
+  const [name, setName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  useDialogEscape(onClose); // Escape closes only this dialog, not the whole Settings modal
+
+  async function submit() {
+    if (!url.trim()) return;
+    setBusy(true);
+    setErr(null);
+    const failure = await p.onAddSource(url.trim(), ref.trim(), name.trim());
+    setBusy(false);
+    if (failure) setErr(failure);
+    else onClose();
+  }
+
+  return (
+    <div className="settings-overlay" onClick={onClose}>
+      <div className="add-market-modal" role="dialog" aria-modal="true"
+           aria-labelledby="add-market-title" onClick={(e) => e.stopPropagation()}
+           onKeyDown={(e) => {
+             // Keep Escape local to this dialog — don't bubble up and close Settings.
+             if (e.key === "Escape") { e.stopPropagation(); onClose(); }
+           }}>
+        <header className="add-market-head">
+          <h2 id="add-market-title">Add marketplace</h2>
+          <button className="settings-close" aria-label="Close" title="Close" onClick={onClose}>✕</button>
+        </header>
+
+        {step === "choose" ? (
+          <div className="add-market-choices">
+            <button className="add-market-choice" onClick={() => setStep("repo")}>
+              <span className="dir-card-icon"><Icon name="book" size={18} /></span>
+              <span>
+                <strong>Add from a repository</strong>
+                <p>Sync a plugin marketplace from a GitHub repository or git URL.</p>
+              </span>
+            </button>
+          </div>
+        ) : (
+          <div className="add-market-form">
+            {!p.allowRemote ? (
+              <p className="settings-err">
+                Remote marketplaces are disabled on this install (MARKETPLACE_ALLOW_REMOTE=0).
+              </p>
+            ) : (
+              <p className="add-market-warn">
+                <strong>This runs third-party code.</strong> Installing a plugin from this
+                repository executes its Python on this device. Only add sources you trust.
+              </p>
+            )}
+            {err && <div className="settings-err">{err}</div>}
+            <label className="field-label" htmlFor="mk-url">Repository URL</label>
+            <input id="mk-url" placeholder="https://github.com/owner/repo.git"
+                   value={url} onChange={(e) => setUrl(e.target.value)} />
+            <label className="field-label" htmlFor="mk-ref">Branch or tag (optional)</label>
+            <input id="mk-ref" placeholder="main" value={ref} onChange={(e) => setRef(e.target.value)} />
+            <label className="field-label" htmlFor="mk-name">Display name (optional)</label>
+            <input id="mk-name" placeholder={url ? url.split("/").pop() : "My marketplace"}
+                   value={name} onChange={(e) => setName(e.target.value)} />
+            <div className="drive-actions">
+              <button className="btn-secondary" onClick={() => setStep("choose")}>Back</button>
+              <button
+                className="btn-primary"
+                disabled={!url.trim() || busy || !p.allowRemote}
+                onClick={() => void submit()}
+              >
+                {busy ? "Syncing…" : "Sync marketplace"}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }

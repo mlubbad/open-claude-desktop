@@ -382,10 +382,16 @@ export interface SkillSummary {
   description?: string;
   auto?: boolean;
   triggers?: string[];
+  imported?: boolean; // user-imported (removable) vs bundled
 }
 
 export const skills = {
   list: () => api.get<SkillSummary[]>("/skills"),
+  import: (filename: string, content: string) =>
+    api.post<{ ok: boolean; name: string }>("/skills", { filename, content }),
+  importFromRepo: (url: string, ref = "") =>
+    api.post<{ ok: boolean; count: number; names: string[] }>("/skills/from-repo", { url, ref }),
+  remove: (name: string) => api.del<{ ok: boolean }>(`/skills/${encodeURIComponent(name)}`),
 };
 
 export interface PluginSummary {
@@ -398,8 +404,21 @@ export interface MarketplacePlugin {
   name: string;
   description: string;
   category: string;
-  filename: string;
+  filename?: string;
   installed: boolean;
+  origin?: string; // "bundled" or the synced source's name
+  source_id?: string | null;
+}
+
+// A synced repository source (a git repo cloned locally that contributes plugins).
+export interface MarketplaceSource {
+  id: string;
+  name: string;
+  url: string;
+  ref: string;
+  added_at: string;
+  plugins: number;
+  present: boolean;
 }
 
 export const plugins = {
@@ -408,6 +427,11 @@ export const plugins = {
   install: (name: string) => api.post<{ ok: boolean; name: string }>("/marketplace/install", { name }),
   uninstall: (name: string) =>
     api.post<{ ok: boolean; name: string }>("/marketplace/uninstall", { name }),
+  // Repository marketplace sources (sync plugins from a git URL).
+  sources: () => api.get<{ allow_remote: boolean; sources: MarketplaceSource[] }>("/marketplace/sources"),
+  addSource: (url: string, ref = "", name = "") =>
+    api.post<{ ok: boolean; source: MarketplaceSource }>("/marketplace/sources", { url, ref, name }),
+  removeSource: (id: string) => api.del<{ ok: boolean }>(`/marketplace/sources/${id}`),
 };
 
 export const mcp = {

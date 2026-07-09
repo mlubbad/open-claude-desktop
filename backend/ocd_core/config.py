@@ -15,6 +15,20 @@ SKILLS_DIR = Path(os.getenv("SKILLS_DIR", str(REPO_ROOT / "skills")))
 PLUGINS_DIR = Path(os.getenv("PLUGINS_DIR", str(REPO_ROOT / "plugins")))
 # Bundled, vetted plugin catalog the marketplace installs FROM (into PLUGINS_DIR).
 MARKETPLACE_DIR = Path(os.getenv("MARKETPLACE_DIR", str(REPO_ROOT / "content" / "marketplace")))
+# User-added marketplace sources: git repos cloned locally that contribute installable
+# plugins alongside the bundled catalog, plus the JSON registry of added sources.
+MARKETPLACE_SOURCES_DIR = Path(os.getenv(
+    "MARKETPLACE_SOURCES_DIR", str(REPO_ROOT / "content" / "marketplace_sources")))
+MARKETPLACE_SOURCES_FILE = Path(os.getenv(
+    "MARKETPLACE_SOURCES_FILE", str(MARKETPLACE_SOURCES_DIR / "sources.json")))
+# A remote marketplace runs third-party plugin CODE on this machine. On by default (the
+# desktop app gates it behind an explicit warning); ops can hard-disable with "0".
+MARKETPLACE_ALLOW_REMOTE = os.getenv(
+    "MARKETPLACE_ALLOW_REMOTE", "1").strip().lower() in ("1", "true", "yes")
+MARKETPLACE_CLONE_TIMEOUT_SEC = int(os.getenv("MARKETPLACE_CLONE_TIMEOUT_SEC", "90"))
+MARKETPLACE_MAX_SOURCE_BYTES = int(os.getenv("MARKETPLACE_MAX_SOURCE_MB", "40")) * 1024 * 1024
+# Ceiling on how many repository sources can be registered (bounds aggregate disk use).
+MARKETPLACE_MAX_SOURCES = int(os.getenv("MARKETPLACE_MAX_SOURCES", "50"))
 
 # --- BigQuery (optional connector, Phase 2) ---
 PROJECT_ID = os.getenv("GCP_PROJECT_ID", "")

@@ -16,6 +16,19 @@ export interface ProjectRef {
   name: string;
 }
 
+// A connector row for the composer's Connectors flyout.
+export interface ConnectorRef {
+  id: string;
+  name: string;
+  status: string; // "connected" | "error" | "unauthorized" | …
+}
+
+// An installed-plugin row for the composer's Plugins flyout.
+export interface PluginRef {
+  name: string;
+  description?: string;
+}
+
 // The full `+` Add menu (contract §2): file/project/GitHub adds, the Skills/
 // Connectors/Plugins jumps, and the Research / Web-search request toggles.
 export interface AddMenuInfo {
@@ -26,9 +39,18 @@ export interface AddMenuInfo {
   onPickProject: (id: string | null) => void;
   onCreateProject: () => void;
   onAddFromGitHub: () => void;
+  // Skills / Connectors / Plugins each open as a flyout (live list + toggle where it
+  // applies) instead of jumping straight to Settings; "Manage…" still does that.
   openSkills: () => void;
+  connectors: ConnectorRef[];
+  enabledConnectors: string[];
+  onToggleConnector: (id: string) => void;
   openConnectors: () => void;
+  pluginsList: PluginRef[];
+  enabledPlugins: string[];
+  onTogglePlugin: (name: string) => void;
   openPlugins: () => void;
+  openMarketplace: () => void;
   research: boolean;
   onResearch: (on: boolean) => void;
   webSearch: boolean;
@@ -83,7 +105,9 @@ export function Composer({
   const [sel, setSel] = useState(0);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [addOpen, setAddOpen] = useState(false);
-  const [projSub, setProjSub] = useState(false); // "Add to project" flyout open
+  // Which Add-menu flyout is open (Add to project / Skills / Connectors / Plugins) —
+  // only one at a time, hover- or click-driven, mirroring the Recents ⋮ submenu.
+  const [subOpen, setSubOpen] = useState<"project" | "skills" | "connectors" | "plugins" | null>(null);
   const [modelOpen, setModelOpen] = useState(false);
   const [micOpen, setMicOpen] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -128,7 +152,7 @@ export function Composer({
   // reach the global handler that stops generation).
   useEffect(() => {
     if (!addOpen) {
-      setProjSub(false); // collapse the project flyout when the menu closes
+      setSubOpen(null); // collapse any open flyout when the menu closes
       return;
     }
     function onDoc(e: MouseEvent) {
@@ -292,20 +316,20 @@ export function Composer({
               </button>
               <div
                 className="add-submenu-anchor"
-                onMouseEnter={() => setProjSub(true)}
-                onMouseLeave={() => setProjSub(false)}
+                onMouseEnter={() => setSubOpen("project")}
+                onMouseLeave={() => setSubOpen((s) => (s === "project" ? null : s))}
               >
                 <button
                   role="menuitem"
                   aria-haspopup="menu"
-                  aria-expanded={projSub}
-                  onClick={() => setProjSub((v) => !v)}
+                  aria-expanded={subOpen === "project"}
+                  onClick={() => setSubOpen((s) => (s === "project" ? null : "project"))}
                 >
                   <span className="add-ic"><Icon name="folder" size={15} /></span>
                   Add to project
                   <span className="add-chev" aria-hidden="true"><Icon name="chev-right" size={13} /></span>
                 </button>
-                {projSub && (
+                {subOpen === "project" && (
                   <div className="add-submenu" role="menu" aria-label="Add to project">
                     <button
                       role="menuitemradio"
@@ -346,21 +370,131 @@ export function Composer({
                 Add from GitHub
               </button>
               <div className="add-divider" />
-              <button role="menuitem" onClick={() => { setAddOpen(false); addMenu.openSkills(); }}>
-                <span className="add-ic"><Icon name="bulb" size={15} /></span>
-                Skills
-                <span className="add-chev" aria-hidden="true"><Icon name="chev-right" size={13} /></span>
-              </button>
-              <button role="menuitem" onClick={() => { setAddOpen(false); addMenu.openConnectors(); }}>
-                <span className="add-ic"><Icon name="sliders" size={15} /></span>
-                Connectors
-                <span className="add-chev" aria-hidden="true"><Icon name="chev-right" size={13} /></span>
-              </button>
-              <button role="menuitem" onClick={() => { setAddOpen(false); addMenu.openPlugins(); }}>
-                <span className="add-ic"><Icon name="panel" size={15} /></span>
-                Plugins
-                <span className="add-chev" aria-hidden="true"><Icon name="chev-right" size={13} /></span>
-              </button>
+
+              <div
+                className="add-submenu-anchor"
+                onMouseEnter={() => setSubOpen("skills")}
+                onMouseLeave={() => setSubOpen((s) => (s === "skills" ? null : s))}
+              >
+                <button
+                  role="menuitem"
+                  aria-haspopup="menu"
+                  aria-expanded={subOpen === "skills"}
+                  onClick={() => setSubOpen((s) => (s === "skills" ? null : "skills"))}
+                >
+                  <span className="add-ic"><Icon name="bulb" size={15} /></span>
+                  Skills
+                  <span className="add-chev" aria-hidden="true"><Icon name="chev-right" size={13} /></span>
+                </button>
+                {subOpen === "skills" && (
+                  <div className="add-submenu" role="menu" aria-label="Skills">
+                    {skills.map((s) => (
+                      <button
+                        key={s.name}
+                        role="menuitem"
+                        title={s.description}
+                        onClick={() => { setAddOpen(false); accept(s); }}
+                      >
+                        <span className="add-submenu-name">/{s.name}</span>
+                      </button>
+                    ))}
+                    {skills.length === 0 && <span className="add-submenu-empty">No skills yet</span>}
+                    <div className="add-divider" />
+                    <button role="menuitem" onClick={() => { setAddOpen(false); addMenu.openSkills(); }}>
+                      Manage &amp; import skills
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <div
+                className="add-submenu-anchor"
+                onMouseEnter={() => setSubOpen("connectors")}
+                onMouseLeave={() => setSubOpen((s) => (s === "connectors" ? null : s))}
+              >
+                <button
+                  role="menuitem"
+                  aria-haspopup="menu"
+                  aria-expanded={subOpen === "connectors"}
+                  onClick={() => setSubOpen((s) => (s === "connectors" ? null : "connectors"))}
+                >
+                  <span className="add-ic"><Icon name="sliders" size={15} /></span>
+                  Connectors
+                  {addMenu.connectors.some((c) => c.status === "error") && (
+                    <span className="add-warn" aria-hidden="true">
+                      {addMenu.connectors.filter((c) => c.status === "error").length}
+                    </span>
+                  )}
+                  <span className="add-chev" aria-hidden="true"><Icon name="chev-right" size={13} /></span>
+                </button>
+                {subOpen === "connectors" && (
+                  <div className="add-submenu" role="menu" aria-label="Connectors">
+                    {addMenu.connectors.map((c) => (
+                      <button
+                        key={c.id}
+                        role="menuitemcheckbox"
+                        aria-checked={addMenu.enabledConnectors.includes(c.id)}
+                        disabled={c.status !== "connected"}
+                        onClick={() => addMenu.onToggleConnector(c.id)}
+                      >
+                        <span className="add-submenu-name">{c.name}</span>
+                        {c.status !== "connected" && <span className="add-submenu-sub">{c.status}</span>}
+                        {addMenu.enabledConnectors.includes(c.id) && (
+                          <span className="add-check" aria-hidden="true"><Icon name="check" size={13} /></span>
+                        )}
+                      </button>
+                    ))}
+                    {addMenu.connectors.length === 0 && <span className="add-submenu-empty">No connectors yet</span>}
+                    <div className="add-divider" />
+                    <button role="menuitem" onClick={() => { setAddOpen(false); addMenu.openConnectors(); }}>
+                      Manage connectors
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <div
+                className="add-submenu-anchor"
+                onMouseEnter={() => setSubOpen("plugins")}
+                onMouseLeave={() => setSubOpen((s) => (s === "plugins" ? null : s))}
+              >
+                <button
+                  role="menuitem"
+                  aria-haspopup="menu"
+                  aria-expanded={subOpen === "plugins"}
+                  onClick={() => setSubOpen((s) => (s === "plugins" ? null : "plugins"))}
+                >
+                  <span className="add-ic"><Icon name="panel" size={15} /></span>
+                  Plugins
+                  <span className="add-chev" aria-hidden="true"><Icon name="chev-right" size={13} /></span>
+                </button>
+                {subOpen === "plugins" && (
+                  <div className="add-submenu" role="menu" aria-label="Plugins">
+                    {addMenu.pluginsList.map((pl) => (
+                      <button
+                        key={pl.name}
+                        role="menuitemcheckbox"
+                        aria-checked={addMenu.enabledPlugins.includes(pl.name)}
+                        title={pl.description}
+                        onClick={() => addMenu.onTogglePlugin(pl.name)}
+                      >
+                        <span className="add-submenu-name">{pl.name}</span>
+                        {addMenu.enabledPlugins.includes(pl.name) && (
+                          <span className="add-check" aria-hidden="true"><Icon name="check" size={13} /></span>
+                        )}
+                      </button>
+                    ))}
+                    {addMenu.pluginsList.length === 0 && <span className="add-submenu-empty">No plugins yet</span>}
+                    <div className="add-divider" />
+                    <button role="menuitem" onClick={() => { setAddOpen(false); addMenu.openPlugins(); }}>
+                      Manage plugins
+                    </button>
+                    <button role="menuitem" onClick={() => { setAddOpen(false); addMenu.openMarketplace(); }}>
+                      Browse marketplace
+                    </button>
+                  </div>
+                )}
+              </div>
               <div className="add-divider" />
               <button role="menuitemcheckbox" aria-checked={addMenu.research}
                       onClick={() => addMenu.onResearch(!addMenu.research)}>

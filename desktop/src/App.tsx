@@ -85,7 +85,7 @@ export default function App() {
   const proj = useProjects();
   const connectors = useConnectors();
   const pluginMgr = usePlugins();
-  const skills = useSkills();
+  const skillsMgr = useSkills();
   const theme = useTheme();
   const codeWs = useCode(proj.active ?? undefined, view === "code");
   const cowork = useCowork(
@@ -346,8 +346,15 @@ export default function App() {
     onCreateProject: () => setShowCreateProject(true),
     onAddFromGitHub: () => setSettingsPage("connectors"),
     openSkills: () => setSettingsPage("skills"),
+    connectors: connectors.servers.map((s) => ({ id: s.id, name: s.name, status: s.status })),
+    enabledConnectors: connectors.enabled,
+    onToggleConnector: connectors.toggle,
     openConnectors: () => setSettingsPage("connectors"),
+    pluginsList: pluginMgr.installed.map((p) => ({ name: p.name, description: p.description })),
+    enabledPlugins: pluginMgr.enabled,
+    onTogglePlugin: pluginMgr.toggle,
     openPlugins: () => setSettingsPage("plugins"),
+    openMarketplace: () => setSettingsPage("plugins"),
     research: active.research,
     onResearch: (on) => applyOptions({ research: on }),
     webSearch: active.webSearch,
@@ -508,7 +515,7 @@ export default function App() {
                 busy={busy}
                 onSend={sendFromProject}
                 onStop={stop}
-                skills={skills}
+                skills={skillsMgr.list}
                 draftKey={`project-${projectDetail}`}
                 placeholder="How can I help with this project?"
                 addMenu={addMenu}
@@ -579,7 +586,7 @@ export default function App() {
                   busy={busy}
                   onSend={send}
                   onStop={stop}
-                  skills={skills}
+                  skills={skillsMgr.list}
                   draftKey={current?.cid ?? "new"}
                   initialText={getDraft(drafts, current?.cid ?? "new")}
                   onTextChange={(t) => setDrafts((d) => setDraft(d, current?.cid ?? "new", t))}
@@ -652,7 +659,7 @@ export default function App() {
               busy={busy}
               onSend={send}
               onStop={stop}
-              skills={skills}
+              skills={skillsMgr.list}
               draftKey={current?.cid ?? "new"}
               initialText={getDraft(drafts, current?.cid ?? "new")}
               onTextChange={(t) => setDrafts((d) => setDraft(d, current?.cid ?? "new", t))}
@@ -773,7 +780,14 @@ export default function App() {
             setDefaults((d) => ({ ...d, provider: p, model: m }));
             applyOptions({ provider: p, model: m });
           }}
-          skills={skills}
+          skills={{
+            list: skillsMgr.list,
+            busy: skillsMgr.busy,
+            allowRemote: pluginMgr.allowRemote,
+            importFile: skillsMgr.importFile,
+            importFromRepo: skillsMgr.importFromRepo,
+            onRemove: (name) => void skillsMgr.remove(name),
+          }}
           conn={{
             servers: connectors.servers,
             enabled: connectors.enabled,
@@ -789,12 +803,16 @@ export default function App() {
           plug={{
             installed: pluginMgr.installed,
             market: pluginMgr.market,
+            sources: pluginMgr.sources,
+            allowRemote: pluginMgr.allowRemote,
             enabled: pluginMgr.enabled,
             err: pluginMgr.err,
             busy: pluginMgr.busy,
             onToggle: pluginMgr.toggle,
             onInstall: (name) => void pluginMgr.install(name),
             onUninstall: (name) => void pluginMgr.uninstall(name),
+            onAddSource: pluginMgr.addSource,
+            onRemoveSource: (id) => void pluginMgr.removeSource(id),
           }}
         />
       )}

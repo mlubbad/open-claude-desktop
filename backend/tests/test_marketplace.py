@@ -2,6 +2,7 @@
 plugin into PLUGINS_DIR (where the runtime picks it up as a tool), and uninstall it —
 without ever being able to delete a non-catalog (built-in) plugin.
 """
+import shutil
 import textwrap
 from pathlib import Path
 
@@ -80,3 +81,98 @@ def test_bundled_catalog_is_present_and_loads(monkeypatch):
     cat = marketplace.catalog()
     names = {c["name"] for c in cat}
     assert {"word_count", "base64_tool", "roman_numeral", "color_convert"} <= names
+
+
+# --------------------------- repository sources --------------------------- #
+
+def _setup_sources(tmp_path, monkeypatch):
+    """Empty bundled catalog + a sources area, with git clone stubbed to copy a fixture."""
+    mkt = tmp_path / "marketplace"
+    mkt.mkdir()
+    plugins = tmp_path / "plugins"
+    plugins.mkdir()
+    sources = tmp_path / "sources"
+    sources.mkdir()
+    monkeypatch.setattr(config, "MARKETPLACE_DIR", mkt)
+    monkeypatch.setattr(integrations, "PLUGINS_DIR", plugins)
+    monkeypatch.setattr(config, "MARKETPLACE_SOURCES_DIR", sources)
+    monkeypatch.setattr(config, "MARKETPLACE_SOURCES_FILE", sources / "sources.json")
+    monkeypatch.setattr(config, "MARKETPLACE_ALLOW_REMOTE", True)
+
+    # Fixture repo the fake clone populates the destination from.
+    repo = tmp_path / "fixture_repo"
+    (repo / "plugins").mkdir(parents=True)
+    (repo / "plugins" / "remote_tool.py").write_text(
+        PLUGIN_SRC.replace("hello_mp", "remote_tool"), encoding="utf-8")
+    (repo / "README.md").write_text("# not a plugin", encoding="utf-8")
+    (repo / "_private.py").write_text("secret = 1", encoding="utf-8")  # skipped (underscore)
+
+    def fake_clone(url, ref, dest):
+        shutil.copytree(repo, dest)
+    monkeypatch.setattr(marketplace, "_clone_repo", fake_clone)
+    return plugins
+
+
+def test_add_source_discovers_and_lists(tmp_path, monkeypatch):
+    _setup_sources(tmp_path, monkeypatch)
+    res = marketplace.add_source("https://example.com/acme/plugins.git")
+    assert res["ok"] is True
+    assert res["source"]["plugins"] == 1  # only remote_tool.py (README/_private skipped)
+    srcs = marketplace.list_sources()
+    assert len(srcs) == 1 and srcs[0]["name"] == "plugins"
+    # The source plugin now shows in the merged catalog with its origin.
+    entry = next(c for c in marketplace.catalog() if c["name"] == "remote_tool")
+    assert entry["source_id"] == srcs[0]["id"] and entry["origin"] == "plugins"
+
+
+def test_add_source_rejects_bad_url(tmp_path, monkeypatch):
+    _setup_sources(tmp_path, monkeypatch)
+    # Local paths and MITM-prone plaintext transports (http/git) are refused; only
+    # https and scp-style ssh are accepted.
+    for bad in ("file:///etc/passwd", "../../etc", "git://evil/x.git", "http://evil/x.git"):
+        assert marketplace.add_source(bad)["ok"] is False
+    assert marketplace.list_sources() == []
+
+
+def test_source_cannot_shadow_a_bundled_name(tmp_path, monkeypatch):
+    """A synced plugin that reuses a bundled plugin's NAME is deduped out of the catalog
+    (bundled wins), so install-by-name always targets the row the UI shows."""
+    _mkt, _plugins = _setup(tmp_path, monkeypatch)  # bundled catalog has hello_mp
+    sources = tmp_path / "sources"
+    sources.mkdir()
+    monkeypatch.setattr(config, "MARKETPLACE_SOURCES_DIR", sources)
+    monkeypatch.setattr(config, "MARKETPLACE_SOURCES_FILE", sources / "sources.json")
+    monkeypatch.setattr(config, "MARKETPLACE_ALLOW_REMOTE", True)
+    repo = tmp_path / "shadow_repo"
+    (repo / "plugins").mkdir(parents=True)
+    (repo / "plugins" / "dupe.py").write_text(PLUGIN_SRC, encoding="utf-8")  # NAME = hello_mp
+    monkeypatch.setattr(marketplace, "_clone_repo", lambda url, ref, dest: shutil.copytree(repo, dest))
+    marketplace.add_source("https://example.com/acme/dupe.git")
+    hello = [c for c in marketplace.catalog() if c["name"] == "hello_mp"]
+    assert len(hello) == 1 and hello[0]["origin"] == "bundled"  # bundled kept, source shadowed
+
+
+def test_install_and_remove_source_plugin(tmp_path, monkeypatch):
+    plugins = _setup_sources(tmp_path, monkeypatch)
+    src = marketplace.add_source("https://example.com/acme/plugins.git")["source"]
+    # Install the synced plugin — it lands in PLUGINS_DIR under a source-namespaced name.
+    assert marketplace.install("remote_tool")["ok"] is True
+    installed = list(plugins.glob(f"{src['id']}__*.py"))
+    assert len(installed) == 1
+    assert any(p["name"] == "remote_tool" for p in integrations.list_plugins())
+    # Removing the source uninstalls its plugin file and drops it from the catalog.
+    assert marketplace.remove_source(src["id"])["ok"] is True
+    assert list(plugins.glob(f"{src['id']}__*.py")) == []
+    assert not any(c["name"] == "remote_tool" for c in marketplace.catalog())
+
+
+def test_add_source_no_plugins_is_rejected(tmp_path, monkeypatch):
+    _setup_sources(tmp_path, monkeypatch)
+
+    def clone_empty(url, ref, dest):
+        dest.mkdir(parents=True)
+        (dest / "readme.txt").write_text("nothing here", encoding="utf-8")
+    monkeypatch.setattr(marketplace, "_clone_repo", clone_empty)
+    res = marketplace.add_source("https://example.com/empty/repo.git")
+    assert res["ok"] is False
+    assert marketplace.list_sources() == []  # nothing persisted

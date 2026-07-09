@@ -28,7 +28,11 @@ _FIELDS = {"name", "description", "auto", "triggers", "file_triggers",
 # a skill the user added — never a bundled one. Sits alongside the skills as a dotfile
 # (list_skills globs *.md, so it is never surfaced as a skill).
 _IMPORTED_MANIFEST = ".imported.json"
+# Per-file cap when BULK-scanning a synced repo (keeps a mass sync bounded).
 _MAX_SKILL_BYTES = 256 * 1024
+# A single, deliberately-chosen upload is trusted, so it gets a much more generous
+# ceiling — this is just an anti-abuse sanity bound, not a context-window limit.
+_MAX_IMPORT_BYTES = 2 * 1024 * 1024
 _SAFE_STEM = re.compile(r"[^a-zA-Z0-9_.-]+")
 
 
@@ -159,8 +163,8 @@ def _valid_skill(content: str) -> bool:
 def import_skill(filename: str, content: str) -> dict:
     """Save an uploaded skill markdown file into the skills dir (path-jailed) and
     record it as user-imported so it can later be removed safely."""
-    if len(content.encode("utf-8")) > _MAX_SKILL_BYTES:
-        return {"ok": False, "detail": "skill file is too large"}
+    if len(content.encode("utf-8")) > _MAX_IMPORT_BYTES:
+        return {"ok": False, "detail": f"skill file is too large (max {_MAX_IMPORT_BYTES // (1024 * 1024)} MB)"}
     if not _valid_skill(content):
         return {"ok": False, "detail": "not a valid skill (empty or disabled)"}
     d = _dir()

@@ -1,10 +1,10 @@
 """
 A tiny, self-contained MCP (Model Context Protocol) server bundled with Open Claude Desktop.
 
-It exists so the app's MCP *client* connector has a real server to talk to out of
-the box — no network, no secrets, no external downloads. Register it from the
-composer's Connectors → MCP submenu (the app pre-fills this file's path), and its
-tools become available to the agent as `mcp_<server>_<tool>`.
+It exists so the app's MCP *client* connector always has a real server to talk to
+— no network, no secrets, no external downloads. Add it as a local (stdio) connector
+pointing `command` at this file, and its tools become available to the agent as
+`mcp_<server>_<tool>`. It also backs the MCP registry's integration test.
 
 Run standalone for a sanity check:
     python mcp_servers/demo_server.py     # speaks MCP over stdio
@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from mcp.server.fastmcp import FastMCP
 
-mcp = FastMCP("aj360-demo")
+mcp = FastMCP("ocd-demo")
 
 
 @mcp.tool()

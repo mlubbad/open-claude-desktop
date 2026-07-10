@@ -1,13 +1,14 @@
 """
-Open Claude Desktop BigQuery agent — UI-agnostic orchestration layer.
+Open Claude Desktop agent — UI-agnostic orchestration layer.
 
-`run_turn` is an async generator that drives the GLM tool-calling loop and
+`run_turn` is an async generator that drives the model's tool-calling loop and
 *yields structured events* describing what is happening. Any presentation layer
-(Reflex, Chainlit, CLI) can consume the stream and render it however it likes —
+(desktop client, CLI) can consume the stream and render it however it likes —
 the agent knows nothing about the UI.
 
 Event shapes (all dicts with a "type"). These are what `run_turn` actually
-yields; the API layer appends a terminal {"type": "done"} after the stream ends.
+yields; the API layer prepends {"type": "turn_start", "turn_id": str} and appends
+a terminal {"type": "done"} after the stream ends.
 
   Thinking / answer framing (panel open/close + region switching):
   {"type": "think_open",      "phase": str}                  # phase "plan"|"verify"
@@ -44,6 +45,9 @@ yields; the API layer appends a terminal {"type": "done"} after the stream ends.
   Interactive permission (HITL — only when a turn_id + non-auto permission mode):
   {"type": "approval_required", "turn_id": str, "id": str,   # awaiting a decision;
                           "name": str, "input": str}         #   reply via the API
+
+  Connector sign-in (the `authenticate` tool, interactive turns — opens a browser):
+  {"type": "auth_url", "id": str, "provider": str, "url": str}  # consent URL to open
 
   Structured clarifying question (interactive turns only; the turn ENDS after this —
   the user's answer arrives as the next user turn):

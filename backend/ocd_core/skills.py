@@ -240,6 +240,37 @@ def _skill_fallback_name(f: Path) -> str:
     return f.parent.name if f.name.lower() == "skill.md" else f.stem
 
 
+def _import_tree(root: Path, source: str) -> dict:
+    """Import every skill found in an extracted file tree (shared by the repo sync and
+    the .zip upload — both feed the same discovery + naming + dedupe rules)."""
+    files = _discover_skill_files(root)
+    if not files:
+        return {"ok": False, "detail": f"no skills found in this {source}"}
+    d = _dir()
+    d.mkdir(parents=True, exist_ok=True)
+    imported = _load_imported(d)
+    names: list[str] = []
+    for f in files:
+        try:
+            content = f.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        if not _valid_skill(content):
+            continue
+        # SKILL.md files fall back to their folder name, not the stem "skill".
+        name = _parse(content, _skill_fallback_name(f))["name"]
+        if name in imported:
+            continue  # already imported this skill by name; don't duplicate
+        path = _unique_path(d, _safe_stem(name), set(imported.values()))
+        path.write_text(content, encoding="utf-8")
+        imported[name] = path.name
+        names.append(name)
+    if not names:
+        return {"ok": False, "detail": "no valid skills found"}
+    _save_imported(d, imported)
+    return {"ok": True, "count": len(names), "names": names}
+
+
 def import_skills_from_repo(url: str, ref: str = "") -> dict:
     """Clone a git repo, copy the skill files it contains into the skills dir, then
     discard the clone. Skills are plain markdown, so this is a one-shot copy (no
@@ -254,31 +285,50 @@ def import_skills_from_repo(url: str, ref: str = "") -> dict:
             marketplace._clone_repo(url, ref, dest)
         except RuntimeError as e:
             return {"ok": False, "detail": f"could not sync: {e}"}
-        files = _discover_skill_files(dest)
-        if not files:
-            return {"ok": False, "detail": "no skills found in this repository"}
-        d = _dir()
-        d.mkdir(parents=True, exist_ok=True)
-        imported = _load_imported(d)
-        names: list[str] = []
-        for f in files:
-            try:
-                content = f.read_text(encoding="utf-8")
-            except (OSError, UnicodeDecodeError):
-                continue
-            if not _valid_skill(content):
-                continue
-            # SKILL.md files fall back to their folder name, not the stem "skill".
-            name = _parse(content, _skill_fallback_name(f))["name"]
-            if name in imported:
-                continue  # already imported this skill by name; don't duplicate
-            path = _unique_path(d, _safe_stem(name), set(imported.values()))
-            path.write_text(content, encoding="utf-8")
-            imported[name] = path.name
-            names.append(name)
-        if not names:
-            return {"ok": False, "detail": "no valid skills found"}
-        _save_imported(d, imported)
-        return {"ok": True, "count": len(names), "names": names}
+        return _import_tree(dest, "repository")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+# Caps for an uploaded skill bundle: enough for any real skill folder (SKILL.md +
+# references), small enough that a zip bomb can't exhaust the disk.
+_MAX_ZIP_ENTRIES = 2000
+_MAX_ZIP_TOTAL_BYTES = 100 * 1024 * 1024
+
+
+def import_skills_from_zip(zip_path: Path, name_hint: str = "") -> dict:
+    """Import skills from an uploaded .zip of a skill folder — the canonical Agent-Skills
+    layout (``<name>/SKILL.md`` + ``references/``), one folder or several. The archive is
+    EXTRACTED (safely: no absolute/.. paths, size + entry caps) and then walked with the
+    same discovery rules as the repository sync, so a zipped skill imports exactly like a
+    synced one instead of being treated as a raw text file. ``name_hint`` (the uploaded
+    filename) names the extraction folder, so a zip whose root IS the skill folder
+    (SKILL.md at top level, no frontmatter name) still gets a sensible skill name."""
+    import zipfile
+    try:
+        zf = zipfile.ZipFile(zip_path)
+    except (OSError, zipfile.BadZipFile):
+        return {"ok": False, "detail": "not a valid .zip archive"}
+    with zf:
+        infos = zf.infolist()
+        if len(infos) > _MAX_ZIP_ENTRIES:
+            return {"ok": False, "detail": "archive has too many files"}
+        if sum(i.file_size for i in infos) > _MAX_ZIP_TOTAL_BYTES:
+            return {"ok": False, "detail": "archive is too large when extracted"}
+        tmp = Path(tempfile.mkdtemp(prefix="ocd_skillzip_"))
+        try:
+            root = (tmp / _safe_stem(Path(name_hint or "skill").stem)).resolve()
+            root.mkdir(parents=True, exist_ok=True)
+            for info in infos:
+                if info.is_dir():
+                    continue
+                # Zip-slip jail: the target must stay inside the extraction dir.
+                target = (root / info.filename).resolve()
+                if root not in target.parents:
+                    continue
+                target.parent.mkdir(parents=True, exist_ok=True)
+                with zf.open(info) as src, open(target, "wb") as dst:
+                    shutil.copyfileobj(src, dst, length=64 * 1024)
+            return _import_tree(root, "archive")
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)

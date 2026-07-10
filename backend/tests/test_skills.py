@@ -139,6 +139,55 @@ def test_import_skills_from_repo_rejects_bad_url(tmp_path, monkeypatch):
     assert skills.import_skills_from_repo("file:///etc")["ok"] is False
 
 
+def _make_zip(path, entries):
+    import zipfile
+    with zipfile.ZipFile(path, "w") as zf:
+        for name, content in entries.items():
+            zf.writestr(name, content)
+    return path
+
+
+def test_import_skills_from_zip_canonical_folder(tmp_path, monkeypatch):
+    """A zipped skill folder (SKILL.md + references/) imports one clean skill —
+    the exact case from the report: 'it must be extracted'."""
+    monkeypatch.setattr(config, "SKILLS_DIR", tmp_path / "skills")
+    z = _make_zip(tmp_path / "bundle.zip", {
+        "ab-testing/SKILL.md": "---\nname: ab-testing\ndescription: AB\n---\nRun clean tests.",
+        "ab-testing/references/guide.md": "name: guide\n\nreference material",
+        "ad-creative/SKILL.md": "no frontmatter — body of the ad-creative skill.",
+    })
+    res = skills.import_skills_from_zip(z, "bundle.zip")
+    assert res["ok"] is True
+    assert set(res["names"]) == {"ab-testing", "ad-creative"}  # references/ ignored
+    assert "guide" not in {s["name"] for s in skills.list_skills()}
+
+
+def test_import_skills_from_zip_root_level_skill_md(tmp_path, monkeypatch):
+    """A zip whose root IS the skill folder falls back to the zip's own name."""
+    monkeypatch.setattr(config, "SKILLS_DIR", tmp_path / "skills")
+    z = _make_zip(tmp_path / "seo-audit.zip", {
+        "SKILL.md": "Body of the skill — no frontmatter name.",
+        "references/notes.md": "name: notes\n\nnotes",
+    })
+    res = skills.import_skills_from_zip(z, "seo-audit.zip")
+    assert res["ok"] is True and res["names"] == ["seo-audit"]
+
+
+def test_import_skills_from_zip_rejects_traversal_and_junk(tmp_path, monkeypatch):
+    """Zip-slip entries are skipped; a zip with no skills is rejected; non-zip too."""
+    monkeypatch.setattr(config, "SKILLS_DIR", tmp_path / "skills")
+    evil = _make_zip(tmp_path / "evil.zip", {
+        "../outside/SKILL.md": "escapes the extraction dir",
+        "readme.txt": "nothing here",
+    })
+    res = skills.import_skills_from_zip(evil, "evil.zip")
+    assert res["ok"] is False  # traversal entry skipped -> no skills found
+    assert not (tmp_path / "outside").exists()  # nothing escaped the jail
+    notzip = tmp_path / "x.zip"
+    notzip.write_text("plain text, not an archive", encoding="utf-8")
+    assert skills.import_skills_from_zip(notzip, "x.zip")["ok"] is False
+
+
 def test_import_skills_canonical_skill_md_layout(tmp_path, monkeypatch):
     """A repo using skills/<name>/SKILL.md imports one skill per folder — its references/
     docs are ignored, and a SKILL.md without a name falls back to its folder name."""

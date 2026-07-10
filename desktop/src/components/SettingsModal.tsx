@@ -48,6 +48,7 @@ export interface SkillControls {
   busy: boolean;
   allowRemote: boolean;
   importFile: (filename: string, content: string) => Promise<string | null>;
+  importZip: (file: File) => Promise<string | null>;
   importFromRepo: (url: string, ref?: string) => Promise<string | null>;
   onRemove: (name: string) => void;
 }
@@ -503,8 +504,11 @@ function SkillsPage({ c }: { c: SkillControls }) {
   async function onFile(file: File | undefined) {
     if (!file) return;
     setErr(null);
-    const text = await file.text();
-    const failure = await c.importFile(file.name, text);
+    // A .zip is a skill FOLDER (SKILL.md + references/) — the server extracts it and
+    // imports like a synced repo. Reading it as text would just store zip bytes.
+    const failure = file.name.toLowerCase().endsWith(".zip")
+      ? await c.importZip(file)
+      : await c.importFile(file.name, await file.text());
     if (failure) setErr(failure);
   }
 
@@ -513,17 +517,18 @@ function SkillsPage({ c }: { c: SkillControls }) {
       {err && <div className="settings-err">{err}</div>}
       <p className="settings-hint">
         Skills are markdown instruction packs. Type <code>/</code> in the composer to invoke one;
-        auto skills trigger on matching messages. Import your own or sync a repository of skills.
+        auto skills trigger on matching messages. Import a <code>.md</code> file or a{" "}
+        <code>.zip</code> of a skill folder, or sync a whole repository of skills.
       </p>
       <div className="settings-toolbar">
         <DirToolbar q={q} onQ={setQ} placeholder="Search skills…" />
         <span className="settings-toolbar-spacer" />
-        <label className="settings-add-file">
-          Import skill
+        <label className="settings-add-file" title="A .md file, or a .zip of a skill folder (SKILL.md + references)">
+          Import skill (.md / .zip)
           <input
             ref={fileRef}
             type="file"
-            accept=".md,.markdown,text/markdown,text/plain"
+            accept=".md,.markdown,.zip,text/markdown,text/plain,application/zip,application/x-zip-compressed"
             style={{ display: "none" }}
             onChange={(e) => {
               void onFile(e.target.files?.[0]);

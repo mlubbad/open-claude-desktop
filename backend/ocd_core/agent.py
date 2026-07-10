@@ -85,8 +85,8 @@ from .llm import LLMConfigError, reasoning_of, resolve_turn_client
 
 WEB_SEARCH_TOOL = {"type": "function", "function": {
     "name": "web_search",
-    "description": "Search the public web for current information not available in BigQuery "
-                   "(industry benchmarks, definitions, recent events).",
+    "description": "Search the public web for current information beyond your training data "
+                   "or the connected data sources (definitions, recent events, benchmarks).",
     "parameters": {"type": "object", "properties": {
         "query": {"type": "string", "description": "The search query."}},
         "required": ["query"]}}}

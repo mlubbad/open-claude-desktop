@@ -1187,6 +1187,15 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-sm);
   font-family: var(--mono); font-size: 12.5px; line-height: 1.55; white-space: pre-wrap;
   word-break: break-word; color: var(--text); }
+/* "authenticate" tool: browser-consent affordance while the login CLI waits. */
+.tool-auth { margin-top: 8px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 10px 12px; background: var(--accent-soft); border: 1px solid var(--accent);
+  border-radius: var(--r-sm); }
+.tool-auth-msg { font-size: 13px; color: var(--text); }
+.tool-auth-open { display: inline-flex; align-items: center; gap: 6px; margin-left: auto;
+  border: 1px solid var(--accent); background: var(--surface); color: var(--accent);
+  border-radius: var(--r-md); padding: 5px 10px; cursor: pointer; font: inherit; font-size: 12.5px; }
+.tool-auth-open:hover { background: var(--accent); color: #fff; }
 .tool-files { margin-top: 8px; display: flex; flex-direction: column; gap: 4px; }
 .tool-files-label { font-size: 12px; color: var(--muted); margin-bottom: 2px; }
 .tool-file { display: flex; align-items: center; gap: 8px; padding: 5px 8px;

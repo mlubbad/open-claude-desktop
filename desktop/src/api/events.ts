@@ -23,6 +23,9 @@ export type AgentEvent =
   | { type: "tool_error"; id: string; name: string; text: string }
   // Live stdout/stderr from a code_execution run (streamed as the process prints).
   | { type: "tool_output_delta"; id: string; stream: "stdout" | "stderr"; text: string }
+  // A sign-in URL from the `authenticate` tool — the client opens it in a browser
+  // so the user can consent; the tool blocks until they finish.
+  | { type: "auth_url"; id: string; provider: string; url: string }
   // Files a code_execution run produced (saved in the workspace, downloadable).
   | { type: "files"; id: string; project: string; items: ProducedFile[] }
   | {

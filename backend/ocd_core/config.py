@@ -111,6 +111,12 @@ CONV_MAX_MESSAGES = int(os.getenv("CONV_MAX_MESSAGES", "400"))
 GENERAL_ID = "general"
 GENERAL_NAME = "General"
 
+# --- agent-assisted connector auth (host CLI login flows) ---
+# The browser-consent step is human-paced, so allow a generous window before the
+# login command is considered timed out. Set AUTH_FLOWS_ENABLED=0 to hard-disable.
+AUTH_FLOW_TIMEOUT_SEC = int(os.getenv("AUTH_FLOW_TIMEOUT_SEC", "300"))
+AUTH_FLOWS_ENABLED = os.getenv("AUTH_FLOWS_ENABLED", "1").strip().lower() in ("1", "true", "yes")
+
 # --- rate limiting (salvaged from app.py) ---
 RATE_LIMIT_QUERIES = int(os.getenv("RATE_LIMIT_QUERIES", "20"))
 RATE_LIMIT_WINDOW_SEC = int(os.getenv("RATE_LIMIT_WINDOW_SEC", "60"))

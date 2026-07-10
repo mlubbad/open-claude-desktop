@@ -17,10 +17,17 @@ interface TauriEvent {
   listen(event: string, handler: (e: unknown) => void): Promise<() => void>;
 }
 
+interface TauriOpener {
+  openUrl?(url: string): Promise<void>;
+  open?(path: string): Promise<void>;
+}
+
 interface TauriGlobal {
   globalShortcut?: TauriGlobalShortcut;
   notification?: TauriNotification;
   event?: TauriEvent;
+  opener?: TauriOpener;
+  shell?: TauriOpener;
 }
 
 function tauri(): TauriGlobal | null {
@@ -68,6 +75,35 @@ export async function onTrayNewChat(handler: () => void): Promise<() => void> {
   } catch {
     return () => {};
   }
+}
+
+// Open a URL in the user's browser: the OS default browser via Tauri's opener/shell
+// plugin on desktop, else a new browser tab. Used to send the user to an OAuth consent
+// page (connector sign-in). Returns true if a handler accepted it.
+export async function openExternal(url: string): Promise<boolean> {
+  const t = tauri();
+  const opener = t?.opener ?? t?.shell;
+  if (opener?.openUrl) {
+    try {
+      await opener.openUrl(url);
+      return true;
+    } catch {
+      /* fall through */
+    }
+  }
+  if (opener?.open) {
+    try {
+      await opener.open(url);
+      return true;
+    } catch {
+      /* fall through */
+    }
+  }
+  if (typeof window !== "undefined") {
+    const w = window.open(url, "_blank", "noopener,noreferrer");
+    return w !== null;
+  }
+  return false;
 }
 
 // Fire a native notification (Tauri), else the Web Notification API, else no-op.

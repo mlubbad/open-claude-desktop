@@ -5,7 +5,7 @@ import tempfile
 from pathlib import Path
 
 from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, UploadFile
-from ocd_core import integrations, marketplace, skills
+from ocd_core import auth_flows, integrations, marketplace, skills
 from ocd_core.integrations import McpbError
 from pydantic import BaseModel
 
@@ -133,6 +133,13 @@ def remove_skill(name: str, user: str = Depends(current_user)) -> dict:
     if not res.get("ok"):
         raise HTTPException(status_code=400, detail=res.get("detail", "could not remove"))
     return res
+
+
+@router.get("/auth-flows")
+def list_auth_flows(user: str = Depends(current_user)) -> dict:
+    """Login flows the agent can run to sign a connector in (with per-CLI availability).
+    The actual sign-in runs through the agent's `authenticate` tool (HITL-gated)."""
+    return {"enabled": auth_flows.enabled(), "flows": auth_flows.list_flows()}
 
 
 @router.get("/connectors")

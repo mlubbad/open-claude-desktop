@@ -5,6 +5,7 @@ import { useCallback, useReducer, useRef, useState } from "react";
 
 import { type AgentTurnRequest, replyPermission, streamTurn } from "../api/client";
 import type { AgentEvent } from "../api/events";
+import { openExternal } from "../platform";
 import {
   answerQuestionState,
   applyEvent,
@@ -95,6 +96,8 @@ export function useTranscript(config: TurnConfig) {
         req,
         (ev) => {
           dispatch({ kind: "event", ev });
+          // The `authenticate` tool asked for browser consent — send the user there.
+          if (ev.type === "auth_url") void openExternal(ev.url);
           if (ev.type === "done" || ev.type === "error") setBusy(false);
         },
         () => setBusy(false),

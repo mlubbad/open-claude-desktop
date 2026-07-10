@@ -168,9 +168,31 @@ export function useConnectors() {
     [refresh],
   );
 
+  // Re-connect an errored server from scratch (the error card's Retry). Recovers a
+  // first-run download timeout or a since-fixed PATH without removing and re-adding.
+  // Discovery can legitimately take a while on a cold start, so track which server
+  // is retrying for the button label.
+  const [retrying, setRetrying] = useState<string | null>(null);
+  const retry = useCallback(
+    async (sid: string) => {
+      setErr(null);
+      setRetrying(sid);
+      try {
+        const s = await mcp.refresh(sid);
+        await refresh();
+        if (s.status === "connected") setEnabled((ids) => (ids.includes(s.id) ? ids : [...ids, s.id]));
+      } catch (e) {
+        setErr(String(e));
+      } finally {
+        setRetrying(null);
+      }
+    },
+    [refresh],
+  );
+
   const toggle = useCallback((sid: string) => setEnabled((ids) => toggleId(ids, sid)), []);
 
   // `enabled` = the user's intent (drives the checkboxes); `active` = intent ∩ healthy
   // (fed to turns as enabled_mcp). Keeping them distinct is the whole point of F4.
-  return { servers, enabled, active, err, add, addOAuth, authorize, remove, toggle, install, refresh };
+  return { servers, enabled, active, err, add, addOAuth, authorize, remove, toggle, install, refresh, retry, retrying };
 }

@@ -38,6 +38,8 @@ export interface ConnectorControls {
   onAuthorize: (sid: string) => void;
   onRemove: (sid: string) => void;
   onToggle: (sid: string) => void;
+  onRetry: (sid: string) => void;
+  retrying: string | null; // server id currently re-connecting (Retry pressed)
 }
 
 export interface PluginControls {

@@ -364,6 +364,17 @@ def _resolve_cfg(cfg: dict) -> dict:
     else:
         out["command"] = _sub(cfg.get("command", ""))
         out["args"] = [_sub(a) for a in cfg.get("args", [])]
+        # Preflight the executable so a missing CLI fails with an ACTIONABLE message
+        # instead of the OS's raw spawn error ("[WinError 2] The system cannot find
+        # the file specified" told a user nothing about WHICH file). shutil.which
+        # mirrors the spawn search — PATH, PATHEXT on Windows (docker.exe, npx.cmd),
+        # and absolute paths — and re-runs on every connect, so installing the tool
+        # and pressing Retry recovers without restarting the app.
+        if out["command"] and not shutil.which(out["command"]):
+            raise FileNotFoundError(
+                f"'{out['command']}' was not found on this machine. Install it and "
+                f"try again — if it was installed just now, restart the app so the "
+                f"updated PATH is picked up, then press Retry.")
     return out
 
 
@@ -397,11 +408,13 @@ def add_mcp_server(name: str, command: str = "", args: list[str] | None = None, 
         item["tools"] = []
         item["status"] = "error"
         item["detail"] = (f"connection timed out after {config.MCP_ADD_TIMEOUT_SEC}s — "
-                          "the server may be slow to start; remove and re-add to retry")
+                          "a first run may still be downloading the server (npx/uvx "
+                          "packages, docker images); press Retry once it's had time "
+                          "to finish")
     except Exception as e:
         item["tools"] = []
         item["status"] = "error"
-        item["detail"] = str(e)[:140]
+        item["detail"] = str(e)[:300]
     items.append(item)
     _save_mcp_servers(items)
     return item
@@ -473,7 +486,7 @@ def authorize_mcp_oauth(sid: str, open_url=None) -> dict:
     except Exception as e:
         if server is not None:
             server["status"] = "error"
-            server["detail"] = str(e)[:140]
+            server["detail"] = str(e)[:300]
     _save_mcp_servers(items)
     return next((x for x in _load_mcp_servers() if x["id"] == sid), server or {})
 
@@ -664,17 +677,25 @@ def remove_mcp_server(sid: str):
 
 
 def refresh_mcp_server(sid: str) -> dict:
+    """Re-connect a server from scratch (the error card's Retry): kill any live
+    session, respawn, and re-discover with the same generous first-run timeout as
+    add — a cold `npx`/`docker` download that timed out usually succeeds here."""
     items = _load_mcp_servers()
     for s in items:
         if s["id"] == sid:
             try:
                 mcp_registry.registry.drop(_resolve_cfg(s))  # respawn with fresh state
-                s["tools"] = mcp_registry.registry.discover(_resolve_cfg(s))
+                s["tools"] = mcp_registry.registry.discover(
+                    _resolve_cfg(s), timeout=config.MCP_ADD_TIMEOUT_SEC)
                 s["status"] = "connected"
                 s["detail"] = f"{len(s['tools'])} tools"
+            except TimeoutError:
+                s["status"] = "error"
+                s["detail"] = (f"still timing out after {config.MCP_ADD_TIMEOUT_SEC}s — "
+                               "check that the command runs in a terminal")
             except Exception as e:
                 s["status"] = "error"
-                s["detail"] = str(e)[:140]
+                s["detail"] = str(e)[:300]
             _save_mcp_servers(items)
             return s
     return {}

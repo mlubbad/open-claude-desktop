@@ -117,11 +117,13 @@ GENERAL_NAME = "General"
 AUTH_FLOW_TIMEOUT_SEC = int(os.getenv("AUTH_FLOW_TIMEOUT_SEC", "300"))
 AUTH_FLOWS_ENABLED = os.getenv("AUTH_FLOWS_ENABLED", "1").strip().lower() in ("1", "true", "yes")
 
-# Discovery timeout for the INTERACTIVE "add MCP server" path. Kept well below the
-# per-call default (MCP_CALL_TIMEOUT_SEC) so a slow/hung server can't tie up the add
-# request for over a minute — on timeout the server registers as errored and the user
-# can remove + re-add to retry.
-MCP_ADD_TIMEOUT_SEC = int(os.getenv("MCP_ADD_TIMEOUT_SEC", "25"))
+# Discovery timeout for the INTERACTIVE "add MCP server" path (also used by Retry).
+# Bounded so a hung server can't tie up the request forever, but generous enough for
+# a first-run cold start: `npx`/`uvx` servers download their package and `docker run`
+# may pull an image on the first launch, which routinely takes 30-60s+. On timeout the
+# server registers as errored and the card's Retry re-runs discovery (usually fast the
+# second time — the download is cached).
+MCP_ADD_TIMEOUT_SEC = int(os.getenv("MCP_ADD_TIMEOUT_SEC", "90"))
 
 # --- rate limiting (salvaged from app.py) ---
 RATE_LIMIT_QUERIES = int(os.getenv("RATE_LIMIT_QUERIES", "20"))

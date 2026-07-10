@@ -24,6 +24,8 @@ const conn: ConnectorControls = {
   onAuthorize: vi.fn(),
   onRemove: vi.fn(),
   onToggle: vi.fn(),
+  onRetry: vi.fn(),
+  retrying: null,
 };
 const plug: PluginControls = {
   installed: [],

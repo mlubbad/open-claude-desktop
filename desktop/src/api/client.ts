@@ -90,9 +90,32 @@ export interface AppSettings {
   visible_models?: Record<string, string[]>;
 }
 
+// Settings are read on mount by several components (the three Settings pages, the model
+// picker, and App). They only ever change through save() here, so cache the fetched
+// settings and refresh the cache on save — collapsing N independent get()s into one
+// request and removing the per-page content flash on the Settings modal / model picker.
+let _settingsCache: Promise<AppSettings> | null = null;
+
 export const settings = {
-  get: () => api.get<AppSettings>("/settings"),
-  save: (patch: Partial<AppSettings>) => api.put<AppSettings>("/settings", patch),
+  get: (): Promise<AppSettings> => {
+    if (!_settingsCache) {
+      _settingsCache = api.get<AppSettings>("/settings").catch((e) => {
+        _settingsCache = null; // never cache a failure — let the next call retry
+        throw e;
+      });
+    }
+    return _settingsCache;
+  },
+  save: async (patch: Partial<AppSettings>): Promise<AppSettings> => {
+    const updated = await api.put<AppSettings>("/settings", patch);
+    _settingsCache = Promise.resolve(updated); // keep the cache authoritative post-save
+    return updated;
+  },
+  // Force the next get() to hit the network. save() already refreshes the cache, so this
+  // is rarely needed — it's here for a deliberate "reload settings" affordance.
+  invalidate: () => {
+    _settingsCache = null;
+  },
 };
 
 export const providers = {

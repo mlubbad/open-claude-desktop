@@ -2,7 +2,7 @@
 import asyncio
 
 import pytest
-from ocd_core import agent, config, permissions, secrets
+from ocd_core import agent, config, permissions, secrets, settings
 from ocd_core.llm import client as llm_client
 
 
@@ -90,6 +90,68 @@ def test_declined_does_not_run_tool(monkeypatch):
     assert "bash" not in executed  # declined -> never executed
     err = next(e for e in events if e["type"] == "tool_error" and e["id"] == "c1")
     assert "Declined" in err["text"]
+
+
+def _run_turn_no_mode(monkeypatch, persisted_mode: str, turn_id="t1"):
+    """Drive a turn with permission_mode OMITTED; the persisted setting decides.
+
+    Returns the list of emitted event types. The model calls `bash` (sensitive);
+    with a gating persisted mode we expect an `approval_required` event.
+    """
+    monkeypatch.setattr(settings, "get_settings",
+                        lambda: {"permission_mode": persisted_mode})
+
+    async def _tool(name, args, tc_id, *a, **k):
+        return {"id": tc_id, "name": name, "ok": True, "result": "ran", "summary": ""}
+
+    monkeypatch.setattr(agent, "_run_one_tool", _tool)
+    state = {"n": 0}
+
+    async def _fake_stream(llm, model, messages, tools, temperature, max_tokens,
+                           content_scope="answer", fallback_model=None):
+        state["n"] += 1
+        if state["n"] == 1:
+            yield {"__done__": {"content": "", "note": None,
+                                "tool_calls": [_FakeToolCall("c1", "bash", '{"command": "ls"}')]}}
+        else:
+            yield {"type": "delta", "scope": "answer", "text": "done"}
+            yield {"__done__": {"content": "done", "tool_calls": [], "note": None}}
+
+    monkeypatch.setattr(agent, "_stream_llm", _fake_stream)
+
+    async def scenario():
+        types = []
+
+        async def resolver():
+            for _ in range(400):
+                if permissions.registry.pending(turn_id):
+                    permissions.registry.resolve(turn_id, "c1", True)
+                    return
+                await asyncio.sleep(0.005)
+
+        task = asyncio.create_task(resolver())
+        # permission_mode intentionally omitted (as a lax client would).
+        async for ev in agent.run_turn("hi", [], None, "m", effort="Low", bash=True,
+                                       turn_id=turn_id):
+            types.append(ev["type"])
+        await task
+        return types
+
+    return asyncio.run(scenario())
+
+
+def test_omitted_permission_mode_fails_closed_to_persisted_ask(monkeypatch):
+    # S1: a client that forgets permission_mode must NOT bypass the gate — the
+    # persisted autonomy setting ("ask") decides, so approval is still required.
+    types = _run_turn_no_mode(monkeypatch, "ask")
+    assert "approval_required" in types
+
+
+def test_omitted_permission_mode_honors_persisted_auto(monkeypatch):
+    # The persisted setting is the source of truth: if the user chose "auto",
+    # an omitted request field still means no prompt.
+    types = _run_turn_no_mode(monkeypatch, "auto")
+    assert "approval_required" not in types
 
 
 def test_auto_mode_never_prompts(monkeypatch):

@@ -44,9 +44,12 @@ def parse(text: str) -> Command:
 
 
 def resolve_skill(text: str, skills_dir: Path | None = None,
-                  filenames: list[str] | None = None) -> tuple[str, str, bool]:
+                  filenames: list[str] | None = None,
+                  skills_list: list[dict] | None = None) -> tuple[str, str, bool]:
     goal = (text or "").strip()
-    available = _skills.list_skills(skills_dir)
+    # One scan of the skills dir, shared across the slash-command and auto-trigger
+    # passes (callers can pass their own scan to reuse it for get_skill too).
+    available = skills_list if skills_list is not None else _skills.list_skills(skills_dir)
     if goal.startswith("/"):
         low = goal.lower()
         for s in available:
@@ -54,5 +57,6 @@ def resolve_skill(text: str, skills_dir: Path | None = None,
             if low == cmd or low.startswith(cmd + " "):
                 rest = goal[len(cmd):].strip()
                 return (rest or f"Run the {s['name']} skill.", s["name"], False)
-    name = _skills.matching_skill(goal, skills_dir, filenames=filenames)
+    name = _skills.matching_skill(goal, skills_dir, filenames=filenames,
+                                  skills_list=available)
     return (goal, name, bool(name))

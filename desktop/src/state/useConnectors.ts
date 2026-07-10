@@ -1,7 +1,7 @@
 // MCP connector management: the server list, add (stdio or remote), remove, and the
 // set of servers enabled for the current session (fed into each turn as enabled_mcp).
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { type AddMcpBody, type McpServer, type McpbManifestInfo, mcp, type UserConfigField } from "../api/client";
 
@@ -32,6 +32,8 @@ function saveEnabled(ids: string[]): void {
 // Keep only enabled ids whose server is present AND not erroring — so a connector
 // that has since failed (auth expired, process gone) is dropped from the set fed to
 // the model instead of lingering and being reached for on every turn. Pure for tests.
+// This derives the runtime "active" set; it must NOT be written back to the persisted
+// intent, or a momentary error would forget the user's choice for good (see below).
 export function reconcileEnabled(enabled: string[], servers: { id: string; status: string }[]): string[] {
   const healthy = new Set(servers.filter((s) => s.status !== "error").map((s) => s.id));
   return enabled.filter((id) => healthy.has(id));
@@ -50,16 +52,17 @@ export function requiredFields(
 
 export function useConnectors() {
   const [servers, setServers] = useState<McpServer[]>([]);
-  // Enabled set persists across sessions (a user's on/off choice sticks), and is
-  // reconciled against the live server list so an erroring connector drops out.
+  // `enabled` is the user's PERSISTED intent (their on/off choice). It is only ever
+  // mutated by explicit actions (toggle/add/remove/authorize/install) — never by a
+  // refresh. Previously refresh() reconciled it against health and persisted the
+  // result, so a momentary status:"error" (auth blip, process restart) permanently
+  // un-toggled the connector: on recovery it stayed off until re-toggled by hand.
   const [enabled, setEnabled] = useState<string[]>(loadEnabled);
   const [err, setErr] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
-      const list = await mcp.list();
-      setServers(list);
-      setEnabled((ids) => reconcileEnabled(ids, list));
+      setServers(await mcp.list());
     } catch (e) {
       setErr(String(e));
     }
@@ -69,10 +72,14 @@ export function useConnectors() {
     void refresh();
   }, [refresh]);
 
-  // Mirror every change to the enabled set into localStorage.
+  // Mirror the user's intent (only) into localStorage.
   useEffect(() => {
     saveEnabled(enabled);
   }, [enabled]);
+
+  // The runtime set fed to each turn: intent ∩ healthy servers. Derived, never
+  // persisted — so when an erroring connector recovers it re-enters automatically.
+  const active = useMemo(() => reconcileEnabled(enabled, servers), [enabled, servers]);
 
   const add = useCallback(
     async (body: AddMcpBody) => {
@@ -163,5 +170,7 @@ export function useConnectors() {
 
   const toggle = useCallback((sid: string) => setEnabled((ids) => toggleId(ids, sid)), []);
 
-  return { servers, enabled, err, add, addOAuth, authorize, remove, toggle, install, refresh };
+  // `enabled` = the user's intent (drives the checkboxes); `active` = intent ∩ healthy
+  // (fed to turns as enabled_mcp). Keeping them distinct is the whole point of F4.
+  return { servers, enabled, active, err, add, addOAuth, authorize, remove, toggle, install, refresh };
 }

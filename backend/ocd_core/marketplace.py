@@ -19,7 +19,6 @@ removes a file that a current catalog entry maps to — so a built-in that ships
 from __future__ import annotations
 
 import hashlib
-import json
 import os
 import re
 import shutil
@@ -27,7 +26,7 @@ import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 
-from . import config, integrations
+from . import config, integrations, jsonstore
 
 _META = {
     "name": re.compile(r'^NAME\s*=\s*["\'](.+?)["\']', re.M),
@@ -86,21 +85,12 @@ def _sources_file() -> Path:
 
 
 def _load_sources() -> list[dict]:
-    f = _sources_file()
-    try:
-        data = json.loads(f.read_text(encoding="utf-8"))
-        return data if isinstance(data, list) else []
-    except (OSError, ValueError):
-        return []
+    return jsonstore.load_json(_sources_file(), [])
 
 
 def _save_sources(sources: list[dict]) -> None:
-    f = _sources_file()
-    f.parent.mkdir(parents=True, exist_ok=True)
     # Atomic replace so a crash mid-write can't corrupt/truncate the registry.
-    tmp = f.with_name(f.name + ".tmp")
-    tmp.write_text(json.dumps(sources, indent=2), encoding="utf-8")
-    os.replace(tmp, f)
+    jsonstore.save_json(_sources_file(), sources)
 
 
 def _source_id(url: str) -> str:

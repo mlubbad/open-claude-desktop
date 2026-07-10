@@ -77,6 +77,7 @@ from . import (
     permissions,
     prompts,
     schema_catalog,
+    settings,
     usage,
     util,
 )
@@ -854,7 +855,11 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
     temperature = cfg["temp"]
     steps = max(cfg["steps"], 14 if research else 0)
     # HITL gate is active only with a turn_id (a reply channel) and a non-auto mode.
-    perm_mode = (permission_mode or config.PERMISSION_MODE)
+    # Fail CLOSED when the request omits permission_mode: fall back to the user's
+    # PERSISTED autonomy setting (defaults to "ask"), never config.PERMISSION_MODE
+    # (which defaults to the ungated "auto"). Otherwise any non-desktop client that
+    # simply doesn't send the field would silently bypass the approval gate.
+    perm_mode = permission_mode or settings.get_settings().get("permission_mode") or "ask"
     gate_on = bool(turn_id) and perm_mode != "auto"
     # Plan mode: research read-only, present a plan, and only mutate after approval. It
     # needs an interactive reply channel (turn_id); without one it degrades to no-op.

@@ -75,6 +75,12 @@ export function useTranscript(config: TurnConfig) {
   const [state, dispatch] = useReducer(reducer, undefined, initialState);
   const [busy, setBusy] = useState(false);
   const ctrlRef = useRef<AbortController | null>(null);
+  // auth_url auto-open is best-effort and must fire AT MOST ONCE per tool call: a
+  // reconnect/replay can re-deliver the same event, and opening the browser again
+  // would spawn duplicate sign-in windows. Tool-call ids are globally unique, so a
+  // session-lifetime set is safe (the manual "open sign-in" button stays the
+  // reliable path — e.g. when the browser blocks a non-gesture window.open on web).
+  const openedAuthRef = useRef<Set<string>>(new Set());
 
   // Launch a turn: `history` is the prior context (already excludes the new goal).
   const launch = useCallback(
@@ -96,8 +102,12 @@ export function useTranscript(config: TurnConfig) {
         req,
         (ev) => {
           dispatch({ kind: "event", ev });
-          // The `authenticate` tool asked for browser consent — send the user there.
-          if (ev.type === "auth_url") void openExternal(ev.url);
+          // The `authenticate` tool asked for browser consent — send the user there,
+          // but only once per tool call (guard against replayed/duplicate events).
+          if (ev.type === "auth_url" && !openedAuthRef.current.has(ev.id)) {
+            openedAuthRef.current.add(ev.id);
+            void openExternal(ev.url);
+          }
           if (ev.type === "done" || ev.type === "error") setBusy(false);
         },
         () => setBusy(false),

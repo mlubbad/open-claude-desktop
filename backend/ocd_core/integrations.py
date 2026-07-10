@@ -387,9 +387,17 @@ def add_mcp_server(name: str, command: str = "", args: list[str] | None = None, 
         from . import secrets
         secrets.get_secret_store().set(_mcp_auth_key(sid), auth_token)
     try:
-        item["tools"] = mcp_registry.registry.discover(_resolve_cfg(item))
+        # Bounded so a slow/hung server can't block the add request for ~70s (the
+        # per-call default). A server that needs longer registers as errored below.
+        item["tools"] = mcp_registry.registry.discover(
+            _resolve_cfg(item), timeout=config.MCP_ADD_TIMEOUT_SEC)
         item["status"] = "connected"
         item["detail"] = f"{len(item['tools'])} tools"
+    except TimeoutError:
+        item["tools"] = []
+        item["status"] = "error"
+        item["detail"] = (f"connection timed out after {config.MCP_ADD_TIMEOUT_SEC}s — "
+                          "the server may be slow to start; remove and re-add to retry")
     except Exception as e:
         item["tools"] = []
         item["status"] = "error"

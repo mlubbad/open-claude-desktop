@@ -14,7 +14,7 @@ import shutil
 import zipfile
 from pathlib import Path
 
-from . import bigquery, chroma, config, knowledge, llm, mcp_registry
+from . import bigquery, chroma, config, jsonstore, knowledge, llm, mcp_registry
 
 SKILLS_DIR = Path(os.getenv("SKILLS_DIR", str(config.REPO_ROOT / "skills")))
 
@@ -38,16 +38,31 @@ SKILLS_DIR = Path(os.getenv("SKILLS_DIR", str(config.REPO_ROOT / "skills")))
 PLUGINS_DIR = Path(os.getenv("PLUGINS_DIR", str(config.REPO_ROOT / "plugins")))
 
 
+# Loaded plugin modules are cached by (path, mtime). list_plugins()/plugin_tools()
+# run on EVERY agent turn, so without this every turn re-imported and re-EXECUTED
+# each plugin file's top-level code (paying its imports + side effects each time).
+# We re-exec only when a file's mtime changes; a plugin edit is picked up on save.
+_PLUGIN_CACHE: dict[Path, tuple[float, object]] = {}
+
+
 def _load_plugin_module(path: Path):
     import importlib.util
+    try:
+        mtime = path.stat().st_mtime
+    except OSError:
+        return None
+    cached = _PLUGIN_CACHE.get(path)
+    if cached is not None and cached[0] == mtime:
+        return cached[1]
     try:
         spec = importlib.util.spec_from_file_location(
             f"aj360_plugin_{path.stem}", path)
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)  # type: ignore[union-attr]
-        return mod
     except Exception:
         return None
+    _PLUGIN_CACHE[path] = (mtime, mod)
+    return mod
 
 
 def list_plugins() -> list[dict]:
@@ -92,21 +107,11 @@ CONNECTORS_FILE = config.REPO_ROOT / "connectors.json"
 
 
 def _load_user_connectors() -> list[dict]:
-    if CONNECTORS_FILE.exists():
-        try:
-            d = json.loads(CONNECTORS_FILE.read_text(encoding="utf-8"))
-            return d if isinstance(d, list) else []
-        except Exception:
-            return []
-    return []
+    return jsonstore.load_json(CONNECTORS_FILE, [])
 
 
 def _save_user_connectors(items: list[dict]):
-    try:
-        CONNECTORS_FILE.write_text(json.dumps(items, ensure_ascii=False, indent=2),
-                                   encoding="utf-8")
-    except Exception:
-        pass
+    jsonstore.save_json(CONNECTORS_FILE, items)
 
 
 def _slug(text: str) -> str:
@@ -311,21 +316,11 @@ EXTENSIONS_DIR = config.REPO_ROOT / "extensions"
 
 
 def _load_mcp_servers() -> list[dict]:
-    if MCP_FILE.exists():
-        try:
-            d = json.loads(MCP_FILE.read_text(encoding="utf-8"))
-            return d if isinstance(d, list) else []
-        except Exception:
-            return []
-    return []
+    return jsonstore.load_json(MCP_FILE, [])
 
 
 def _save_mcp_servers(items: list[dict]):
-    try:
-        MCP_FILE.write_text(json.dumps(items, ensure_ascii=False, indent=2),
-                            encoding="utf-8")
-    except Exception:
-        pass
+    jsonstore.save_json(MCP_FILE, items)
 
 
 # NOTE: the per-call spawn helpers (_run_async / _mcp_session /

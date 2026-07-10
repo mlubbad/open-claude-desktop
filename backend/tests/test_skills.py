@@ -117,7 +117,7 @@ def test_remove_refuses_non_imported(tmp_path, monkeypatch):
 
 
 def test_import_skills_from_repo(tmp_path, monkeypatch):
-    from ocd_core import marketplace
+    from ocd_core import git_sync
     monkeypatch.setattr(config, "SKILLS_DIR", tmp_path / "skills")
     repo = tmp_path / "repo"
     (repo / "skills").mkdir(parents=True)
@@ -126,7 +126,7 @@ def test_import_skills_from_repo(tmp_path, monkeypatch):
 
     def fake_clone(url, ref, dest):
         shutil.copytree(repo, dest)
-    monkeypatch.setattr(marketplace, "_clone_repo", fake_clone)
+    monkeypatch.setattr(git_sync, "clone_repo", fake_clone)
     monkeypatch.setattr(config, "MARKETPLACE_ALLOW_REMOTE", True)
 
     res = skills.import_skills_from_repo("https://example.com/acme/skills.git")
@@ -191,7 +191,7 @@ def test_import_skills_from_zip_rejects_traversal_and_junk(tmp_path, monkeypatch
 def test_import_skills_canonical_skill_md_layout(tmp_path, monkeypatch):
     """A repo using skills/<name>/SKILL.md imports one skill per folder — its references/
     docs are ignored, and a SKILL.md without a name falls back to its folder name."""
-    from ocd_core import marketplace
+    from ocd_core import git_sync
     monkeypatch.setattr(config, "SKILLS_DIR", tmp_path / "skills")
     monkeypatch.setattr(config, "MARKETPLACE_ALLOW_REMOTE", True)
     repo = tmp_path / "repo"
@@ -204,7 +204,7 @@ def test_import_skills_canonical_skill_md_layout(tmp_path, monkeypatch):
     (repo / "skills" / "ad-creative" / "SKILL.md").write_text(
         "no frontmatter here — just the body of the ad-creative skill.", encoding="utf-8")
     (repo / "README.md").write_text("# repo readme", encoding="utf-8")
-    monkeypatch.setattr(marketplace, "_clone_repo", lambda url, ref, dest: shutil.copytree(repo, dest))
+    monkeypatch.setattr(git_sync, "clone_repo", lambda url, ref, dest: shutil.copytree(repo, dest))
 
     res = skills.import_skills_from_repo("https://example.com/x/marketingskills.git")
     assert res["ok"] is True

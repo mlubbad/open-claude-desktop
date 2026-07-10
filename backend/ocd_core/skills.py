@@ -13,13 +13,12 @@ Returns plain dicts (the integrations.py contract). The dicts are a superset of
 the old integrations dicts (they also carry file_triggers + references, mirroring
 app.py's Skill object), which is backward-compatible for existing callers.
 """
-import json
 import re
 import shutil
 import tempfile
 from pathlib import Path
 
-from . import config
+from . import config, git_sync, jsonstore
 
 _FIELDS = {"name", "description", "auto", "triggers", "file_triggers",
            "disabled", "references"}
@@ -94,16 +93,23 @@ def list_skills(skills_dir: Path | None = None) -> list[dict]:
     return out
 
 
-def get_skill(name: str, skills_dir: Path | None = None) -> dict | None:
-    return next((s for s in list_skills(skills_dir) if s["name"] == name), None)
+def get_skill(name: str, skills_dir: Path | None = None,
+              skills_list: list[dict] | None = None) -> dict | None:
+    src = skills_list if skills_list is not None else list_skills(skills_dir)
+    return next((s for s in src if s["name"] == name), None)
 
 
 def matching_skill(text: str, skills_dir: Path | None = None,
-                   filenames: list[str] | None = None) -> str:
+                   filenames: list[str] | None = None,
+                   skills_list: list[dict] | None = None) -> str:
     """Name of the first auto-skill whose triggers word-match the text, or whose
-    file_triggers substring-match a filename ('' if none)."""
+    file_triggers substring-match a filename ('' if none).
+
+    Pass ``skills_list`` (a prior ``list_skills`` result) to avoid re-walking the
+    skills dir — the per-turn resolver reuses one scan across slash/auto/get.
+    """
     low = (text or "").lower()
-    for s in list_skills(skills_dir):
+    for s in (skills_list if skills_list is not None else list_skills(skills_dir)):
         if not s["auto"]:
             continue
         for t in s["triggers"]:
@@ -124,16 +130,11 @@ def _dir() -> Path:
 
 def _load_imported(d: Path) -> dict:
     """name -> filename map of the skills the user imported into ``d``."""
-    try:
-        data = json.loads((d / _IMPORTED_MANIFEST).read_text(encoding="utf-8"))
-        return data if isinstance(data, dict) else {}
-    except (OSError, ValueError):
-        return {}
+    return jsonstore.load_json(d / _IMPORTED_MANIFEST, {})
 
 
 def _save_imported(d: Path, manifest: dict) -> None:
-    d.mkdir(parents=True, exist_ok=True)
-    (d / _IMPORTED_MANIFEST).write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    jsonstore.save_json(d / _IMPORTED_MANIFEST, manifest)
 
 
 def _safe_stem(name: str) -> str:
@@ -274,15 +275,14 @@ def _import_tree(root: Path, source: str) -> dict:
 def import_skills_from_repo(url: str, ref: str = "") -> dict:
     """Clone a git repo, copy the skill files it contains into the skills dir, then
     discard the clone. Skills are plain markdown, so this is a one-shot copy (no
-    persistent source to re-sync). Reuses the marketplace clone + URL validation."""
-    from . import marketplace  # local import avoids a module-load cycle
-    if not marketplace._valid_git_url(url):
+    persistent source to re-sync). Reuses the shared git_sync clone + URL validation."""
+    if not git_sync.valid_git_url(url):
         return {"ok": False, "detail": "not a valid git URL (use https:// or git@…)"}
     tmp = Path(tempfile.mkdtemp(prefix="ocd_skill_"))
     dest = tmp / "repo"
     try:
         try:
-            marketplace._clone_repo(url, ref, dest)
+            git_sync.clone_repo(url, ref, dest)
         except RuntimeError as e:
             return {"ok": False, "detail": f"could not sync: {e}"}
         return _import_tree(dest, "repository")

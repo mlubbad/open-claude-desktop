@@ -29,8 +29,12 @@ async def agent_turn(req: AgentTurnRequest, user: str = Depends(current_user)):
         observability.audit({"event": "rate_limited", "user": user, "goal": req.goal[:200]})
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "rate limit exceeded")
 
-    goal, skill_name, _ = commands.resolve_skill(req.goal)
-    skill_instr = (skills.get_skill(skill_name) or {}).get("instructions", "") if skill_name else ""
+    # Scan the skills dir ONCE and reuse it for both resolution and instruction
+    # lookup (previously this parsed every skill file 2-3x per turn).
+    available_skills = skills.list_skills()
+    goal, skill_name, _ = commands.resolve_skill(req.goal, skills_list=available_skills)
+    skill_instr = ((skills.get_skill(skill_name, skills_list=available_skills) or {})
+                   .get("instructions", "") if skill_name else "")
     proj_instr = projects.get_project_instructions(req.project_id) if req.project_id else ""
     extra_tools = integrations.agent_tools(req.enabled_plugins, req.enabled_connectors, req.enabled_mcp)
     observability.audit({"event": "agent_turn", "user": user,

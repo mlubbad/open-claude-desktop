@@ -104,7 +104,9 @@ export default function App() {
       effort: active.effort,
       permissionMode: planMode ? "plan" : approvalMode,
       projectId: proj.active,
-      enabledMcp: connectors.enabled,
+      // Feed the turn the ACTIVE set (intent ∩ healthy), not raw intent, so an
+      // erroring connector isn't reached for — while the user's choice is preserved.
+      enabledMcp: connectors.active,
       enabledPlugins: pluginMgr.enabled,
       // Capability toggles: web search / research gate real tools; Code mode adds the
       // file + shell + subagent tools over the workspace.
@@ -117,7 +119,7 @@ export default function App() {
         ...(view === "code" ? { text_editor: true, bash: true, subagents: true } : {}),
       },
     }),
-    [active, proj.active, connectors.enabled, pluginMgr.enabled, view, planMode, approvalMode],
+    [active, proj.active, connectors.active, pluginMgr.enabled, view, planMode, approvalMode],
   );
   const {
     state,

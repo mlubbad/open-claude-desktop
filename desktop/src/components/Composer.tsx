@@ -1,4 +1,4 @@
-import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
+import { type KeyboardEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import type { SkillSummary } from "../api/client";
 import { type Attachment, clampContent, withAttachments } from "../state/attachments";
@@ -117,7 +117,9 @@ export function Composer({
   // Auto-grow the textarea to fit its content (up to the CSS max-height, then it
   // scrolls) so a long prompt is fully visible instead of clipped to one line —
   // Claude-Desktop behaviour. Runs on every value change (typing, paste, draft load).
-  useEffect(() => {
+  // useLayoutEffect measures+sets height BEFORE paint, so loading a multi-line draft
+  // (or switching conversations) never flashes at one-row height for a frame first.
+  useLayoutEffect(() => {
     const ta = taRef.current;
     if (!ta) return;
     ta.style.height = "auto";

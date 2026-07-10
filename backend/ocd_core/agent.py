@@ -77,6 +77,7 @@ from . import (
     permissions,
     prompts,
     schema_catalog,
+    settings,
     usage,
     util,
 )
@@ -84,8 +85,8 @@ from .llm import LLMConfigError, reasoning_of, resolve_turn_client
 
 WEB_SEARCH_TOOL = {"type": "function", "function": {
     "name": "web_search",
-    "description": "Search the public web for current information not available in BigQuery "
-                   "(industry benchmarks, definitions, recent events).",
+    "description": "Search the public web for current information beyond your training data "
+                   "or the connected data sources (definitions, recent events, benchmarks).",
     "parameters": {"type": "object", "properties": {
         "query": {"type": "string", "description": "The search query."}},
         "required": ["query"]}}}
@@ -722,7 +723,16 @@ async def _run_one_tool(name, args, tc_id, active_project, goal, top_k,
             res = await asyncio.to_thread(auth_flows.run_flow, flow_id, _auth_out, _auth_url)
             ok = bool(res.get("ok"))
             detail = res.get("detail", "")
-            result = (f"{detail}. Now retry the original tool that needed authentication."
+            # On success the dependent connectors were already reconnected (fresh creds),
+            # so retry ONCE. Give the model an explicit off-ramp: if it STILL reports
+            # re-auth, the cause is a Google org session policy on end-user creds, not a
+            # stale token — repeating the sign-in would just loop forever.
+            result = (f"{detail}. The affected connectors were reconnected with the fresh "
+                      "credentials — retry the original tool ONCE now. If it STILL reports "
+                      "that re-authentication is needed, STOP and do NOT sign in again: tell "
+                      "the user their Google Cloud org likely enforces a re-auth/session "
+                      "policy on end-user credentials, and the durable fix is a service "
+                      "account (set GOOGLE_APPLICATION_CREDENTIALS for the connector)."
                       if ok else
                       f"ERROR: {detail}. Ask the user to complete the browser sign-in, "
                       "or tell them the required CLI isn't installed.")
@@ -854,7 +864,11 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
     temperature = cfg["temp"]
     steps = max(cfg["steps"], 14 if research else 0)
     # HITL gate is active only with a turn_id (a reply channel) and a non-auto mode.
-    perm_mode = (permission_mode or config.PERMISSION_MODE)
+    # Fail CLOSED when the request omits permission_mode: fall back to the user's
+    # PERSISTED autonomy setting (defaults to "ask"), never config.PERMISSION_MODE
+    # (which defaults to the ungated "auto"). Otherwise any non-desktop client that
+    # simply doesn't send the field would silently bypass the approval gate.
+    perm_mode = permission_mode or settings.get_settings().get("permission_mode") or "ask"
     gate_on = bool(turn_id) and perm_mode != "auto"
     # Plan mode: research read-only, present a plan, and only mutate after approval. It
     # needs an interactive reply channel (turn_id); without one it degrades to no-op.

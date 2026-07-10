@@ -1,11 +1,10 @@
 """BigQuery connectivity status + in-app ADC reconnect (gcloud re-login)."""
 from __future__ import annotations
 
-import shutil
 import subprocess
 
 from fastapi import APIRouter, Depends
-from ocd_core import bigquery, config
+from ocd_core import auth_flows, bigquery, config
 
 from ..deps import current_user
 
@@ -32,11 +31,13 @@ def status(user: str = Depends(current_user)) -> dict:
 def reconnect(user: str = Depends(current_user)) -> dict:
     """Trigger `gcloud auth application-default login` (loopback browser flow) and
     drop the cached client so the next call rebuilds from the refreshed ADC."""
-    gcloud = shutil.which("gcloud")
-    if not gcloud:
+    # Resolve to a spawn-ready argv (absolute path; cmd-wrapped on Windows for the
+    # gcloud.cmd shim) — a bare "gcloud" raises WinError 2 on Windows.
+    argv = auth_flows.spawn_argv(["gcloud", "auth", "application-default", "login"])
+    if argv is None:
         return {"started": False,
                 "error": "gcloud CLI not found. Run "
                          "`gcloud auth application-default login` manually."}
-    subprocess.Popen([gcloud, "auth", "application-default", "login"])
+    subprocess.Popen(argv)
     bigquery.reset_bq_client()
     return {"started": True}

@@ -284,6 +284,22 @@ class MCPRegistry:
             asyncio.run_coroutine_threadsafe(
                 self._close(_server_key(cfg)), loop).result(timeout=15)
 
+    def drop_all(self):
+        """Close every live session (but keep the loop running) so each server
+        reconnects — and reloads its credentials — on next use. Used after an in-app
+        re-auth: a connector that cached an expired token at startup would otherwise
+        keep serving it until the process restarts."""
+        loop = self._loop
+        if loop is None or not loop.is_running():
+            return
+
+        async def _close_all():
+            for key in list(self._sessions):
+                await self._close(key)
+
+        with contextlib.suppress(Exception):
+            asyncio.run_coroutine_threadsafe(_close_all(), loop).result(timeout=15)
+
     def shutdown(self):
         loop = self._loop
         if loop is None or not loop.is_running():

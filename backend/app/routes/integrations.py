@@ -208,11 +208,6 @@ def mcp_get_prompt(sid: str, name: str, args: dict = Body(default={}),
     return integrations.mcp_get_prompt(sid, name, args)
 
 
-@router.post("/mcp-servers/demo")
-def add_demo_mcp(user: str = Depends(current_user)) -> dict:
-    return integrations.add_demo_mcp_server()
-
-
 @router.get("/mcp-servers/{sid}/oauth")
 def mcp_oauth_status(sid: str, user: str = Depends(current_user)) -> dict:
     """OAuth authorization status for a connector (authorized?, scope, has_refresh)."""

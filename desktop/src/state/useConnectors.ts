@@ -90,15 +90,6 @@ export function useConnectors() {
     [refresh],
   );
 
-  const addDemo = useCallback(async () => {
-    try {
-      await mcp.addDemo();
-      await refresh();
-    } catch (e) {
-      setErr(String(e));
-    }
-  }, [refresh]);
-
   const remove = useCallback(
     async (sid: string) => {
       try {
@@ -172,5 +163,5 @@ export function useConnectors() {
 
   const toggle = useCallback((sid: string) => setEnabled((ids) => toggleId(ids, sid)), []);
 
-  return { servers, enabled, err, add, addDemo, addOAuth, authorize, remove, toggle, install, refresh };
+  return { servers, enabled, err, add, addOAuth, authorize, remove, toggle, install, refresh };
 }

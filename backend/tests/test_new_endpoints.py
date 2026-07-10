@@ -63,14 +63,6 @@ def test_sql_execute():
     m.assert_called_once_with("SELECT 1", "p1")
 
 
-def test_add_demo_mcp_server():
-    with patch("app.routes.integrations.integrations.add_demo_mcp_server",
-               return_value={"id": "m1", "name": "AJ360 Demo"}) as m:
-        r = client.post("/mcp-servers/demo")
-    assert r.json()["name"] == "AJ360 Demo"
-    m.assert_called_once_with()
-
-
 def test_import_github_repo():
     with patch("app.routes.integrations.integrations.import_github_repo",
                return_value=(7, "")) as m:

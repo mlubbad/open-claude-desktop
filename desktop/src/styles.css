@@ -687,7 +687,9 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-
 .slash-name { font-weight: 600; }
 .slash-desc { font-size: 12px; opacity: 0.75; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .composer textarea { width: 100%; border: none; outline: none; resize: none; background: transparent;
-  color: var(--text); font: inherit; font-size: 14.5px; max-height: 220px; }
+  color: var(--text); font: inherit; font-size: 14.5px; line-height: 1.5;
+  /* Auto-grows to fit content (height set from JS to scrollHeight); past this it scrolls. */
+  max-height: 40vh; overflow-y: auto; display: block; }
 .composer textarea:focus-visible { box-shadow: none; }
 
 .palette-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.35);

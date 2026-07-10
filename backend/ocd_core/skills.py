@@ -18,7 +18,7 @@ import shutil
 import tempfile
 from pathlib import Path
 
-from . import config, jsonstore
+from . import config, git_sync, jsonstore
 
 _FIELDS = {"name", "description", "auto", "triggers", "file_triggers",
            "disabled", "references"}
@@ -275,15 +275,14 @@ def _import_tree(root: Path, source: str) -> dict:
 def import_skills_from_repo(url: str, ref: str = "") -> dict:
     """Clone a git repo, copy the skill files it contains into the skills dir, then
     discard the clone. Skills are plain markdown, so this is a one-shot copy (no
-    persistent source to re-sync). Reuses the marketplace clone + URL validation."""
-    from . import marketplace  # local import avoids a module-load cycle
-    if not marketplace._valid_git_url(url):
+    persistent source to re-sync). Reuses the shared git_sync clone + URL validation."""
+    if not git_sync.valid_git_url(url):
         return {"ok": False, "detail": "not a valid git URL (use https:// or git@…)"}
     tmp = Path(tempfile.mkdtemp(prefix="ocd_skill_"))
     dest = tmp / "repo"
     try:
         try:
-            marketplace._clone_repo(url, ref, dest)
+            git_sync.clone_repo(url, ref, dest)
         except RuntimeError as e:
             return {"ok": False, "detail": f"could not sync: {e}"}
         return _import_tree(dest, "repository")

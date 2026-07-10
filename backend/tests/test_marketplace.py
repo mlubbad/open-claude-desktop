@@ -6,7 +6,7 @@ import shutil
 import textwrap
 from pathlib import Path
 
-from ocd_core import config, integrations, marketplace
+from ocd_core import config, git_sync, integrations, marketplace
 
 # The real bundled catalog dir, resolved from this file (independent of any config
 # pollution — another test reloads config with AJ360_DATA_DIR set and doesn't restore it).
@@ -109,7 +109,7 @@ def _setup_sources(tmp_path, monkeypatch):
 
     def fake_clone(url, ref, dest):
         shutil.copytree(repo, dest)
-    monkeypatch.setattr(marketplace, "_clone_repo", fake_clone)
+    monkeypatch.setattr(git_sync, "clone_repo", fake_clone)
     return plugins
 
 
@@ -146,7 +146,7 @@ def test_source_cannot_shadow_a_bundled_name(tmp_path, monkeypatch):
     repo = tmp_path / "shadow_repo"
     (repo / "plugins").mkdir(parents=True)
     (repo / "plugins" / "dupe.py").write_text(PLUGIN_SRC, encoding="utf-8")  # NAME = hello_mp
-    monkeypatch.setattr(marketplace, "_clone_repo", lambda url, ref, dest: shutil.copytree(repo, dest))
+    monkeypatch.setattr(git_sync, "clone_repo", lambda url, ref, dest: shutil.copytree(repo, dest))
     marketplace.add_source("https://example.com/acme/dupe.git")
     hello = [c for c in marketplace.catalog() if c["name"] == "hello_mp"]
     assert len(hello) == 1 and hello[0]["origin"] == "bundled"  # bundled kept, source shadowed
@@ -180,8 +180,8 @@ def test_clone_repo_inherits_env_for_proxy(monkeypatch):
         return _R()
 
     monkeypatch.setenv("HTTPS_PROXY", "http://proxy.example:8080")
-    monkeypatch.setattr(marketplace.subprocess, "run", fake_run)
-    marketplace._clone_repo("https://example.com/x.git", "", Path("/tmp/zz"))
+    monkeypatch.setattr(git_sync.subprocess, "run", fake_run)
+    git_sync.clone_repo("https://example.com/x.git", "", Path("/tmp/zz"))
     assert captured["env"]["HTTPS_PROXY"] == "http://proxy.example:8080"  # inherited
     assert captured["env"]["GIT_TERMINAL_PROMPT"] == "0"                  # non-interactive
     assert captured["cmd"][-2:] == ["https://example.com/x.git", "/tmp/zz"]  # url/dest after --
@@ -193,7 +193,7 @@ def test_add_source_no_plugins_is_rejected(tmp_path, monkeypatch):
     def clone_empty(url, ref, dest):
         dest.mkdir(parents=True)
         (dest / "readme.txt").write_text("nothing here", encoding="utf-8")
-    monkeypatch.setattr(marketplace, "_clone_repo", clone_empty)
+    monkeypatch.setattr(git_sync, "clone_repo", clone_empty)
     res = marketplace.add_source("https://example.com/empty/repo.git")
     assert res["ok"] is False
     assert marketplace.list_sources() == []  # nothing persisted

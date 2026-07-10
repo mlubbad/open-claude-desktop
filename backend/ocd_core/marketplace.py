@@ -19,14 +19,12 @@ removes a file that a current catalog entry maps to — so a built-in that ships
 from __future__ import annotations
 
 import hashlib
-import os
 import re
 import shutil
-import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 
-from . import config, integrations, jsonstore
+from . import config, git_sync, integrations, jsonstore
 
 _META = {
     "name": re.compile(r'^NAME\s*=\s*["\'](.+?)["\']', re.M),
@@ -97,72 +95,6 @@ def _source_id(url: str) -> str:
     return "mp" + hashlib.sha1(url.strip().encode("utf-8")).hexdigest()[:10]
 
 
-def _valid_git_url(url: str) -> bool:
-    """Accept only https:// and the git@host:path SSH form; reject plaintext transports
-    (http://, git://), local paths (file://, bare paths), and anything with
-    whitespace/control chars. Since a synced repo's code is later executed on install,
-    we refuse MITM-prone plaintext transports up front."""
-    u = (url or "").strip()
-    if not u or any(c.isspace() for c in u) or any(ord(c) < 32 for c in u):
-        return False
-    if re.match(r'^https://[^/].+', u):
-        return True
-    if re.match(r'^[\w.+-]+@[\w.-]+:.+', u):   # scp-style ssh: git@github.com:owner/repo.git
-        return True
-    return False
-
-
-def _repo_name(url: str) -> str:
-    tail = re.split(r'[/:]', url.strip().rstrip("/"))[-1]
-    return re.sub(r'\.git$', '', tail) or "repository"
-
-
-def _clone_repo(url: str, ref: str, dest: Path) -> None:
-    """Shallow-clone ``url`` into ``dest``. Isolated here so tests can monkeypatch it.
-
-    Never fetches submodules, never blocks on an interactive prompt, and is time-bounded.
-    Inherits the caller's environment so proxy settings (HTTPS_PROXY), the CA bundle,
-    HOME/git-config, credential helpers, and loader paths all apply — a hand-built
-    minimal env silently breaks cloning behind a proxy (``getaddrinfo() thread failed to
-    start``) or with a non-standard git. Raises RuntimeError with a clean message on
-    any failure. Cloning only fetches data; git does not execute a remote repo's hooks,
-    so passing the real environment here is safe (repo code runs only on install).
-    """
-    # NOTE: we deliberately do NOT pin protocol.http.allow=never. Proxy setups (incl.
-    # this app's own agent proxy) route git via a gitconfig `insteadOf` rule that rewrites
-    # https://github.com/ to a plaintext http:// proxy URL — blocking http would break
-    # cloning behind a proxy. The residual "a machine's gitconfig could downgrade the URL"
-    # risk is low, not attacker-injectable, and no worse than any tool running git here.
-    cmd = ["git", "clone", "--depth", "1", "--no-tags", "--single-branch"]
-    if ref.strip():
-        cmd += ["--branch", ref.strip()]
-    cmd += ["--", url, str(dest)]
-    env = dict(os.environ)
-    env["GIT_TERMINAL_PROMPT"] = "0"      # fail fast instead of hanging for a password
-    env.setdefault("GIT_LFS_SKIP_SMUDGE", "1")  # don't pull large LFS blobs on checkout
-    try:
-        subprocess.run(cmd, env=env, check=True, capture_output=True,
-                       timeout=config.MARKETPLACE_CLONE_TIMEOUT_SEC)
-    except FileNotFoundError as e:
-        raise RuntimeError("git is not installed on this machine") from e
-    except subprocess.TimeoutExpired as e:
-        raise RuntimeError("clone timed out") from e
-    except subprocess.CalledProcessError as e:
-        detail = (e.stderr or b"").decode("utf-8", "replace").strip().splitlines()
-        raise RuntimeError(detail[-1] if detail else "git clone failed") from e
-
-
-def _dir_size(root: Path) -> int:
-    total = 0
-    for p in root.rglob("*"):
-        if p.is_file() and not p.is_symlink():
-            try:
-                total += p.stat().st_size
-            except OSError:
-                pass
-    return total
-
-
 def _discover(root: Path) -> list[Path]:
     """Plugin files inside a synced repo — .py files that textually look like plugins.
     Skips .git, dotfiles, underscore-prefixed and oversized files; both the number of
@@ -197,7 +129,7 @@ def list_sources() -> list[dict]:
         d = _sources_dir() / s["id"]
         out.append({
             "id": s["id"],
-            "name": s.get("name", _repo_name(s.get("url", ""))),
+            "name": s.get("name", git_sync.repo_name(s.get("url", ""))),
             "url": s.get("url", ""),
             "ref": s.get("ref", ""),
             "added_at": s.get("added_at", ""),
@@ -210,7 +142,7 @@ def list_sources() -> list[dict]:
 def add_source(url: str, ref: str = "", name: str = "") -> dict:
     """Sync a git repo as a marketplace source: clone it, then expose the plugins it
     contains as installable catalog entries. Re-adding the same URL re-syncs it."""
-    if not _valid_git_url(url):
+    if not git_sync.valid_git_url(url):
         return {"ok": False, "detail": "not a valid git URL (use https:// or git@…)"}
     sid = _source_id(url)
     existing = _load_sources()
@@ -221,11 +153,11 @@ def add_source(url: str, ref: str = "", name: str = "") -> dict:
     if dest.exists():
         shutil.rmtree(dest, ignore_errors=True)
     try:
-        _clone_repo(url, ref, dest)
+        git_sync.clone_repo(url, ref, dest)
     except RuntimeError as e:
         shutil.rmtree(dest, ignore_errors=True)
         return {"ok": False, "detail": f"could not sync: {e}"}
-    if _dir_size(dest) > config.MARKETPLACE_MAX_SOURCE_BYTES:
+    if git_sync.dir_size(dest) > config.MARKETPLACE_MAX_SOURCE_BYTES:
         shutil.rmtree(dest, ignore_errors=True)
         return {"ok": False, "detail": "repository is too large"}
     plugins = _discover(dest)
@@ -234,7 +166,7 @@ def add_source(url: str, ref: str = "", name: str = "") -> dict:
         return {"ok": False, "detail": "no plugins found in this repository"}
     entry = {
         "id": sid,
-        "name": (name.strip() or _repo_name(url)),
+        "name": (name.strip() or git_sync.repo_name(url)),
         "url": url.strip(),
         "ref": ref.strip(),
         "added_at": datetime.now(UTC).isoformat(timespec="seconds"),
@@ -302,7 +234,7 @@ def _entries() -> list[dict]:
             # 48-bit tag keyed on the repo-relative path: collision-resistant across a
             # source's plugins so two files never map to the same install filename.
             tag = hashlib.sha1(str(f.relative_to(d)).encode()).hexdigest()[:12]
-            _add({**meta, "origin": s.get("name", _repo_name(s.get("url", ""))),
+            _add({**meta, "origin": s.get("name", git_sync.repo_name(s.get("url", ""))),
                   "source_id": s["id"], "path": f, "dest": f"{s['id']}__{f.stem}_{tag}.py"})
     return entries
 

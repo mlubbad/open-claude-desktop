@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { type SkillSummary, skills as skillsApi } from "../api/client";
+import { runAction } from "./runAction";
 
 export function useSkills() {
   const [list, setList] = useState<SkillSummary[]>([]);
@@ -24,58 +25,27 @@ export function useSkills() {
     void refresh();
   }, [refresh]);
 
-  // Import a skill from an uploaded markdown file. Returns an error message or null.
+  // These three share the same busy/clear-error/refresh shape; runAction clears err at
+  // the start and returns the error message (or null) so the caller can surface it.
+  // See state/runAction.ts.
+  // Import a skill from an uploaded markdown file.
   const importFile = useCallback(
-    async (filename: string, content: string): Promise<string | null> => {
-      setBusy(true);
-      setErr(null);
-      try {
-        await skillsApi.import(filename, content);
-        await refresh();
-        return null;
-      } catch (e) {
-        return e instanceof Error ? e.message : String(e);
-      } finally {
-        setBusy(false);
-      }
-    },
+    (filename: string, content: string) =>
+      runAction(() => skillsApi.import(filename, content), { setBusy, setErr, refresh }),
     [refresh],
   );
 
   // Import skills from a .zip of a skill folder (SKILL.md + references/) — the server
-  // extracts it and imports like a synced repository. Returns an error message or null.
+  // extracts it and imports like a synced repository.
   const importZip = useCallback(
-    async (file: File): Promise<string | null> => {
-      setBusy(true);
-      setErr(null);
-      try {
-        await skillsApi.importZip(file);
-        await refresh();
-        return null;
-      } catch (e) {
-        return e instanceof Error ? e.message : String(e);
-      } finally {
-        setBusy(false);
-      }
-    },
+    (file: File) => runAction(() => skillsApi.importZip(file), { setBusy, setErr, refresh }),
     [refresh],
   );
 
-  // Sync skills from a git repository. Returns an error message or null.
+  // Sync skills from a git repository.
   const importFromRepo = useCallback(
-    async (url: string, ref = ""): Promise<string | null> => {
-      setBusy(true);
-      setErr(null);
-      try {
-        await skillsApi.importFromRepo(url, ref);
-        await refresh();
-        return null;
-      } catch (e) {
-        return e instanceof Error ? e.message : String(e);
-      } finally {
-        setBusy(false);
-      }
-    },
+    (url: string, ref = "") =>
+      runAction(() => skillsApi.importFromRepo(url, ref), { setBusy, setErr, refresh }),
     [refresh],
   );
 

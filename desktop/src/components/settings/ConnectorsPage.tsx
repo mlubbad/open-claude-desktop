@@ -220,6 +220,17 @@ export function ConnectorsPage({ c }: { c: ConnectorControls }) {
                 Enabled
               </label>
               <span className="dir-card-actions-right">
+                {s.status === "error" && (
+                  <button
+                    className="conn-authorize"
+                    title="Re-connect this server (first-run downloads are usually cached by now)"
+                    aria-label={`Retry ${s.name}`}
+                    disabled={c.retrying === s.id}
+                    onClick={() => c.onRetry(s.id)}
+                  >
+                    {c.retrying === s.id ? "Retrying…" : "Retry"}
+                  </button>
+                )}
                 {s.auth_mode === "oauth" && !s.authorized && (
                   <button className="conn-authorize" title="Authorize (opens browser)" onClick={() => c.onAuthorize(s.id)}>
                     Authorize

@@ -470,6 +470,9 @@ export const mcp = {
   list: () => api.get<McpServer[]>("/mcp-servers"),
   add: (body: AddMcpBody) => api.post<McpServer>("/mcp-servers", body),
   remove: (sid: string) => api.del<{ ok: boolean }>(`/mcp-servers/${sid}`),
+  // Re-connect from scratch (the error card's Retry) — recovers a first-run
+  // download timeout or a fixed PATH without removing and re-adding.
+  refresh: (sid: string) => api.post<McpServer>(`/mcp-servers/${sid}/refresh`, {}),
   // One-click desktop-extension bundles (.mcpb / legacy .dxt).
   inspect: (file: File) => {
     const form = new FormData();

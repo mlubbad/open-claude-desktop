@@ -801,6 +801,8 @@ export default function App() {
             onAuthorize: (sid) => void connectors.authorize(sid),
             onRemove: (sid) => void connectors.remove(sid),
             onToggle: connectors.toggle,
+            onRetry: (sid) => void connectors.retry(sid),
+            retrying: connectors.retrying,
           }}
           plug={{
             installed: pluginMgr.installed,

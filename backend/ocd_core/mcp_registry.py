@@ -19,6 +19,8 @@ import asyncio
 import atexit
 import contextlib
 import json
+import os
+import tempfile
 import threading
 
 _DEFAULT_TIMEOUT = float(__import__("os").getenv("MCP_CALL_TIMEOUT_SEC", "60"))
@@ -68,14 +70,34 @@ def _render(res) -> str:
     return out or "(no content)"
 
 
+def _drain_errfile(errfile, keep: int = 300) -> str:
+    """Read (and dispose) the stderr spool of a spawned stdio server, returning the
+    last ``keep`` characters collapsed to one line. The child writes through a dup'd
+    fd, so read from the path rather than the (offset-shared) handle."""
+    if errfile is None:
+        return ""
+    tail = ""
+    with contextlib.suppress(Exception):
+        errfile.flush()
+        with open(errfile.name, encoding="utf-8", errors="replace") as r:
+            tail = " ".join(r.read().split())[-keep:]
+    with contextlib.suppress(Exception):
+        errfile.close()
+    with contextlib.suppress(Exception):
+        os.unlink(errfile.name)
+    return tail
+
+
 class _Session:
-    """A live MCP ClientSession plus the AsyncExitStack holding its subprocess."""
+    """A live MCP ClientSession plus the AsyncExitStack holding its subprocess and,
+    for stdio servers, the tempfile spooling the child's stderr (diagnostics)."""
 
-    __slots__ = ("session", "stack")
+    __slots__ = ("session", "stack", "errfile")
 
-    def __init__(self, session, stack):
+    def __init__(self, session, stack, errfile=None):
         self.session = session
         self.stack = stack
+        self.errfile = errfile
 
 
 class MCPRegistry:
@@ -126,6 +148,7 @@ class MCPRegistry:
 
         transport = _transport_of(cfg)
         stack = contextlib.AsyncExitStack()
+        errfile = None
         try:
             if transport == "http":
                 # streamablehttp_client accepts headers= directly (the newer
@@ -146,12 +169,29 @@ class MCPRegistry:
                 params = StdioServerParameters(
                     command=cfg["command"], args=list(cfg.get("args", [])),
                     env=_stdio_env(cfg.get("env")))
-                read, write = await stack.enter_async_context(stdio_client(params))
+                # Spool the child's stderr so a failed spawn/handshake can show the
+                # server's OWN words ("npm ERR! …", "docker: cannot connect …")
+                # instead of a generic client-side error.
+                errfile = tempfile.NamedTemporaryFile(
+                    mode="w+", suffix=".mcp-stderr", delete=False,
+                    encoding="utf-8", errors="replace")
+                read, write = await stack.enter_async_context(
+                    stdio_client(params, errlog=errfile))
             session = await stack.enter_async_context(ClientSession(read, write))
             await session.initialize()
-            return _Session(session, stack)
+            return _Session(session, stack, errfile)
+        except Exception as e:
+            with contextlib.suppress(BaseException):
+                await stack.aclose()
+            tail = _drain_errfile(errfile)
+            if tail:
+                base = str(e).strip() or type(e).__name__
+                raise RuntimeError(f"{base} — server output: {tail}") from e
+            raise
         except BaseException:
-            await stack.aclose()
+            with contextlib.suppress(BaseException):
+                await stack.aclose()
+            _drain_errfile(errfile)
             raise
 
     async def _close(self, key: tuple):
@@ -159,6 +199,7 @@ class MCPRegistry:
         if sess is not None:
             with contextlib.suppress(Exception):
                 await sess.stack.aclose()
+            _drain_errfile(sess.errfile)
 
     async def _get_session(self, cfg: dict) -> _Session:
         key = _server_key(cfg)

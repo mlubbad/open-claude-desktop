@@ -196,6 +196,16 @@ def remove_mcp(sid: str, user: str = Depends(current_user)) -> dict:
     return {"ok": True}
 
 
+@router.post("/mcp-servers/{sid}/refresh")
+def refresh_mcp(sid: str, user: str = Depends(current_user)) -> dict:
+    """Re-connect a server from scratch — the error card's Retry button. Recovers a
+    first-run timeout (package/image now cached) or a fixed PATH without re-adding."""
+    res = integrations.refresh_mcp_server(sid)
+    if not res:
+        raise HTTPException(status_code=404, detail="unknown MCP server")
+    return res
+
+
 @router.get("/mcp-servers/{sid}/tools")
 def mcp_tools(sid: str, user: str = Depends(current_user)) -> dict:
     return {"tools": integrations.mcp_tools([sid])}

@@ -623,6 +623,14 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-
   box-shadow: 0 0 0 3px var(--ring), var(--shadow-soft); }
 .composer-row { display: flex; align-items: center; gap: 8px; }
 .composer-spacer { flex: 1; }
+/* Context chips beside the + button: active project / Research mode, each with an ✕. */
+.ctx-chip { display: inline-flex; align-items: center; gap: 2px; height: 32px;
+  padding: 0 6px 0 9px; border-radius: 10px; border: 1px solid var(--border);
+  background: var(--accent-soft); color: var(--accent); }
+.ctx-chip-x { display: inline-flex; align-items: center; justify-content: center;
+  border: none; background: none; color: var(--muted); cursor: pointer; padding: 3px;
+  border-radius: 6px; }
+.ctx-chip-x:hover { color: var(--text); background: var(--surface-2); }
 .composer-ghost { display: inline-flex; align-items: center; justify-content: center;
   width: 32px; height: 32px; border-radius: 10px; border: 1px solid var(--border);
   background: var(--surface-2); color: var(--muted); cursor: pointer; font-size: 16px; line-height: 1; }
@@ -727,10 +735,19 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-
 .key-entry input { flex: 1; border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px;
   background: var(--bg); color: var(--text); }
 .model-row { display: flex; flex-wrap: wrap; gap: 6px; }
-.model-row .model { border: 1px solid var(--border); background: var(--surface-2); color: var(--text);
-  border-radius: 999px; padding: 4px 10px; cursor: pointer; font-size: 12px; }
-.model-row .model.active { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); font-weight: 500; }
-.model-row .model:disabled { opacity: 0.4; cursor: default; }
+/* Split pill: the name picks the model; the eye toggles chat-picker visibility. */
+.model-chip { display: inline-flex; align-items: stretch; border: 1px solid var(--border);
+  background: var(--surface-2); border-radius: 999px; overflow: hidden; }
+.model-chip.active { background: var(--accent-soft); border-color: var(--accent); }
+.model-chip.active .model-pick { color: var(--accent); font-weight: 500; }
+.model-chip.off { border-style: dashed; opacity: 0.55; }
+.model-chip .model-pick { border: none; background: none; color: var(--text); cursor: pointer;
+  font: inherit; font-size: 12px; padding: 4px 4px 4px 10px; }
+.model-chip .model-pick:disabled { opacity: 0.4; cursor: default; }
+.model-chip .model-vis { border: none; background: none; color: var(--muted); cursor: pointer;
+  display: inline-flex; align-items: center; padding: 0 8px 0 4px; }
+.model-chip .model-vis:hover { color: var(--text); }
+.model-chip.off .model-vis { color: var(--faint); }
 
 .field-label { display: block; font-size: 13px; font-weight: 600; margin: 12px 0 4px; }
 .profile-form { display: flex; flex-direction: column; gap: 6px; }
@@ -951,8 +968,12 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-
 .mp-pop { position: absolute; bottom: calc(100% + 8px); right: 0; z-index: 40;
   display: flex; gap: 0; background: var(--surface); border: 1px solid var(--border);
   border-radius: var(--r-lg); box-shadow: 0 12px 34px rgba(0,0,0,0.18); overflow: hidden;
-  min-width: 520px; }
-.mp-col { padding: 8px; display: flex; flex-direction: column; gap: 1px; }
+  min-width: 520px;
+  /* Never taller than the space above the composer — even on the empty-state hero,
+     where the composer sits mid-screen; long lists scroll instead. */
+  max-height: min(50vh, 520px); }
+.mp-col { padding: 8px; display: flex; flex-direction: column; gap: 1px;
+  overflow-y: auto; }
 .mp-effort { width: 250px; border-right: 1px solid var(--border); }
 .mp-models { width: 270px; }
 .mp-help { margin: 4px 8px 8px; font-size: 12px; color: var(--muted); line-height: 1.45; }

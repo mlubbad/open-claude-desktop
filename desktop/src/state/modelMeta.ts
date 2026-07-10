@@ -25,6 +25,25 @@ const DESCRIPTORS: [RegExp, string][] = [
   [/sonnet|plus|glm-4-air|glm-4-long|qwen-plus/i, "Most efficient for everyday tasks."],
 ];
 
+// Without a user selection, the picker shows only the first few of a provider's
+// catalog (catalogs are ordered newest-first) — the rest live in Settings.
+export const DEFAULT_PICKER_COUNT = 6;
+
+// The models a provider shows in the chat picker: the user's Settings selection when
+// one exists, else the newest few — always including the currently-active model.
+export function pickerModels(
+  catalog: string[],
+  chosen: string[] | undefined,
+  current: string,
+): string[] {
+  const wanted = chosen?.length
+    ? catalog.filter((m) => chosen.includes(m))
+    : catalog.slice(0, DEFAULT_PICKER_COUNT);
+  const out = wanted.length ? wanted : catalog.slice(0, DEFAULT_PICKER_COUNT);
+  if (current && !out.includes(current)) out.push(current);
+  return out;
+}
+
 // A one-line descriptor for a model name (picker subtitle).
 export function modelDescriptor(model: string): string {
   const name = (model || "").split("/").pop() ?? "";

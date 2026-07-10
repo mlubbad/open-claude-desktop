@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
-import { type ProviderInfo, providers as providerApi } from "../api/client";
-import { EFFORT_LEVELS, modelDescriptor } from "../state/modelMeta";
+import { type ProviderInfo, providers as providerApi, settings as settingsApi } from "../api/client";
+import { EFFORT_LEVELS, modelDescriptor, pickerModels } from "../state/modelMeta";
 import { Icon } from "./Icon";
 
 // The two-column Model + Effort popover opened from the composer's model control
@@ -31,10 +31,12 @@ export function ModelPicker({
   onClose: () => void;
 }) {
   const [list, setList] = useState<ProviderInfo[]>([]);
+  const [visible, setVisible] = useState<Record<string, string[]>>({});
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     providerApi.list().then(setList).catch(() => {});
+    settingsApi.get().then((s) => setVisible(s.visible_models ?? {})).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -57,9 +59,12 @@ export function ModelPicker({
   }, [onClose]);
 
   // Models for the active provider (fall back to just the current model if the
-  // provider list hasn't loaded yet).
+  // provider list hasn't loaded yet), narrowed to the user's picker selection —
+  // or the newest few by default. The rest live behind "More models & keys".
   const active = list.find((p) => p.id === provider);
-  const models = active?.models?.length ? active.models : [model];
+  const models = active?.models?.length
+    ? pickerModels(active.models, visible[provider], model)
+    : [model];
 
   return (
     <div className="mp-pop" ref={ref} role="dialog" aria-label="Model and effort">

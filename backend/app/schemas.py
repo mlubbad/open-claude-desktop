@@ -97,6 +97,7 @@ class SettingsBody(BaseModel):
     searxng_url: str | None = None
     code_execution: str | None = None   # auto | docker | local | off
     permission_mode: str | None = None  # strict | ask | auto (HITL autonomy)
+    visible_models: dict | None = None  # {provider_id: [model, ...]} shown in the picker
 
 
 class TitleRequest(BaseModel):

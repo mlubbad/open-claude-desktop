@@ -22,7 +22,10 @@ export default defineConfig({
   },
   test: {
     globals: true,
+    // Node by default (the pure state/* tests); component tests opt into jsdom with a
+    // `// @vitest-environment jsdom` pragma at the top of the file.
     environment: "node",
-    include: ["src/**/*.test.ts"],
+    include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
+    setupFiles: ["src/test/setup.ts"],
   },
 });

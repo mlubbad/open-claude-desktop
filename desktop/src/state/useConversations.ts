@@ -1,11 +1,18 @@
 // Conversation management layered over useTranscript: the sidebar list, the current
-// conversation, create-on-first-send, auto-save when a turn finishes, open, delete.
+// conversation, create-on-first-send, persistence, open, delete.
 // Persistence failures degrade gracefully (the chat still works offline).
+//
+// Turn lifetime is decoupled from the view (see turnSessions.ts): opening another
+// conversation ATTACHES to its session — it never aborts an in-flight turn. A turn
+// left streaming in the background finishes on its own and is saved here under its
+// own conversation via the store's onTurnEnd callback. The user's message is also
+// persisted eagerly at send time, so a prompt can never be lost mid-turn.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { type ConversationSummary, conversations as convApi, GENERAL_PROJECT } from "../api/client";
 import { firstUserText, fromBackend, isFirstExchange, toBackend } from "./persist";
+import * as sessions from "./turnSessions";
 import { type TurnConfig, useTranscript } from "./useTranscript";
 
 export function useConversations(config: TurnConfig) {
@@ -15,10 +22,6 @@ export function useConversations(config: TurnConfig) {
   // Persistence problems are surfaced, not swallowed: the sidebar shows this so
   // "history isn't loading" is diagnosable instead of silently empty.
   const [histErr, setHistErr] = useState<string | null>(null);
-  // The turn's (busy, cid) from last render: auto-save fires only when a turn ends
-  // in the SAME conversation it started in — switching chats mid-stream must never
-  // save the replacement transcript (or auto-title it) under the wrong thread.
-  const prevTurn = useRef<{ busy: boolean; cid: string | null }>({ busy: false, cid: null });
   const titled = useRef<Set<string>>(new Set());
   // Conversations the user has renamed by hand — an in-flight auto-title must not
   // overwrite a deliberate title.
@@ -38,65 +41,88 @@ export function useConversations(config: TurnConfig) {
     void refresh();
   }, [refresh]);
 
-  // Ensure a conversation row exists (created lazily on the first message), then stream.
-  const send = useCallback(
-    async (goal: string) => {
-      if (!goal.trim() || chat.busy) return;
-      if (!current) {
-        const pid = config.projectId ?? GENERAL_PROJECT;
-        try {
-          const created = await convApi.create(pid, goal);
-          setCurrent({ cid: created.id, pid });
-          void refresh();
-        } catch {
-          /* offline: proceed without persistence */
-        }
-      }
-      chat.send(goal);
-    },
-    [current, chat, refresh, config.projectId],
-  );
-
-  // Auto-save the transcript when a turn transitions from running -> idle in the
-  // same conversation, and auto-title the conversation once, right after its first
-  // exchange completes.
+  // Save + auto-title whenever ANY session's turn finishes — including one detached
+  // in the background. The store hands us the session's own (key, pid, messages), so
+  // the transcript always lands under the conversation the turn belongs to, no matter
+  // what is on screen when it completes.
   useEffect(() => {
-    const prev = prevTurn.current;
-    const sameThread = current && prev.cid === current.cid;
-    if (prev.busy && !chat.busy && current && sameThread && chat.state.messages.length > 0) {
-      convApi
-        .save(current.pid, current.cid, toBackend(chat.state.messages))
+    sessions.onTurnEnd(({ key, pid, messages }) => {
+      if (key === sessions.DRAFT_KEY || messages.length === 0) {
+        sessions.disposeIfDetached(key);
+        return;
+      }
+      const save = convApi
+        .save(pid, key, toBackend(messages))
         .then(() => refresh())
         .catch(() => {});
 
-      if (
-        !titled.current.has(current.cid) &&
-        !renamedManually.current.has(current.cid) &&
-        isFirstExchange(chat.state.messages)
-      ) {
-        titled.current.add(current.cid);
-        const seed = firstUserText(chat.state.messages);
+      if (!titled.current.has(key) && !renamedManually.current.has(key) && isFirstExchange(messages)) {
+        titled.current.add(key);
+        const seed = firstUserText(messages);
         if (seed) {
-          const { pid, cid } = current;
           convApi
             .generateTitle(seed)
             // A manual rename that lands while the title generates wins.
             .then(({ title }) =>
-              title && !renamedManually.current.has(cid) ? convApi.rename(pid, cid, title) : null,
+              title && !renamedManually.current.has(key) ? convApi.rename(pid, key, title) : null,
             )
             .then(() => refresh())
             .catch(() => {});
         }
       }
-    }
-    prevTurn.current = { busy: chat.busy, cid: current?.cid ?? null };
-  }, [chat.busy, current, chat.state.messages, refresh]);
+      // Free the session once its transcript is safely persisted — unless the user is
+      // looking at it (then it simply IS the live view until they navigate away).
+      void save.finally(() => sessions.disposeIfDetached(key));
+    });
+    return () => sessions.onTurnEnd(null);
+  }, [refresh]);
+
+  // Ensure a conversation row exists (created lazily on the first message), stream,
+  // and persist the user's message immediately so it survives anything — a crash, a
+  // conversation switch, an app quit.
+  const send = useCallback(
+    async (goal: string) => {
+      if (!goal.trim() || chat.busy) return;
+      const pid = config.projectId ?? GENERAL_PROJECT;
+      let target = current;
+      if (!target) {
+        try {
+          const created = await convApi.create(pid, goal);
+          target = { cid: created.id, pid };
+          sessions.rekey(sessions.DRAFT_KEY, created.id, pid);
+          setCurrent(target);
+          void refresh();
+        } catch {
+          /* offline: proceed without persistence */
+        }
+      }
+      if (!chat.send(goal)) return;
+      if (target) {
+        // Eager save: the store applied startTurn synchronously, so the active
+        // session's messages already include this prompt.
+        convApi
+          .save(target.pid, target.cid, toBackend(sessions.activeMessages()))
+          .then(() => refresh())
+          .catch(() => {});
+      }
+    },
+    [current, chat, refresh, config.projectId],
+  );
 
   const openConversation = useCallback(
     async (cid: string, pid: string): Promise<boolean> => {
+      // A live session (still streaming, or freshly finished and not yet disposed)
+      // is the source of truth — attach to it instead of loading the older server
+      // copy. This is what makes "switch away and come back" seamless.
+      if (sessions.has(cid)) {
+        sessions.setActive(cid, pid);
+        setCurrent({ cid, pid });
+        setHistErr(null);
+        return true;
+      }
       try {
         const detail = await convApi.get(pid, cid);
-        chat.load(fromBackend(detail.messages));
+        sessions.loadInto(cid, pid, fromBackend(detail.messages));
         setCurrent({ cid, pid });
         setHistErr(null);
         return true;
@@ -105,13 +131,13 @@ export function useConversations(config: TurnConfig) {
         return false;
       }
     },
-    [chat],
+    [],
   );
 
   const newChat = useCallback(() => {
-    chat.reset();
+    sessions.resetDraft(config.projectId ?? GENERAL_PROJECT);
     setCurrent(null);
-  }, [chat]);
+  }, [config.projectId]);
 
   // Answer an inline structured-question card: collapse it, then post the composed
   // answer as the next turn (contract §5.1).
@@ -125,6 +151,7 @@ export function useConversations(config: TurnConfig) {
 
   const remove = useCallback(
     async (cid: string, pid: string) => {
+      sessions.destroy(cid); // a deleted conversation's background turn dies with it
       try {
         await convApi.del(pid, cid);
       } catch {
@@ -171,7 +198,9 @@ export function useConversations(config: TurnConfig) {
       } catch {
         /* ignore */
       }
-      // Keep the open conversation's project pointer in sync so follow-up saves land right.
+      // Keep the open conversation's project pointer in sync so follow-up saves land
+      // right — including a live session's background save.
+      sessions.setSessionPid(cid, dstProjectId);
       setCurrent((c) => (c && c.cid === cid ? { cid, pid: dstProjectId } : c));
       void refresh();
     },

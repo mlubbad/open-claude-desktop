@@ -85,6 +85,9 @@ export interface AppSettings {
   searxng_url?: string;
   code_execution?: string; // "auto" | "docker" | "local" | "off"
   permission_mode?: string; // "strict" | "ask" | "auto" (HITL autonomy)
+  // Which models each provider shows in the chat model picker; empty/missing
+  // provider entry = the picker's default (the first few of the catalog).
+  visible_models?: Record<string, string[]>;
 }
 
 export const settings = {

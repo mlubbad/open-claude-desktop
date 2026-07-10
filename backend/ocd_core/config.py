@@ -95,7 +95,11 @@ DEFAULT_SETTINGS = {"model": AGENT_MODEL,
                     #   "strict" — ask before EVERY tool (approve each step)
                     #   "ask"    — ask before sensitive actions only (code/shell/files/DB) [default]
                     #   "auto"   — autonomous: never ask (auto-pilot)
-                    "permission_mode": os.getenv("PERMISSION_MODE", "ask")}
+                    "permission_mode": os.getenv("PERMISSION_MODE", "ask"),
+                    # Which models each provider shows in the chat model picker
+                    # ({provider_id: [model, ...]}). Empty/missing = the picker's
+                    # default (the first few of the provider's catalog).
+                    "visible_models": {}}
 CODE_EXECUTION_MODES = ("auto", "docker", "local", "off")
 # User-selectable HITL autonomy levels (plan mode is a separate per-turn toggle).
 PERMISSION_MODE_CHOICES = ("strict", "ask", "auto")

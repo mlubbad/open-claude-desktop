@@ -518,6 +518,37 @@ export function Composer({
             </div>
           )}
         </div>
+        {/* Context chips (Claude-Desktop style): keep the user aware that this chat is
+            grounded on a project / has Research on, with an ✕ to drop each. */}
+        {addMenu?.activeProjectId && (
+          <span
+            className="ctx-chip"
+            title={`Project: ${addMenu.projects.find((p) => p.id === addMenu.activeProjectId)?.name ?? "project"}`}
+          >
+            <Icon name="folder" size={14} />
+            <button
+              className="ctx-chip-x"
+              title="Remove chat from project"
+              aria-label="Remove chat from project"
+              onClick={() => addMenu.onPickProject(null)}
+            >
+              <Icon name="x" size={11} />
+            </button>
+          </span>
+        )}
+        {addMenu?.research && (
+          <span className="ctx-chip" title="Research mode">
+            <Icon name="chart" size={14} />
+            <button
+              className="ctx-chip-x"
+              title="Turn off Research"
+              aria-label="Turn off Research"
+              onClick={() => addMenu.onResearch(false)}
+            >
+              <Icon name="x" size={11} />
+            </button>
+          </span>
+        )}
         <span className="composer-spacer" />
         {modelControl && (
           <div className="model-anchor">

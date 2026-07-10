@@ -2,8 +2,8 @@
 
 Consolidates the two pre-refactor copies into one module while preserving BOTH
 behaviors:
-  - fenced `---...---` AND bare `key: value` frontmatter (this repo's skills/*.md
-    use the bare form; see skills/hero.md);
+  - fenced `---...---` AND bare `key: value` frontmatter (imported skills may use
+    either form; the canonical Agent-Skills layout uses a fenced SKILL.md);
   - word-boundary trigger matching (no substring false positives);
   - `disabled` skills are skipped;
   - `description` falls back to "Skill" when absent;

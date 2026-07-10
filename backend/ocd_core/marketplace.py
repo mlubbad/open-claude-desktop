@@ -95,12 +95,14 @@ def _source_id(url: str) -> str:
     return "mp" + hashlib.sha1(url.strip().encode("utf-8")).hexdigest()[:10]
 
 
-def _discover(root: Path) -> list[Path]:
-    """Plugin files inside a synced repo — .py files that textually look like plugins.
-    Skips .git, dotfiles, underscore-prefixed and oversized files; both the number of
-    plugins kept and the number of files scanned are capped so a repo with a huge file
-    tree can't make discovery expensive."""
-    found: list[Path] = []
+def _discover_with_text(root: Path) -> list[tuple[Path, str]]:
+    """Plugin files inside a synced repo, each paired with the text already read to
+    detect it — .py files that textually look like plugins. Skips .git, dotfiles,
+    underscore-prefixed and oversized files; both the number of plugins kept and the
+    number of files scanned are capped so a repo with a huge file tree can't make
+    discovery expensive. Returning the text lets ``_entries`` build its metadata
+    WITHOUT reading every file a second time."""
+    found: list[tuple[Path, str]] = []
     scanned = 0
     for f in root.rglob("*.py"):
         scanned += 1
@@ -118,8 +120,13 @@ def _discover(root: Path) -> list[Path]:
         except (OSError, UnicodeDecodeError):
             continue
         if _looks_like_plugin(text):
-            found.append(f)
-    return sorted(found)
+            found.append((f, text))
+    return sorted(found, key=lambda pt: pt[0])
+
+
+def _discover(root: Path) -> list[Path]:
+    """Just the plugin file paths (callers that only need a count / the paths)."""
+    return [f for f, _ in _discover_with_text(root)]
 
 
 def list_sources() -> list[dict]:
@@ -226,11 +233,8 @@ def _entries() -> list[dict]:
         d = _sources_dir() / s["id"]
         if not d.is_dir():
             continue
-        for f in _discover(d):
-            try:
-                meta = _meta(f.read_text(encoding="utf-8"), f.stem)
-            except OSError:
-                continue
+        for f, text in _discover_with_text(d):
+            meta = _meta(text, f.stem)  # reuse the text discovery already read
             # 48-bit tag keyed on the repo-relative path: collision-resistant across a
             # source's plugins so two files never map to the same install filename.
             tag = hashlib.sha1(str(f.relative_to(d)).encode()).hexdigest()[:12]

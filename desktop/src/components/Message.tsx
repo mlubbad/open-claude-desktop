@@ -4,6 +4,7 @@ import remarkGfm from "remark-gfm";
 
 import { downloadWorkspaceFile } from "../api/client";
 import type { ProducedFile } from "../api/events";
+import { openExternal } from "../platform";
 import { type Attachment, parseAttachments } from "../state/attachments";
 import { Icon } from "./Icon";
 import { QuestionCard } from "./QuestionCard";
@@ -295,6 +296,14 @@ function Tool({ block }: { block: ToolCard }) {
       </div>
       {block.input && <pre className="tool-input">{block.input}</pre>}
       {block.output && <pre className="tool-output">{block.output}</pre>}
+      {block.authUrl && block.status === "running" && (
+        <div className="tool-auth">
+          <span className="tool-auth-msg">Complete sign-in in your browser, then this continues automatically.</span>
+          <button className="tool-auth-open" onClick={() => void openExternal(block.authUrl!)}>
+            <Icon name="cloud-up" size={13} /> Open sign-in
+          </button>
+        </div>
+      )}
       {block.files && block.files.length > 0 && (
         <ProducedFiles files={block.files} project={block.filesProject} />
       )}

@@ -44,6 +44,8 @@ export interface ToolCard {
   // Files the run produced (workspace-relative) + the project they live under (download).
   files?: ProducedFile[];
   filesProject?: string;
+  // A sign-in URL surfaced by the `authenticate` tool (open in a browser to consent).
+  authUrl?: string;
 }
 
 export interface ThinkingBlock {
@@ -332,6 +334,11 @@ export function applyEvent(prev: TranscriptState, ev: AgentEvent): TranscriptSta
     case "tool_output_delta":
       // Append live stdout/stderr to the tool card's running log (streams as it prints).
       return updateTool(state, assistant, ev.id, (t) => ({ ...t, output: (t.output ?? "") + ev.text }));
+
+    case "auth_url":
+      // The `authenticate` tool surfaced a sign-in URL — record it on the tool card so
+      // the UI shows an "open sign-in" affordance (the app also opens it automatically).
+      return updateTool(state, assistant, ev.id, (t) => ({ ...t, authUrl: ev.url }));
 
     case "files":
       return updateTool(state, assistant, ev.id, (t) => ({ ...t, files: ev.items, filesProject: ev.project }));

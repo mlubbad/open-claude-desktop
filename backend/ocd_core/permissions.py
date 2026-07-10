@@ -24,8 +24,9 @@ SAFE_TOOLS = frozenset({
     "search_schema", "web_search", "deep_research", "web_fetch", "memory",
 })
 # Builtins that run code, touch the filesystem, or hit a database → always sensitive.
+# `authenticate` runs a host login CLI (opens a browser for OAuth consent).
 SENSITIVE_TOOLS = frozenset({
-    "bash", "code_execution", "text_editor", "run_sql",
+    "bash", "code_execution", "text_editor", "run_sql", "authenticate",
 })
 
 

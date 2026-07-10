@@ -97,6 +97,17 @@ describe("transcript reducer", () => {
     expect(tool.filesProject).toBe("general");
   });
 
+  it("records the sign-in URL from the authenticate tool on the tool card", () => {
+    const s = drive([
+      { type: "tool", id: "au", name: "authenticate", input: "gcloud-adc", label_running: "Signing in connector", label_done: "Connector signed in", icon: "key" },
+      { type: "tool_output_delta", id: "au", stream: "stderr", text: "Go to the following link:\n" },
+      { type: "auth_url", id: "au", provider: "gcloud-adc", url: "https://accounts.google.com/o/oauth2/auth?x" },
+    ]);
+    const tool = assistant(s).blocks.find((b) => b.kind === "tool") as ToolCard;
+    expect(tool.authUrl).toBe("https://accounts.google.com/o/oauth2/auth?x");
+    expect(tool.status).toBe("running"); // still waiting on the browser consent
+  });
+
   it("opens a produced CSV as a csv artifact in the side panel", () => {
     const s = drive([
       { type: "tool", id: "cx", name: "code_execution", input: "", label_running: "Running code", label_done: "Ran code", icon: "square-terminal" },

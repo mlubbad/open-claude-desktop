@@ -112,6 +112,17 @@ export function Composer({
   const [micOpen, setMicOpen] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const addRef = useRef<HTMLDivElement>(null);
+  const taRef = useRef<HTMLTextAreaElement>(null);
+
+  // Auto-grow the textarea to fit its content (up to the CSS max-height, then it
+  // scrolls) so a long prompt is fully visible instead of clipped to one line —
+  // Claude-Desktop behaviour. Runs on every value change (typing, paste, draft load).
+  useEffect(() => {
+    const ta = taRef.current;
+    if (!ta) return;
+    ta.style.height = "auto";
+    ta.style.height = `${ta.scrollHeight}px`;
+  }, [text]);
   const addMenuRef = useRef<HTMLDivElement>(null);
   const suggestions = useMemo(() => slashSuggestions(skills, text), [skills, text]);
   // Escape hides the menu without erasing the draft; typing re-arms it.
@@ -280,6 +291,7 @@ export function Composer({
         </ul>
       )}
       <textarea
+        ref={taRef}
         value={text}
         onChange={(e) => {
           setText(e.target.value);

@@ -69,6 +69,7 @@ import types
 from . import (
     artifact_stream,
     artifact_tools,
+    auth_flows,
     bigquery,
     bigquery_tools,
     config,
@@ -164,6 +165,24 @@ TEXT_EDITOR_TOOL = {"type": "function", "function": {
         "view_range": {"type": "array", "items": {"type": "integer"},
                        "description": "[start, end] lines for view."}},
         "required": ["command", "path"]}}}
+
+AUTHENTICATE_TOOL = {"type": "function", "function": {
+    "name": "authenticate",
+    "description": "Sign a connector into its provider when a tool fails with an "
+                   "authentication/re-auth error (e.g. BigQuery/Google Cloud ADC saying "
+                   "'Reauthentication is needed, run gcloud auth application-default "
+                   "login', or GitHub/AWS). Runs the provider's official login CLI on "
+                   "this machine and opens a browser for the user's consent — the user "
+                   "only confirms in the browser, then you retry the original tool. The "
+                   "app opens the sign-in URL automatically. Do NOT ask the user to run a "
+                   "terminal command; call this instead.",
+    "parameters": {"type": "object", "properties": {
+        "provider": {"type": "string",
+                     "description": "Which login to run: a flow id (gcloud-adc, "
+                                    "gcloud-user, github, aws-sso) or a hint like "
+                                    "'gcloud auth application-default login', 'bigquery', "
+                                    "'github', 'aws sso'."}},
+        "required": ["provider"]}}}
 
 TASK_TOOL = {"type": "function", "function": {
     "name": "spawn_subagent",
@@ -475,6 +494,7 @@ TOOL_LABELS = {
     "update_artifact": ("Updating artifact", "Updated artifact", "file-code"),
     "spawn_subagent": ("Delegating to subagent", "Subagent finished", "users"),
     "exit_plan_mode": ("Preparing plan", "Plan ready for review", "clipboard-list"),
+    "authenticate":  ("Signing in connector", "Connector signed in", "key"),
 }
 
 
@@ -679,6 +699,39 @@ async def _run_one_tool(name, args, tc_id, active_project, goal, top_k,
                 out["error"] = result
             return out
 
+        if name == "authenticate":
+            from . import auth_flows
+
+            flow_id = auth_flows.match_flow(args.get("provider", ""))
+            if not flow_id:
+                opts = ", ".join(f["id"] for f in auth_flows.list_flows())
+                return {"id": tc_id, "name": name, "ok": False,
+                        "error": "unknown provider",
+                        "result": f"ERROR: unknown auth provider. Options: {opts}. "
+                                  "Pick one that matches the connector that needs re-auth."}
+
+            def _auth_out(stream: str, text: str) -> None:
+                if emit is not None:
+                    emit({"type": "tool_output_delta", "id": tc_id,
+                          "stream": stream, "text": text})
+
+            def _auth_url(url: str) -> None:
+                if emit is not None:
+                    emit({"type": "auth_url", "id": tc_id, "provider": flow_id, "url": url})
+
+            res = await asyncio.to_thread(auth_flows.run_flow, flow_id, _auth_out, _auth_url)
+            ok = bool(res.get("ok"))
+            detail = res.get("detail", "")
+            result = (f"{detail}. Now retry the original tool that needed authentication."
+                      if ok else
+                      f"ERROR: {detail}. Ask the user to complete the browser sign-in, "
+                      "or tell them the required CLI isn't installed.")
+            out = {"id": tc_id, "name": name, "ok": ok, "result": result,
+                   "summary": detail[:200]}
+            if not ok:
+                out["error"] = detail
+            return out
+
         if name in ("text_editor", "memory"):
             from . import integrations
             sub = active_project or "general"
@@ -854,6 +907,10 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
     # no turn_id and must never stall waiting for input.
     if turn_id:
         tools.append(ASK_USER_TOOL)
+        # Connector sign-in also needs a live user (to consent in the browser). Always
+        # HITL-gated (sensitive), so it can never run a host login CLI silently.
+        if auth_flows.enabled():
+            tools.append(AUTHENTICATE_TOOL)
     if extra_tools:
         tools.extend(extra_tools)
     # H6: enforce tool enablement at DISPATCH, not just by which schemas we send.

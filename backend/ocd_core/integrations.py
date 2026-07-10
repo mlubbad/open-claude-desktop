@@ -475,13 +475,6 @@ def authorize_mcp_oauth(sid: str, open_url=None) -> dict:
     return next((x for x in _load_mcp_servers() if x["id"] == sid), server or {})
 
 
-def add_demo_mcp_server() -> dict:
-    """Register the bundled demo MCP server (mcp_servers/demo_server.py) using the
-    current Python interpreter — no node, no network, no secrets."""
-    return add_mcp_server("AJ360 Demo", "${PYTHON}",
-                          ["${REPO_ROOT}/mcp_servers/demo_server.py"])
-
-
 # --------------------------------------------------------------------------- #
 #  Desktop extension bundles (.mcpb / legacy .dxt)
 #

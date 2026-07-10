@@ -45,9 +45,12 @@ aj360.md
 aj360-*.md
 *.csv
 
-# NOTE: non-secret config (mcp_servers.json, connectors.json,
-# settings.json, package.json, reflex configs) is intentionally
-# NOT ignored — only secret-shaped files are.
+# NOTE: non-secret APP config (settings.json, package.json, reflex configs) is
+# intentionally NOT ignored — only secret-shaped files are. Connector registries are
+# USER state though: tracking them shipped pre-defined connectors ("AJ360 Demo",
+# "GitHub API") to every install, so they are local-only now.
+mcp_servers.json
+connectors.json
 
 # Playwright MCP scratch (browser smoke tests)
 .playwright-mcp/

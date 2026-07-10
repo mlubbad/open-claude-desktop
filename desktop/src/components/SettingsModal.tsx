@@ -12,6 +12,7 @@ import {
   type SkillSummary,
   type UserProfile,
 } from "../api/client";
+import { parseEnvLines, parseMcpJson, splitArgs } from "../state/mcpConfig";
 import { pickerModels } from "../state/modelMeta";
 import { Icon } from "./Icon";
 
@@ -56,7 +57,6 @@ export interface ConnectorControls {
   enabled: string[];
   err: string | null;
   onAdd: (body: AddMcpBody) => void;
-  onAddDemo: () => void;
   onInstall: (file: File) => void;
   onAddOAuth: (name: string, url: string) => void;
   onAuthorize: (sid: string) => void;
@@ -655,10 +655,13 @@ function RepoSyncModal({
 function ConnectorsPage({ c }: { c: ConnectorControls }) {
   const [filter, setFilter] = useState<"all" | "connected" | "not">("all");
   const [showAdd, setShowAdd] = useState(false);
-  const [mode, setMode] = useState<"stdio" | "remote">("remote");
+  const [mode, setMode] = useState<"stdio" | "remote" | "json">("remote");
   const [name, setName] = useState("");
   const [command, setCommand] = useState("");
   const [args, setArgs] = useState("");
+  const [envText, setEnvText] = useState("");
+  const [jsonText, setJsonText] = useState("");
+  const [jsonErr, setJsonErr] = useState<string | null>(null);
   const [url, setUrl] = useState("");
   const [transport, setTransport] = useState("http");
   const [token, setToken] = useState("");
@@ -668,22 +671,42 @@ function ConnectorsPage({ c }: { c: ConnectorControls }) {
     filter === "all" ? true : filter === "connected" ? s.status === "connected" : s.status !== "connected",
   );
 
+  function reset() {
+    setName("");
+    setCommand("");
+    setArgs("");
+    setEnvText("");
+    setJsonText("");
+    setJsonErr(null);
+    setUrl("");
+    setToken("");
+    setShowAdd(false);
+  }
+
   function submit() {
+    if (mode === "json") {
+      // Paste the Claude-Desktop-style config JSON verbatim — quoting, args arrays,
+      // and env come through exactly, no re-typing.
+      try {
+        for (const body of parseMcpJson(jsonText)) c.onAdd(body);
+      } catch (e) {
+        setJsonErr(e instanceof Error ? e.message : String(e));
+        return;
+      }
+      reset();
+      return;
+    }
     if (!name.trim()) return;
     if (mode === "stdio") {
       if (!command.trim()) return;
-      c.onAdd({ name, command, args: args.trim() ? args.trim().split(/\s+/) : [] });
+      // Quote-aware split: a Windows path with spaces stays ONE argument when quoted.
+      c.onAdd({ name, command, args: splitArgs(args), env: parseEnvLines(envText) });
     } else {
       if (!url.trim()) return;
       if (auth === "oauth") c.onAddOAuth(name, url);
       else c.onAdd({ name, url, transport, auth_token: auth === "bearer" ? token.trim() || undefined : undefined });
     }
-    setName("");
-    setCommand("");
-    setArgs("");
-    setUrl("");
-    setToken("");
-    setShowAdd(false);
+    reset();
   }
 
   return (
@@ -735,15 +758,51 @@ function ConnectorsPage({ c }: { c: ConnectorControls }) {
             <button className={mode === "stdio" ? "active" : ""} onClick={() => setMode("stdio")}>
               Local
             </button>
-            <button className="conn-demo" onClick={c.onAddDemo}>
-              + Demo
+            <button className={mode === "json" ? "active" : ""} onClick={() => setMode("json")}>
+              Import JSON
             </button>
           </div>
-          <input placeholder="Name" aria-label="Connector name" value={name} onChange={(e) => setName(e.target.value)} />
-          {mode === "stdio" ? (
+          {mode !== "json" && (
+            <input placeholder="Name" aria-label="Connector name" value={name} onChange={(e) => setName(e.target.value)} />
+          )}
+          {mode === "json" ? (
             <>
-              <input placeholder="Command (e.g. npx)" value={command} onChange={(e) => setCommand(e.target.value)} />
-              <input placeholder="Args (space-separated)" value={args} onChange={(e) => setArgs(e.target.value)} />
+              <p className="settings-hint" style={{ margin: 0 }}>
+                Paste the server's config JSON — the same <code>mcpServers</code> shape
+                Claude Desktop uses (command, args, env all preserved exactly).
+              </p>
+              <textarea
+                className="conn-json"
+                rows={8}
+                spellCheck={false}
+                placeholder={'{\n  "mcpServers": {\n    "Windows-MCP": {\n      "command": "uv",\n      "args": ["--directory", "C:\\\\path with spaces", "run", "windows-mcp"],\n      "env": {"MODE": "local"}\n    }\n  }\n}'}
+                aria-label="MCP config JSON"
+                value={jsonText}
+                onChange={(e) => {
+                  setJsonText(e.target.value);
+                  setJsonErr(null);
+                }}
+              />
+              {jsonErr && <div className="settings-err">{jsonErr}</div>}
+            </>
+          ) : mode === "stdio" ? (
+            <>
+              <input placeholder="Command (e.g. npx, uv)" value={command} onChange={(e) => setCommand(e.target.value)} />
+              <input
+                placeholder={'Args — quote paths with spaces: --directory "C:\\path with spaces" run server'}
+                aria-label="Command arguments"
+                value={args}
+                onChange={(e) => setArgs(e.target.value)}
+              />
+              <textarea
+                className="conn-env"
+                rows={3}
+                spellCheck={false}
+                placeholder={"Environment variables (one per line)\nMODE=local\nAPI_KEY=…"}
+                aria-label="Environment variables"
+                value={envText}
+                onChange={(e) => setEnvText(e.target.value)}
+              />
             </>
           ) : (
             <>
@@ -768,7 +827,7 @@ function ConnectorsPage({ c }: { c: ConnectorControls }) {
             </>
           )}
           <button className="conn-submit" onClick={submit}>
-            {mode === "remote" && auth === "oauth" ? "Add OAuth connector" : "Add connector"}
+            {mode === "json" ? "Import" : mode === "remote" && auth === "oauth" ? "Add OAuth connector" : "Add connector"}
           </button>
         </div>
       )}
@@ -787,6 +846,9 @@ function ConnectorsPage({ c }: { c: ConnectorControls }) {
               {" · "}{s.transport}
               {s.status === "connected" && <> · {s.tool_count} tools</>}
             </p>
+            {s.status === "error" && s.detail && (
+              <p className="dir-card-err" title={s.detail}>{s.detail}</p>
+            )}
             <div className="dir-card-actions">
               <label className="dir-toggle">
                 <input

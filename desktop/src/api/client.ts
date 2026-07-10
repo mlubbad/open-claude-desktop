@@ -440,7 +440,6 @@ export const plugins = {
 export const mcp = {
   list: () => api.get<McpServer[]>("/mcp-servers"),
   add: (body: AddMcpBody) => api.post<McpServer>("/mcp-servers", body),
-  addDemo: () => api.post<McpServer>("/mcp-servers/demo"),
   remove: (sid: string) => api.del<{ ok: boolean }>(`/mcp-servers/${sid}`),
   // One-click desktop-extension bundles (.mcpb / legacy .dxt).
   inspect: (file: File) => {

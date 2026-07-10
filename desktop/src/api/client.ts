@@ -392,6 +392,12 @@ export const skills = {
   list: () => api.get<SkillSummary[]>("/skills"),
   import: (filename: string, content: string) =>
     api.post<{ ok: boolean; name: string }>("/skills", { filename, content }),
+  // A .zip of a skill folder (SKILL.md + references/) — extracted server-side.
+  importZip: (file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return postForm<{ ok: boolean; count: number; names: string[] }>("/skills/import-zip", form);
+  },
   importFromRepo: (url: string, ref = "") =>
     api.post<{ ok: boolean; count: number; names: string[] }>("/skills/from-repo", { url, ref }),
   remove: (name: string) => api.del<{ ok: boolean }>(`/skills/${encodeURIComponent(name)}`),

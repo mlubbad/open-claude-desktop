@@ -42,6 +42,25 @@ export function useSkills() {
     [refresh],
   );
 
+  // Import skills from a .zip of a skill folder (SKILL.md + references/) — the server
+  // extracts it and imports like a synced repository. Returns an error message or null.
+  const importZip = useCallback(
+    async (file: File): Promise<string | null> => {
+      setBusy(true);
+      setErr(null);
+      try {
+        await skillsApi.importZip(file);
+        await refresh();
+        return null;
+      } catch (e) {
+        return e instanceof Error ? e.message : String(e);
+      } finally {
+        setBusy(false);
+      }
+    },
+    [refresh],
+  );
+
   // Sync skills from a git repository. Returns an error message or null.
   const importFromRepo = useCallback(
     async (url: string, ref = ""): Promise<string | null> => {
@@ -72,5 +91,5 @@ export function useSkills() {
     [refresh],
   );
 
-  return { list, err, busy, refresh, importFile, importFromRepo, remove };
+  return { list, err, busy, refresh, importFile, importZip, importFromRepo, remove };
 }

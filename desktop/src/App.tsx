@@ -785,6 +785,7 @@ export default function App() {
             busy: skillsMgr.busy,
             allowRemote: pluginMgr.allowRemote,
             importFile: skillsMgr.importFile,
+            importZip: skillsMgr.importZip,
             importFromRepo: skillsMgr.importFromRepo,
             onRemove: (name) => void skillsMgr.remove(name),
           }}

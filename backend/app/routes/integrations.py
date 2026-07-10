@@ -116,6 +116,20 @@ def import_skill(body: SkillImport, user: str = Depends(current_user)) -> dict:
     return res
 
 
+@router.post("/skills/import-zip")
+def import_skills_zip(file: UploadFile = File(...), user: str = Depends(current_user)) -> dict:
+    """Import skills from an uploaded .zip of a skill folder (canonical SKILL.md layout).
+    The archive is extracted server-side and walked like a synced repository."""
+    path = _spool_upload(file)
+    try:
+        res = skills.import_skills_from_zip(path, file.filename or "")
+        if not res.get("ok"):
+            raise HTTPException(status_code=400, detail=res.get("detail", "import failed"))
+        return res
+    finally:
+        path.unlink(missing_ok=True)
+
+
 @router.post("/skills/from-repo")
 def import_skills_from_repo(body: SourceBody, user: str = Depends(current_user)) -> dict:
     """Sync skills from a git repository (one-shot copy of its markdown skill files)."""

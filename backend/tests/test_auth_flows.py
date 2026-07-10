@@ -55,7 +55,9 @@ def test_run_flow_streams_output_and_surfaces_url(monkeypatch):
         on_url=lambda u: seen.__setitem__("url", u),
     )
     assert res["ok"] is True
-    assert captured_cmd["cmd"] == ["gcloud", "auth", "application-default", "login"]  # fixed
+    # The command is fixed AND resolved to gcloud's absolute path (spawn_argv), so a
+    # bare "gcloud" is never handed to CreateProcess (the Windows WinError 2 bug).
+    assert captured_cmd["cmd"] == ["/usr/bin/gcloud", "auth", "application-default", "login"]
     assert seen["url"] == "https://accounts.google.com/o/oauth2/auth?client_id=x&scope=y"
     assert any("link in your browser" in ln for ln in seen["lines"])  # streamed live
 
@@ -65,6 +67,72 @@ def test_run_flow_missing_cli(monkeypatch):
     monkeypatch.setattr(auth_flows.shutil, "which", lambda cli: None)
     res = auth_flows.run_flow("gcloud-adc")
     assert res["ok"] is False and "not installed" in res["detail"]
+
+
+def test_spawn_argv_resolves_absolute_path(monkeypatch):
+    monkeypatch.setattr(auth_flows.shutil, "which", lambda c: "/usr/bin/" + c)
+    monkeypatch.setattr(auth_flows.os, "name", "posix")
+    assert auth_flows.spawn_argv(["gcloud", "auth", "login"]) == [
+        "/usr/bin/gcloud", "auth", "login"]
+
+
+def test_spawn_argv_missing_returns_none(monkeypatch):
+    monkeypatch.setattr(auth_flows.shutil, "which", lambda c: None)
+    assert auth_flows.spawn_argv(["gcloud", "auth", "login"]) is None
+
+
+def test_spawn_argv_wraps_windows_cmd_shim(monkeypatch):
+    # On Windows gcloud is a .cmd shim CreateProcess can't run directly -> route it
+    # through the command processor (this is the WinError 2 fix).
+    monkeypatch.setattr(auth_flows.shutil, "which",
+                        lambda c: r"C:\gcloud\bin\gcloud.cmd")
+    monkeypatch.setattr(auth_flows.os, "name", "nt")
+    monkeypatch.setattr(auth_flows.os, "environ", {"COMSPEC": r"C:\Windows\cmd.exe"})
+    argv = auth_flows.spawn_argv(["gcloud", "auth", "application-default", "login"])
+    assert argv == [r"C:\Windows\cmd.exe", "/c", r"C:\gcloud\bin\gcloud.cmd",
+                    "auth", "application-default", "login"]
+
+
+def test_successful_signin_refreshes_dependent_connectors(monkeypatch):
+    """The whole point of the fix: after sign-in, cached creds are invalidated so the
+    next call uses the fresh token instead of looping on 'Reauthentication is needed'."""
+    monkeypatch.setattr(config, "AUTH_FLOWS_ENABLED", True)
+    monkeypatch.setattr(auth_flows.shutil, "which", lambda cli: "/usr/bin/gcloud")
+
+    def fake_stream(cmd, cwd, env, on_output, timeout, popen_extra=None, **kw):
+        on_output("stderr", "Credentials saved.\n")
+        return 0, "", "", False
+
+    monkeypatch.setattr(integrations, "_stream_subprocess", fake_stream)
+
+    called = {"bq_reset": 0, "mcp_drop_all": 0}
+    from ocd_core import bigquery, mcp_registry
+    monkeypatch.setattr(bigquery, "reset_bq_client",
+                        lambda: called.__setitem__("bq_reset", called["bq_reset"] + 1))
+    monkeypatch.setattr(mcp_registry.registry, "drop_all",
+                        lambda: called.__setitem__("mcp_drop_all", called["mcp_drop_all"] + 1))
+
+    res = auth_flows.run_flow("gcloud-adc")
+    assert res["ok"] is True
+    assert called["bq_reset"] == 1        # native ADC client rebuilt on next use
+    assert called["mcp_drop_all"] == 1    # MCP connectors reconnect (reload creds)
+
+
+def test_non_google_signin_does_not_reset_bq(monkeypatch):
+    """A github/aws sign-in still reconnects MCP but must not touch the BQ client."""
+    monkeypatch.setattr(config, "AUTH_FLOWS_ENABLED", True)
+    monkeypatch.setattr(auth_flows.shutil, "which", lambda cli: "/usr/bin/gh")
+    monkeypatch.setattr(integrations, "_stream_subprocess",
+                        lambda *a, **k: (0, "", "", False))
+    called = {"bq_reset": 0, "mcp_drop_all": 0}
+    from ocd_core import bigquery, mcp_registry
+    monkeypatch.setattr(bigquery, "reset_bq_client",
+                        lambda: called.__setitem__("bq_reset", called["bq_reset"] + 1))
+    monkeypatch.setattr(mcp_registry.registry, "drop_all",
+                        lambda: called.__setitem__("mcp_drop_all", called["mcp_drop_all"] + 1))
+    assert auth_flows.run_flow("github")["ok"] is True
+    assert called["bq_reset"] == 0
+    assert called["mcp_drop_all"] == 1
 
 
 def test_run_flow_timeout_reports_cleanly(monkeypatch):

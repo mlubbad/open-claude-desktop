@@ -37,7 +37,10 @@ def test_status_auth_expired_self_heals(monkeypatch):
 
 def test_reconnect_spawns_gcloud(monkeypatch):
     spawned = {"cmd": None}
-    monkeypatch.setattr(bq_route.shutil, "which", lambda name: "/usr/bin/gcloud")
+    # The route now resolves the CLI via auth_flows.spawn_argv (absolute path;
+    # cmd-wrapped on Windows) instead of a bare "gcloud".
+    monkeypatch.setattr(bq_route.auth_flows.shutil, "which", lambda name: "/usr/bin/gcloud")
+    monkeypatch.setattr(bq_route.auth_flows.os, "name", "posix")
     monkeypatch.setattr(bq_route.subprocess, "Popen",
                         lambda cmd, *a, **k: spawned.__setitem__("cmd", cmd))
     reset = {"called": False}
@@ -45,12 +48,12 @@ def test_reconnect_spawns_gcloud(monkeypatch):
                         lambda: reset.__setitem__("called", True))
     body = _client().post("/bigquery/reconnect").json()
     assert body["started"] is True
-    assert spawned["cmd"][1:] == ["auth", "application-default", "login"]
+    assert spawned["cmd"] == ["/usr/bin/gcloud", "auth", "application-default", "login"]
     assert reset["called"] is True
 
 
 def test_reconnect_gcloud_missing(monkeypatch):
-    monkeypatch.setattr(bq_route.shutil, "which", lambda name: None)
+    monkeypatch.setattr(bq_route.auth_flows.shutil, "which", lambda name: None)
     body = _client().post("/bigquery/reconnect").json()
     assert body["started"] is False
     assert "gcloud" in body["error"]

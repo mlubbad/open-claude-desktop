@@ -16,6 +16,8 @@ config exactly as if they had run the command themselves.
 """
 from __future__ import annotations
 
+import contextlib
+import os
 import re
 import shutil
 from pathlib import Path
@@ -74,6 +76,50 @@ def _available(spec: dict) -> bool:
     return shutil.which(spec["cli"]) is not None
 
 
+def spawn_argv(command: list[str]) -> list[str] | None:
+    """Resolve ``command[0]`` to an absolute path so the OS can launch it, and on
+    Windows route a ``.cmd``/``.bat`` shim (e.g. ``gcloud.cmd``) through the command
+    processor. Returns None when the CLI isn't on PATH.
+
+    Why this exists: on Windows the gcloud/gh CLIs install as batch shims, and
+    ``CreateProcess`` neither searches PATHEXT for a bare name nor executes a batch
+    file directly — so spawning ``["gcloud", ...]`` raised ``WinError 2`` ("system
+    cannot find the file specified") even though gcloud WAS installed. That is the
+    exact failure the in-app `authenticate` tool hit; users had to fall back to a
+    separate terminal. Resolving to the shim's full path and prefixing ``cmd /c``
+    makes the in-app sign-in work on Windows too.
+    """
+    exe = shutil.which(command[0])
+    if not exe:
+        return None
+    argv = [exe, *command[1:]]
+    if os.name == "nt" and exe.lower().endswith((".cmd", ".bat")):
+        return [os.environ.get("COMSPEC", "cmd.exe"), "/c", *argv]
+    return argv
+
+
+def refresh_dependent_connectors(flow_id: str) -> None:
+    """After a successful sign-in, drop cached credentials/connections that were built
+    from the OLD token so the next call picks up the fresh one — WITHOUT a restart.
+
+    This is the fix for the "re-authenticate on every prompt" loop: ``gcloud`` writes a
+    fresh ADC token to disk, but the connector processes cached the stale token in
+    memory at startup and never re-read it, so every subsequent call kept reporting
+    "Reauthentication is needed." We proactively invalidate those caches on success.
+    """
+    # Native BigQuery client (built from ADC) — rebuild lazily on the next query.
+    if flow_id in ("gcloud-adc", "gcloud-user"):
+        with contextlib.suppress(Exception):
+            from . import bigquery
+            bigquery.reset_bq_client()
+    # Any MCP connector that read credentials at startup (e.g. a BigQuery MCP server
+    # using ADC) — close its live session so the next tool call respawns the process
+    # with the refreshed credentials.
+    with contextlib.suppress(Exception):
+        from . import mcp_registry
+        mcp_registry.registry.drop_all()
+
+
 def list_flows() -> list[dict]:
     """The known login flows, each flagged whether its CLI is installed on this host."""
     return [
@@ -128,7 +174,9 @@ def run_flow(flow_id: str, on_output=None, on_url=None) -> dict:
     spec = FLOWS.get(flow_id)
     if not spec:
         return {"ok": False, "detail": f"unknown auth flow '{flow_id}'"}
-    if not _available(spec):
+    # Resolve the CLI to a spawn-ready argv (absolute path; cmd-wrapped on Windows).
+    argv = spawn_argv(spec["command"])
+    if argv is None:
         return {"ok": False, "detail": f"{spec['cli']} is not installed on this machine"}
 
     from . import integrations  # reuse the streaming subprocess + own-session isolation
@@ -154,12 +202,11 @@ def run_flow(flow_id: str, on_output=None, on_url=None) -> dict:
     # Inherit the real environment (gcloud/gh/aws need HOME, their config, and any
     # proxy), but never launch a browser from the server process — the app opens the
     # surfaced URL. A dedicated session lets a timeout kill the CLI, not the backend.
-    import os
     env = dict(os.environ)
     env["BROWSER"] = "true"                 # CLIs that honor $BROWSER: no-op launcher
     env["CLOUDSDK_CORE_DISABLE_PROMPTS"] = "1"
     rc, out, err, timed_out = integrations._stream_subprocess(
-        spec["command"], cwd=Path.home(), env=env, on_output=_out,
+        argv, cwd=Path.home(), env=env, on_output=_out,
         timeout=config.AUTH_FLOW_TIMEOUT_SEC,
         popen_extra=integrations._isolation_popen_extra(local=True))
 
@@ -167,6 +214,10 @@ def run_flow(flow_id: str, on_output=None, on_url=None) -> dict:
         return {"ok": False, "url": found["url"], "returncode": -1,
                 "detail": "sign-in timed out — the browser consent wasn't completed in time"}
     ok = rc == 0
+    if ok:
+        # The token on disk is fresh now; make every connector that cached the old one
+        # reload it, so the very next tool call succeeds instead of looping on re-auth.
+        refresh_dependent_connectors(flow_id)
     tail = (err or out or "").strip()[-400:]
     return {"ok": ok, "url": found["url"], "returncode": rc,
             "detail": (f"signed in with {spec['label']}" if ok

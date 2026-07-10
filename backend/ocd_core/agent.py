@@ -723,7 +723,16 @@ async def _run_one_tool(name, args, tc_id, active_project, goal, top_k,
             res = await asyncio.to_thread(auth_flows.run_flow, flow_id, _auth_out, _auth_url)
             ok = bool(res.get("ok"))
             detail = res.get("detail", "")
-            result = (f"{detail}. Now retry the original tool that needed authentication."
+            # On success the dependent connectors were already reconnected (fresh creds),
+            # so retry ONCE. Give the model an explicit off-ramp: if it STILL reports
+            # re-auth, the cause is a Google org session policy on end-user creds, not a
+            # stale token — repeating the sign-in would just loop forever.
+            result = (f"{detail}. The affected connectors were reconnected with the fresh "
+                      "credentials — retry the original tool ONCE now. If it STILL reports "
+                      "that re-authentication is needed, STOP and do NOT sign in again: tell "
+                      "the user their Google Cloud org likely enforces a re-auth/session "
+                      "policy on end-user credentials, and the durable fix is a service "
+                      "account (set GOOGLE_APPLICATION_CREDENTIALS for the connector)."
                       if ok else
                       f"ERROR: {detail}. Ask the user to complete the browser sign-in, "
                       "or tell them the required CLI isn't installed.")

@@ -4,6 +4,7 @@ import { Icon } from "../Icon";
 import { DirCard, DirEmpty, DirToolbar } from "./DirCard";
 import type { PluginControls } from "./types";
 import { useDialogEscape } from "./useDialogEscape";
+import { useRepoSync } from "./useRepoSync";
 
 // Plugins + marketplace: installed plugins, a searchable marketplace grid, and the
 // synced repository sources table.
@@ -158,22 +159,13 @@ export function PluginsPage({ p }: { p: PluginControls }) {
 // so the flow leads with an explicit risk warning (contract: opt-in, not a silent add).
 function AddMarketplaceModal({ p, onClose }: { p: PluginControls; onClose: () => void }) {
   const [step, setStep] = useState<"choose" | "repo">("choose");
-  const [url, setUrl] = useState("");
-  const [ref, setRef] = useState("");
   const [name, setName] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
+  // Shared url/ref + busy/error + submit machine; the name is this variant's extra field.
+  const { url, setUrl, ref, setRef, busy, err, submit } = useRepoSync(
+    (u, r) => p.onAddSource(u, r, name.trim()),
+    onClose,
+  );
   useDialogEscape(onClose); // Escape closes only this dialog, not the whole Settings modal
-
-  async function submit() {
-    if (!url.trim()) return;
-    setBusy(true);
-    setErr(null);
-    const failure = await p.onAddSource(url.trim(), ref.trim(), name.trim());
-    setBusy(false);
-    if (failure) setErr(failure);
-    else onClose();
-  }
 
   return (
     <div className="settings-overlay" onClick={onClose}>

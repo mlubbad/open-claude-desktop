@@ -1,8 +1,8 @@
-import { useState } from "react";
-
 import { useDialogEscape } from "./useDialogEscape";
+import { useRepoSync } from "./useRepoSync";
 
-// Shared "sync from a git URL" modal used by the Skills and Plugins directories.
+// "Sync from a git URL" modal used by the Skills directory (the Plugins marketplace has
+// its own variant with a name field + risk warning; both share useRepoSync).
 export function RepoSyncModal({
   title,
   blurb,
@@ -16,21 +16,8 @@ export function RepoSyncModal({
   onSync: (url: string, ref: string) => Promise<string | null>;
   onClose: () => void;
 }) {
-  const [url, setUrl] = useState("");
-  const [ref, setRef] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
+  const { url, setUrl, ref, setRef, busy, err, submit } = useRepoSync(onSync, onClose);
   useDialogEscape(onClose); // Escape closes only this dialog, not the whole Settings modal
-
-  async function submit() {
-    if (!url.trim()) return;
-    setBusy(true);
-    setErr(null);
-    const failure = await onSync(url.trim(), ref.trim());
-    setBusy(false);
-    if (failure) setErr(failure);
-    else onClose();
-  }
 
   return (
     <div className="settings-overlay" onClick={onClose}>

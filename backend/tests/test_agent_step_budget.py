@@ -210,3 +210,119 @@ def test_effort_budgets_scale_up_not_down():
     assert budgets == sorted(budgets)
     assert agent.EFFORT["High"]["steps"] >= 16
     assert agent.EFFORT["Low"]["steps"] >= agent.WRAP_UP_WARNING_AT + 1
+
+
+def test_hitl_decline_never_gets_breaker_advice(monkeypatch):
+    """A user DECLINE is a decision, not a tool failure: repeating the call must keep
+    the decline message clean — no 'fix the arguments and retry' breaker note that
+    would contradict the user."""
+    _patch_client(monkeypatch)
+    calls_log, state = [], {"n": 0}
+
+    async def _always_decline(turn_id, tc_id, timeout):
+        return False
+    monkeypatch.setattr(agent.permissions.registry, "wait", _always_decline)
+
+    async def _fake_stream(llm, model, messages, tools, temperature, max_tokens,
+                           content_scope="answer", fallback_model=None):
+        state["n"] += 1
+        calls_log.append({"tools": tools, "messages": [dict(m) for m in messages]})
+        if tools is not None:
+            yield {"__done__": {"content": "", "note": None, "tool_calls": [
+                _FakeToolCall(f"c{state['n']}", "bash", '{"command": "rm -rf x"}')]}}
+        else:
+            yield {"__done__": {"content": "done", "tool_calls": [], "note": None}}
+
+    monkeypatch.setattr(agent, "_stream_llm", _fake_stream)
+    _drive(agent.run_turn("go", [], None, "m", effort="Low", bash=True,
+                          turn_id="t1", permission_mode="ask"))
+
+    tool_msgs = [m["content"] for m in calls_log[-1]["messages"]
+                 if m.get("role") == "tool"]
+    assert tool_msgs and all("DECLINED" in t for t in tool_msgs)
+    assert all("Do not repeat it verbatim" not in t and "Do NOT call" not in t
+               for t in tool_msgs)
+
+
+def test_wrap_up_warning_survives_a_blank_round_at_the_threshold(monkeypatch):
+    """A blank-answer nudge round exactly at the warning threshold must not silently
+    swallow the warning — it lands on the next tool round instead."""
+    _patch_client(monkeypatch)
+    executed, calls_log, state = [], [], {"n": 0}
+    _spy_tools(monkeypatch, executed)
+    steps = agent.EFFORT["Low"]["steps"]
+    blank_round = steps - agent.WRAP_UP_WARNING_AT  # 1-based: the round that warns
+
+    async def _fake_stream(llm, model, messages, tools, temperature, max_tokens,
+                           content_scope="answer", fallback_model=None):
+        state["n"] += 1
+        calls_log.append({"tools": tools, "messages": [dict(m) for m in messages]})
+        if tools is None:
+            yield {"__done__": {"content": "done", "tool_calls": [], "note": None}}
+        elif state["n"] == blank_round:
+            # Blank round: no content, no tool calls -> the loop nudges and continues.
+            yield {"__done__": {"content": "", "tool_calls": [], "note": None}}
+        else:
+            yield {"__done__": {"content": "", "note": None, "tool_calls": [
+                _FakeToolCall(f"c{state['n']}", "bash", '{"command": "ls"}')]}}
+
+    monkeypatch.setattr(agent, "_stream_llm", _fake_stream)
+    _drive(agent.run_turn("go", [], None, "m", effort="Low", bash=True))
+
+    warnings = [m for m in calls_log[-1]["messages"]
+                if m.get("role") == "user" and "tool rounds remain" in m.get("content", "")]
+    assert len(warnings) == 1
+
+
+def test_distinct_malformed_payloads_get_distinct_breaker_counters(monkeypatch):
+    """Two DIFFERENT unparseable argument strings are different attempts — they must
+    not share one failure counter (the parsed form of both is {})."""
+    _patch_client(monkeypatch)
+    executed, calls_log, state = [], [], {"n": 0}
+    _spy_tools(monkeypatch, executed, ok=False, result="ERROR: bad args")
+
+    async def _fake_stream(llm, model, messages, tools, temperature, max_tokens,
+                           content_scope="answer", fallback_model=None):
+        state["n"] += 1
+        calls_log.append({"tools": tools, "messages": [dict(m) for m in messages]})
+        if tools is not None:
+            yield {"__done__": {"content": "", "note": None, "tool_calls": [
+                _FakeToolCall(f"c{state['n']}", "bash", f'{{broken-json-{state["n"]}')]}}
+        else:
+            yield {"__done__": {"content": "done", "tool_calls": [], "note": None}}
+
+    monkeypatch.setattr(agent, "_stream_llm", _fake_stream)
+    _drive(agent.run_turn("go", [], None, "m", effort="Low", bash=True))
+
+    tool_msgs = [m["content"] for m in calls_log[-1]["messages"]
+                 if m.get("role") == "tool"]
+    assert tool_msgs and all("Do not repeat" not in t and "Do NOT call" not in t
+                             for t in tool_msgs)
+
+
+def test_partial_finalize_stream_is_kept_over_the_fallback(monkeypatch):
+    """If the finalization stream errors AFTER emitting content, the partial synthesis
+    is the answer — not the canned fallback glued onto it."""
+    _patch_client(monkeypatch)
+    executed, calls_log, state = [], [], {"n": 0}
+    _spy_tools(monkeypatch, executed)
+
+    async def _fake_stream(llm, model, messages, tools, temperature, max_tokens,
+                           content_scope="answer", fallback_model=None):
+        state["n"] += 1
+        calls_log.append({"tools": tools, "messages": [dict(m) for m in messages]})
+        if tools is not None:
+            yield {"__done__": {"content": "", "note": None, "tool_calls": [
+                _FakeToolCall(f"c{state['n']}", "bash", '{"command": "ls"}')]}}
+        else:
+            yield {"type": "delta", "scope": "answer", "text": "PARTIAL-SYNTHESIS"}
+            yield {"__done__": {"content": "PARTIAL-SYNTHESIS", "tool_calls": [],
+                                "note": "stream dropped", "error": True}}
+
+    monkeypatch.setattr(agent, "_stream_llm", _fake_stream)
+    events = _drive(agent.run_turn("go", [], None, "m", effort="Low", bash=True))
+
+    answer = "".join(e.get("text", "") for e in events
+                     if e.get("type") == "delta" and e.get("scope") == "answer")
+    assert "PARTIAL-SYNTHESIS" in answer
+    assert "step limit" not in answer  # no fallback glued on

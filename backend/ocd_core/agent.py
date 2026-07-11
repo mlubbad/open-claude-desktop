@@ -1052,6 +1052,7 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
     out_parts: list[str] = []  # accumulated generated text, for the usage estimate
     # (name, canonical-args) -> observed failure count, for the repeat-fail breaker.
     fail_counts: dict[tuple[str, str], int] = {}
+    warned = False  # wrap-up note is injected at most once per turn
     for step_i in range(steps):
         yield {"type": "answer_open"}
         done = {}
@@ -1099,15 +1100,17 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
         blocked_outcomes = []
         sig_by_id: dict[str, tuple[str, str]] = {}  # tc.id -> repeat-fail signature
         for tc in tool_calls:
-            try:
-                args = json.loads(tc.function.arguments or "{}")
-            except Exception:
-                args = {}
+            raw_args = tc.function.arguments or ""
             name = tc.function.name
             try:
+                args = json.loads(raw_args or "{}")
+                # Canonicalize so key order / whitespace don't hide a verbatim repeat.
                 sig_by_id[tc.id] = (name, json.dumps(args, sort_keys=True, default=str))
             except Exception:
-                sig_by_id[tc.id] = (name, repr(args))
+                # Unparseable arguments: the raw string is the identity — two DIFFERENT
+                # malformed payloads must not collapse into one breaker counter.
+                args = {}
+                sig_by_id[tc.id] = (name, raw_args)
             # H6: refuse any tool not enabled for this turn (hallucinated/injected
             # names). Still emit a card + a tool result so the loop stays consistent.
             if name not in allowed_tool_names:
@@ -1171,6 +1174,7 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
                 yield {"type": "tool_error", "id": tc.id, "name": name,
                        "text": "Blocked in plan mode — research only, then present a plan."}
                 blocked_outcomes.append({"id": tc.id, "name": name, "ok": False,
+                    "skip_breaker": True,  # a mode rule, not a fixable tool failure
                     "result": (f"BLOCKED: '{name}' cannot run in PLAN MODE. Do not modify "
                                "anything yet. Finish researching read-only, then call "
                                "exit_plan_mode with your plan for the user to approve.")})
@@ -1184,7 +1188,11 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
                 if not approved:
                     yield {"type": "tool_error", "id": tc.id, "name": name,
                            "text": "Declined by the user."}
+                    # skip_breaker: a decline is the USER's decision, not a tool failure
+                    # — the repeat-fail breaker's "fix the arguments and retry" advice
+                    # would contradict the decline message.
                     blocked_outcomes.append({"id": tc.id, "name": name, "ok": False,
+                        "skip_breaker": True,
                         "result": (f"The user DECLINED to run '{name}'. Do not retry it; "
                                    "continue without it or ask how to proceed.")})
                     continue
@@ -1240,7 +1248,7 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
             out = by_id[tc.id]
             # Cap any single oversized tool output so it can't overflow the window.
             result = context.truncate_tool_result(out["result"])
-            if not out.get("ok"):
+            if not out.get("ok") and not out.get("skip_breaker"):
                 # Repeat-fail breaker: the SAME call failing again gets escalating
                 # feedback, so one broken call can't silently eat the whole budget
                 # (seen in the wild: 7 identical invalid Click calls in one turn).
@@ -1253,10 +1261,12 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
                         result += _REPEAT_FAIL_STOP.format(n=n, name=out["name"])
             messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
         # Landing gear: tell the model the budget is nearly spent so it converges
-        # instead of being cut off mid-gathering.
-        if steps - step_i - 1 == WRAP_UP_WARNING_AT:
+        # instead of being cut off mid-gathering. <= plus the flag (not ==) so a
+        # blank-answer round at the threshold can't silently skip the warning.
+        if not warned and steps - step_i - 1 <= WRAP_UP_WARNING_AT:
+            warned = True
             messages.append({"role": "user",
-                             "content": _WRAP_UP_NOTE.format(n=WRAP_UP_WARNING_AT)})
+                             "content": _WRAP_UP_NOTE.format(n=steps - step_i - 1)})
 
     if final_text is None:
         # Budget exhausted mid-work. Don't throw the gathered material away: make one
@@ -1272,7 +1282,9 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
                 done = ev["__done__"]
             else:
                 yield ev
-        wrap = "" if done.get("error") else (done.get("content") or "").strip()
+        # Keep whatever synthesis arrived — even a partial one cut short by a stream
+        # error is the model's actual answer and beats the canned fallback.
+        wrap = (done.get("content") or "").strip()
         if wrap:
             final_text = wrap
             out_parts.append(wrap)

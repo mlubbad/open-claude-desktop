@@ -37,6 +37,7 @@ from .routes import (  # noqa: E402
     health,
     integrations,
     knowledge,
+    observability,
     projects,
     providers,
     schema,
@@ -98,6 +99,7 @@ app.include_router(integrations.router)
 app.include_router(sql.router)
 app.include_router(bigquery.router)
 app.include_router(providers.router)
+app.include_router(observability.router)
 app.include_router(code.router)
 app.include_router(cowork.router)
 app.include_router(scheduler_routes.router)

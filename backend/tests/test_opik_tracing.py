@@ -67,10 +67,13 @@ def fake_opik(monkeypatch):
     opik_tracing.reset_for_tests()
 
 
-def _enable(monkeypatch):
-    monkeypatch.setattr(opik_tracing.settings, "get_settings", lambda: {
-        "opik_enabled": True, "opik_url": "http://localhost:5173/api/",
-        "opik_project": "test-project"})
+def _enable(monkeypatch, **over):
+    base = {"opik_enabled": True, "opik_mode": "local",
+            "opik_url": "http://localhost:5173/api/", "opik_project": "test-project"}
+    base.update(over)
+    monkeypatch.setattr(opik_tracing.settings, "get_settings", lambda: base)
+    # No stored/env key unless a test opts in — keeps mode inference deterministic.
+    monkeypatch.setattr(opik_tracing, "api_key", lambda: over.get("_key"))
 
 
 def _drive(events):
@@ -197,3 +200,104 @@ def test_settings_defaults_ship_disabled():
     from ocd_core import config
     assert config.DEFAULT_SETTINGS["opik_enabled"] is False
     assert config.DEFAULT_SETTINGS["opik_project"]
+    assert config.DEFAULT_SETTINGS["opik_mode"] == "local"
+
+
+def test_cloud_mode_targets_comet_with_the_keychain_key(monkeypatch, fake_opik):
+    """Cloud mode sends to comet.com with the stored API key + workspace, no self-host URL."""
+    _enable(monkeypatch, opik_mode="cloud", opik_workspace="my-ws", _key="sk-opik-123")
+    _drive(_EVENTS)
+    client = _FakeOpik.instances[-1]
+    assert client.kw["host"] == opik_tracing.OPIK_URL_CLOUD
+    assert client.kw["api_key"] == "sk-opik-123"
+    assert client.kw["workspace"] == "my-ws"
+
+
+def test_local_mode_needs_no_key_and_uses_the_url(monkeypatch, fake_opik):
+    _enable(monkeypatch, opik_mode="local", opik_url="http://host:5173/api/")
+    _drive(_EVENTS)
+    client = _FakeOpik.instances[-1]
+    assert client.kw["host"] == "http://host:5173/api/"
+    assert client.kw["api_key"] is None and client.kw["workspace"] is None
+
+
+def test_mode_inference_when_unset(monkeypatch):
+    # A key present and no self-hosted URL => Cloud; otherwise self-hosted.
+    monkeypatch.setattr(opik_tracing, "api_key", lambda: "sk-1")
+    monkeypatch.setattr(opik_tracing.settings, "get_settings",
+                        lambda: {"opik_enabled": True, "opik_url": ""})
+    assert opik_tracing._mode() == "cloud"
+    monkeypatch.setattr(opik_tracing.settings, "get_settings",
+                        lambda: {"opik_enabled": True, "opik_url": "http://x/api/"})
+    assert opik_tracing._mode() == "local"
+    monkeypatch.setattr(opik_tracing, "api_key", lambda: None)
+    monkeypatch.setattr(opik_tracing.settings, "get_settings",
+                        lambda: {"opik_enabled": True, "opik_url": ""})
+    assert opik_tracing._mode() == "local"
+
+
+def test_api_key_store_roundtrip(monkeypatch):
+    """The key goes to the secret store (keychain), never settings; has_api_key tracks it."""
+    from ocd_core import secrets
+    store = secrets.MemoryStore()
+    monkeypatch.setattr(secrets, "get_secret_store", lambda: store)
+    monkeypatch.delenv("OPIK_API_KEY", raising=False)
+    opik_tracing.reset_for_tests()
+
+    assert opik_tracing.has_api_key() is False
+    opik_tracing.set_api_key("  sk-secret  ")
+    assert store.get("opik:api_key") == "sk-secret"      # trimmed, in the store
+    assert opik_tracing.api_key() == "sk-secret"
+    assert opik_tracing.has_api_key() is True
+    opik_tracing.delete_api_key()
+    assert opik_tracing.has_api_key() is False
+
+
+def test_api_key_falls_back_to_env(monkeypatch):
+    from ocd_core import secrets
+    monkeypatch.setattr(secrets, "get_secret_store", lambda: secrets.MemoryStore())
+    monkeypatch.setenv("OPIK_API_KEY", "env-key")
+    opik_tracing.reset_for_tests()
+    assert opik_tracing.api_key() == "env-key"
+
+
+def test_observability_route_reports_status_without_the_key(monkeypatch, db):
+    """GET /observability returns has_key (bool), never the key; PUT/DELETE manage it."""
+    from ocd_core import secrets
+    store = secrets.MemoryStore()
+    monkeypatch.setattr(secrets, "get_secret_store", lambda: store)
+    monkeypatch.delenv("OPIK_API_KEY", raising=False)
+    opik_tracing.reset_for_tests()
+
+    from app.main import app
+    from fastapi.testclient import TestClient
+    c = TestClient(app)
+
+    st = c.get("/observability").json()
+    assert st["has_key"] is False and "key" not in st
+    assert st["mode"] in ("local", "cloud")
+
+    r = c.put("/observability/key", json={"key": "sk-live"})
+    assert r.json() == {"has_key": True}
+    assert store.get("opik:api_key") == "sk-live"           # in keychain
+    assert c.get("/observability").json()["has_key"] is True
+
+    assert c.delete("/observability/key").json() == {"has_key": False}
+
+
+def test_opik_settings_persist_through_the_route(monkeypatch, db, tmp_path):
+    """Regression: opik_* fields must survive PUT /settings (they were dropped by an
+    under-specified SettingsBody before this)."""
+    from ocd_core import config
+
+    monkeypatch.setattr(config, "SETTINGS_FILE", tmp_path / "settings.json")
+    from app.main import app
+    from fastapi.testclient import TestClient
+    c = TestClient(app)
+    c.put("/settings", json={"opik_enabled": True, "opik_mode": "cloud",
+                             "opik_project": "proj-x", "opik_workspace": "ws-y"})
+    got = c.get("/settings").json()
+    assert got["opik_enabled"] is True
+    assert got["opik_mode"] == "cloud"
+    assert got["opik_project"] == "proj-x"
+    assert got["opik_workspace"] == "ws-y"

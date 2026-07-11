@@ -89,10 +89,13 @@ export interface AppSettings {
   // provider entry = the picker's default (the first few of the catalog).
   visible_models?: Record<string, string[]>;
   // Opik observability (opt-in): mirror agent turns into traces on a self-hosted
-  // or Cloud Opik instance. API keys live in the OPIK_API_KEY env var, never here.
+  // or Cloud Opik instance. The API key is NOT here — it lives in the OS keychain
+  // (set via observability.setKey); these are non-secret config only.
   opik_enabled?: boolean;
+  opik_mode?: string; // "local" | "cloud"
   opik_url?: string;
   opik_project?: string;
+  opik_workspace?: string;
 }
 
 // Settings are read on mount by several components (the three Settings pages, the model
@@ -121,6 +124,23 @@ export const settings = {
   invalidate: () => {
     _settingsCache = null;
   },
+};
+
+// Opik observability status (the API key itself is never returned — only has_key).
+export interface ObservabilityStatus {
+  enabled: boolean;
+  mode: string; // "local" | "cloud"
+  url: string;
+  project: string;
+  workspace: string;
+  has_key: boolean;
+  sdk_installed: boolean;
+}
+
+export const observability = {
+  get: () => api.get<ObservabilityStatus>("/observability"),
+  setKey: (key: string) => api.put<{ has_key: boolean }>("/observability/key", { key }),
+  clearKey: () => api.del<{ has_key: boolean }>("/observability/key"),
 };
 
 export const providers = {

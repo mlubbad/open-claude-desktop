@@ -1443,3 +1443,9 @@ html[data-motion="reduced"] *, html[data-motion="reduced"] *::before, html[data-
 .set-code { border: 1px solid var(--border); border-radius: 10px; background: var(--sunken);
   padding: 12px; font-family: var(--mono); font-size: 12px; line-height: 1.5; overflow-x: auto;
   margin: 0; max-height: 320px; }
+
+/* Observability API-key row */
+.set-key-row { display: flex; gap: 8px; align-items: center; }
+.set-key-saved { display: flex; gap: 10px; align-items: center; }
+.set-key-badge { font-size: 12.5px; font-weight: 600; color: #1a7f37;
+  border: 1px solid #1a7f37; border-radius: 999px; padding: 2px 10px; }

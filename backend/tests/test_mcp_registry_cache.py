@@ -33,7 +33,7 @@ def test_cache_serves_without_rereading_disk(monkeypatch, tmp_path):
 
 
 def test_save_invalidates_the_cache(monkeypatch, tmp_path):
-    f = _point_at(monkeypatch, tmp_path)
+    _point_at(monkeypatch, tmp_path)
     integrations._save_mcp_servers([{"id": "a"}])
     assert [s["id"] for s in integrations._load_mcp_servers()] == ["a"]
     integrations._save_mcp_servers([{"id": "a"}, {"id": "b"}])

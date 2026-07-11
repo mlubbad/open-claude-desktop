@@ -8,6 +8,7 @@ from ocd_core import (
     commands,
     integrations,
     observability,
+    opik_tracing,
     permissions,
     profile,
     projects,
@@ -50,13 +51,18 @@ async def agent_turn(req: AgentTurnRequest, user: str = Depends(current_user)):
         # (and, later, cancel the turn).
         yield format_event({"type": "turn_start", "turn_id": turn_id})
         try:
-            async for ev in agent.run_turn(
+            # Opik observability (opt-in) taps the event stream without touching it —
+            # a no-op pass-through unless opik_enabled is on and the SDK is installed.
+            turn = agent.run_turn(
                     goal, history, req.project_id, req.model, proj_instr,
                     effort=req.effort, web_search=o.web_search, skill_instructions=skill_instr,
                     research=o.research, extra_tools=extra_tools, web_fetch=o.web_fetch,
                     code_exec=o.code_exec, bash=o.bash, text_editor=o.text_editor, memory=o.memory,
                     provider=req.provider, turn_id=turn_id, permission_mode=req.permission_mode,
-                    artifacts=o.artifacts, user_profile=user_profile, subagents=o.subagents):
+                    artifacts=o.artifacts, user_profile=user_profile, subagents=o.subagents)
+            async for ev in opik_tracing.traced(
+                    turn, goal=goal, model=req.model, provider=req.provider,
+                    effort=req.effort, turn_id=turn_id, tags=["chat"]):
                 yield format_event(ev)
         except Exception as e:
             yield format_event({"type": "error", "text": str(e)})

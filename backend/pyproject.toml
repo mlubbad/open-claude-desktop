@@ -35,6 +35,10 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest", "ruff", "mypy", "respx"]
+# Opt-in Opik observability + evaluation (free/open-source, self-hostable:
+# https://github.com/comet-ml/opik). The app runs fine without it — the tracing
+# tap in ocd_core.opik_tracing no-ops when the package is absent.
+observability = ["opik"]
 
 # The terminal client. Same engine (ocd_core) as the desktop app — no duplicate
 # agent logic — exposed as the `ocd` command.

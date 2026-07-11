@@ -99,7 +99,15 @@ DEFAULT_SETTINGS = {"model": AGENT_MODEL,
                     # Which models each provider shows in the chat model picker
                     # ({provider_id: [model, ...]}). Empty/missing = the picker's
                     # default (the first few of the provider's catalog).
-                    "visible_models": {}}
+                    "visible_models": {},
+                    # Opik observability (opt-in; free/open-source, self-hostable).
+                    # When enabled, every agent turn is mirrored into an Opik trace
+                    # (tool spans, thinking phases, usage) by ocd_core.opik_tracing —
+                    # a pass-through event tap, so it can never block a turn. A Cloud
+                    # API key comes ONLY from the OPIK_API_KEY env var, never this file.
+                    "opik_enabled": os.getenv("OPIK_ENABLED", "").lower() in ("1", "true"),
+                    "opik_url": os.getenv("OPIK_URL_OVERRIDE", ""),
+                    "opik_project": os.getenv("OPIK_PROJECT_NAME", "open-claude-desktop")}
 CODE_EXECUTION_MODES = ("auto", "docker", "local", "off")
 # User-selectable HITL autonomy levels (plan mode is a separate per-turn toggle).
 PERMISSION_MODE_CHOICES = ("strict", "ask", "auto")

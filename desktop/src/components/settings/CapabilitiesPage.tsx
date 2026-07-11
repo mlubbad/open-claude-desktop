@@ -13,6 +13,9 @@ export function CapabilitiesPage() {
   const [searxngUrl, setSearxngUrl] = useState("");
   const [codeExecution, setCodeExecution] = useState("auto");
   const [permissionMode, setPermissionMode] = useState("ask");
+  const [opikEnabled, setOpikEnabled] = useState(false);
+  const [opikUrl, setOpikUrl] = useState("");
+  const [opikProject, setOpikProject] = useState("");
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
@@ -23,6 +26,9 @@ export function CapabilitiesPage() {
         setSearxngUrl(s.searxng_url ?? "");
         setCodeExecution(s.code_execution ?? "auto");
         setPermissionMode(s.permission_mode ?? "ask");
+        setOpikEnabled(!!s.opik_enabled);
+        setOpikUrl(s.opik_url ?? "");
+        setOpikProject(s.opik_project ?? "");
       })
       .catch(() => {});
   }, []);
@@ -32,6 +38,9 @@ export function CapabilitiesPage() {
     searxng_url?: string;
     code_execution?: string;
     permission_mode?: string;
+    opik_enabled?: boolean;
+    opik_url?: string;
+    opik_project?: string;
   }) {
     void settingsApi
       .save({
@@ -39,6 +48,9 @@ export function CapabilitiesPage() {
         searxng_url: searxngUrl,
         code_execution: codeExecution,
         permission_mode: permissionMode,
+        opik_enabled: opikEnabled,
+        opik_url: opikUrl,
+        opik_project: opikProject,
         ...next,
       })
       .catch((e) => setErr(String(e)));
@@ -148,6 +160,33 @@ export function CapabilitiesPage() {
           <InlineSelect label="Domain allowlist" value="pkg" disabled
                         options={[{ value: "pkg", label: "Package managers only" }]} />
         </Row>
+      </Section>
+
+      <Section title="Observability (Opik)">
+        <Row label="Trace agent turns"
+             desc="Mirror every turn into an Opik trace (tool spans, thinking phases, usage) on a self-hosted or Cloud Opik instance. Free and open-source; a Cloud API key is read from the OPIK_API_KEY environment variable.">
+          <Toggle label="Trace agent turns" on={opikEnabled}
+                  onChange={(v) => {
+                    setOpikEnabled(v);
+                    save({ opik_enabled: v });
+                  }} />
+        </Row>
+        {opikEnabled && (
+          <>
+            <Row label="Opik URL" desc="Self-hosted instance, e.g. http://localhost:5173/api/ — leave empty for Opik Cloud." stacked>
+              <input className="set-input wide" placeholder="http://localhost:5173/api/"
+                     aria-label="Opik URL" value={opikUrl}
+                     onChange={(e) => setOpikUrl(e.target.value)}
+                     onBlur={() => save({})} />
+            </Row>
+            <Row label="Project name" stacked>
+              <input className="set-input wide" placeholder="open-claude-desktop"
+                     aria-label="Opik project name" value={opikProject}
+                     onChange={(e) => setOpikProject(e.target.value)}
+                     onBlur={() => save({})} />
+            </Row>
+          </>
+        )}
       </Section>
 
       <Section title="Approvals & autonomy">

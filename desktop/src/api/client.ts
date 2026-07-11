@@ -88,6 +88,11 @@ export interface AppSettings {
   // Which models each provider shows in the chat model picker; empty/missing
   // provider entry = the picker's default (the first few of the catalog).
   visible_models?: Record<string, string[]>;
+  // Opik observability (opt-in): mirror agent turns into traces on a self-hosted
+  // or Cloud Opik instance. API keys live in the OPIK_API_KEY env var, never here.
+  opik_enabled?: boolean;
+  opik_url?: string;
+  opik_project?: string;
 }
 
 // Settings are read on mount by several components (the three Settings pages, the model

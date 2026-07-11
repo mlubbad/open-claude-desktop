@@ -4,7 +4,7 @@ list / inspect / cancel those tasks. Background tasks run with permission_mode=a
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
-from ocd_core import agent, cowork
+from ocd_core import agent, cowork, opik_tracing
 from pydantic import BaseModel
 
 from ..deps import current_user
@@ -30,10 +30,15 @@ async def start_task(body: CoworkStart, user: str = Depends(current_user)) -> di
         # A fresh run_turn generator per launch; tools run without prompting (auto), and
         # web/artifact tools are enabled so the delegated work is autonomous. Subagents are
         # on so a big background task can fan work out into isolated, self-contained subtasks.
-        return agent.run_turn(
-            body.goal, [], body.project_id, body.model,
-            effort=body.effort, provider=body.provider, permission_mode="auto",
-            web_search=True, web_fetch=True, artifacts=True, memory=True, subagents=True,
+        # The Opik tap (opt-in) mirrors the run into a trace without touching the stream.
+        return opik_tracing.traced(
+            agent.run_turn(
+                body.goal, [], body.project_id, body.model,
+                effort=body.effort, provider=body.provider, permission_mode="auto",
+                web_search=True, web_fetch=True, artifacts=True, memory=True, subagents=True,
+            ),
+            goal=body.goal, model=body.model, provider=body.provider,
+            effort=body.effort, tags=["cowork"],
         )
 
     task = cowork.manager.start(body.goal, gen_factory)

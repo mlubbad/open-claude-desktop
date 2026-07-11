@@ -9,11 +9,22 @@ import type {
   PluginSummary,
   SkillSummary,
 } from "../../api/client";
+import type { IconName } from "../Icon";
 
 export type SettingsPage =
   | "general"
   | "providers"
+  | "account"
+  | "privacy"
+  | "billing"
+  | "usage"
   | "capabilities"
+  | "claude-code"
+  | "cowork"
+  | "chrome"
+  | "desktop-general"
+  | "extensions"
+  | "developer"
   | "skills"
   | "connectors"
   | "plugins";
@@ -57,21 +68,46 @@ export interface PluginControls {
   onRemoveSource: (id: string) => void;
 }
 
-export const SETTINGS_NAV: { group: string; items: { id: SettingsPage; label: string }[] }[] = [
+// Grouped left-nav, mirroring Claude Desktop's Settings window. `keywords` feed the
+// nav search box (matches label + keywords, case-insensitive). `icon` names come
+// from the shared Icon set.
+export interface SettingsNavItem {
+  id: SettingsPage;
+  label: string;
+  icon: IconName;
+  keywords?: string;
+}
+
+export const SETTINGS_NAV: { group: string; items: SettingsNavItem[] }[] = [
   {
     group: "Settings",
     items: [
-      { id: "general", label: "General" },
-      { id: "providers", label: "Models & keys" },
-      { id: "capabilities", label: "Capabilities" },
+      { id: "general", label: "General", icon: "sliders", keywords: "profile name instructions appearance theme font motion voice" },
+      { id: "providers", label: "Models & keys", icon: "sliders", keywords: "byok api key provider model openai anthropic ollama" },
+      { id: "account", label: "Account", icon: "eye", keywords: "devices sessions log out organization" },
+      { id: "privacy", label: "Privacy", icon: "eye", keywords: "data export shared memory location training" },
+      { id: "billing", label: "Billing", icon: "chart", keywords: "plan payment invoices subscription" },
+      { id: "usage", label: "Usage", icon: "chart", keywords: "limits credits session weekly" },
+      { id: "capabilities", label: "Capabilities", icon: "bulb", keywords: "memory artifacts code execution search network tools autonomy approvals" },
+      { id: "claude-code", label: "Claude Code", icon: "code", keywords: "sessions worktree pull requests browser tokens" },
+      { id: "cowork", label: "Cowork", icon: "note", keywords: "dispatch files trusted folders instructions" },
+      { id: "chrome", label: "Claude in Chrome", icon: "share", keywords: "browser extension sites permissions" },
+    ],
+  },
+  {
+    group: "Desktop app",
+    items: [
+      { id: "desktop-general", label: "General", icon: "panel", keywords: "shortcut tray awake computer use" },
+      { id: "extensions", label: "Extensions", icon: "plus", keywords: "mcpb dxt install local tools" },
+      { id: "developer", label: "Developer", icon: "code", keywords: "mcp servers config logs" },
     ],
   },
   {
     group: "Customize",
     items: [
-      { id: "skills", label: "Skills" },
-      { id: "connectors", label: "Connectors" },
-      { id: "plugins", label: "Plugins" },
+      { id: "skills", label: "Skills", icon: "bulb", keywords: "import zip repository markdown" },
+      { id: "connectors", label: "Connectors", icon: "share", keywords: "mcp remote oauth stdio add" },
+      { id: "plugins", label: "Plugins", icon: "archive", keywords: "marketplace install tools" },
     ],
   },
 ];

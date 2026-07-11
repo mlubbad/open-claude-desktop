@@ -53,16 +53,20 @@ function renderShell(page: React.ComponentProps<typeof SettingsModal>["page"], o
       skills={skills}
       conn={conn}
       plug={plug}
+      theme={{ pref: "system", set: vi.fn() }}
     />,
   );
   return { onPage };
 }
 
 describe("SettingsModal shell", () => {
-  it("renders the grouped nav and routes clicks through onPage", () => {
+  it("renders the three nav groups and routes clicks through onPage", () => {
     const { onPage } = renderShell("skills");
-    expect(screen.getByText("General")).toBeInTheDocument();
-    expect(screen.getByText("Connectors")).toBeInTheDocument();
+    expect(screen.getByText("Settings")).toBeInTheDocument();
+    expect(screen.getByText("Desktop app")).toBeInTheDocument();
+    expect(screen.getByText("Customize")).toBeInTheDocument();
+    // Two "General" entries: Settings + Desktop app — both present.
+    expect(screen.getAllByText("General")).toHaveLength(2);
     fireEvent.click(screen.getByText("Connectors"));
     expect(onPage).toHaveBeenCalledWith("connectors");
   });
@@ -71,5 +75,27 @@ describe("SettingsModal shell", () => {
     renderShell("skills");
     // SkillsPage renders the skill as a /name card — proof the split page mounted.
     expect(screen.getByText("/x")).toBeInTheDocument();
+  });
+
+  it("nav search filters items by label and keywords", () => {
+    renderShell("general");
+    fireEvent.change(screen.getByLabelText("Search settings"), { target: { value: "mcpb" } });
+    // "mcpb" is an Extensions keyword — only that item survives.
+    expect(screen.getByText("Extensions")).toBeInTheDocument();
+    expect(screen.queryByText("Privacy")).toBeNull();
+    expect(screen.queryByText("Billing")).toBeNull();
+  });
+
+  it("unimplemented pages render faithfully but disabled (Account)", () => {
+    renderShell("account");
+    const logout = screen.getByRole("button", { name: "Log out" });
+    expect(logout).toBeDisabled();
+    expect(logout).toHaveAttribute("title", expect.stringContaining("Not available"));
+  });
+
+  it("Claude in Chrome page renders its disabled site-permission controls", () => {
+    renderShell("chrome");
+    expect(screen.getByLabelText("Site permissions")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Add website" })).toBeDisabled();
   });
 });

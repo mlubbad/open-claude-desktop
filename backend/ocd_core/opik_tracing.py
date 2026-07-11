@@ -25,6 +25,7 @@ from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 
 from . import settings
+from .events import AnswerAccumulator
 
 log = logging.getLogger(__name__)
 
@@ -77,34 +78,44 @@ def delete_api_key() -> None:
     _invalidate()
 
 
-def _mode() -> str:
-    s = settings.get_settings()
-    mode = (s.get("opik_mode") or os.getenv("OPIK_MODE") or "").strip().lower()
-    if mode in ("local", "cloud"):
-        return mode
-    # Infer when unset: a key present and no self-hosted URL => Cloud, else self-hosted.
-    return "cloud" if has_api_key() and not (s.get("opik_url") or os.getenv("OPIK_URL_OVERRIDE")) else "local"
-
-
 def config() -> dict | None:
     """The active Opik config (host/project/workspace/api_key/mode), or None when
     tracing is off/unavailable. Mode-aware: ``cloud`` targets comet.com with the
-    keychain key; ``local`` targets the self-hosted URL and needs no key."""
+    keychain key; ``local`` targets the self-hosted URL and needs no key.
+
+    Settings are the SINGLE source of truth here: config.DEFAULT_SETTINGS already
+    folds the OPIK_* env vars in once at import, and settings.get_settings() clamps
+    opik_mode to a valid value — so no env re-reads or mode inference belong here
+    (that triple resolution is exactly what this replaced)."""
     if _state["failed"]:
         return None
     s = settings.get_settings()
-    enabled = bool(s.get("opik_enabled")) or os.getenv("OPIK_ENABLED", "").lower() in ("1", "true")
-    if not enabled:
+    if not s.get("opik_enabled"):
         return None
-    project = (s.get("opik_project") or os.getenv("OPIK_PROJECT_NAME") or "").strip() \
-        or "open-claude-desktop"
-    if _mode() == "cloud":
+    project = (s.get("opik_project") or "").strip() or "open-claude-desktop"
+    if (s.get("opik_mode") or "local") == "cloud":
         return {"mode": "cloud", "host": OPIK_URL_CLOUD, "project": project,
-                "workspace": (s.get("opik_workspace") or os.getenv("OPIK_WORKSPACE") or "").strip() or None,
+                "workspace": (s.get("opik_workspace") or "").strip() or None,
                 "api_key": api_key()}
     return {"mode": "local",
-            "host": (s.get("opik_url") or os.getenv("OPIK_URL_OVERRIDE") or "").strip() or OPIK_URL_LOCAL,
+            "host": (s.get("opik_url") or "").strip() or OPIK_URL_LOCAL,
             "project": project, "workspace": None, "api_key": None}
+
+
+def ui_status() -> dict:
+    """Everything the Settings UI needs to render the Observability section — the
+    non-secret config plus a ``has_key`` flag (never the key) and whether the SDK is
+    importable. Lives here so the defaults exist in exactly one module."""
+    s = settings.get_settings()
+    return {
+        "enabled": bool(s.get("opik_enabled")),
+        "mode": s.get("opik_mode") or "local",
+        "url": s.get("opik_url") or "",
+        "project": (s.get("opik_project") or "").strip() or "open-claude-desktop",
+        "workspace": s.get("opik_workspace") or "",
+        "has_key": has_api_key(),
+        "sdk_installed": sdk_installed(),
+    }
 
 
 def _client(cfg: dict):
@@ -169,7 +180,7 @@ async def traced(events: AsyncIterator[dict], *, goal: str, model: str,
     # about exactly that pattern. Until then, in-flight work is just bookkeeping:
     pending_tools: dict[str, dict] = {}   # tool_call id -> {name, input, start}
     pending_think: dict | None = None     # {phase, start}
-    answer: list[str] = []
+    answer = AnswerAccumulator()          # the shared final-answer fold contract
     usage_meta: dict | None = None
     error_text: str | None = None
 
@@ -187,6 +198,7 @@ async def traced(events: AsyncIterator[dict], *, goal: str, model: str,
 
     def _tap(ev: dict) -> None:
         nonlocal pending_think, usage_meta, error_text
+        answer.feed(ev)
         t = ev.get("type")
         if t == "tool":
             pending_tools[ev.get("id", "")] = {
@@ -214,10 +226,6 @@ async def traced(events: AsyncIterator[dict], *, goal: str, model: str,
             trace.span(name=f"think:{pending_think['phase']}", type="general",
                        start_time=pending_think["start"], end_time=_now())
             pending_think = None
-        elif t == "answer_open":
-            answer.clear()  # a later answer block supersedes narration (loop contract)
-        elif t == "delta" and ev.get("scope") == "answer":
-            answer.append(ev.get("text", ""))
         elif t == "usage":
             usage_meta = {k: v for k, v in ev.items() if k != "type"}
         elif t == "error":
@@ -244,12 +252,12 @@ async def traced(events: AsyncIterator[dict], *, goal: str, model: str,
                                start_time=pending_think["start"], end_time=_now())
                 meta = {"usage": usage_meta} if usage_meta else None
                 if error_text is not None:
-                    trace.end(output={"answer": "".join(answer), "error": error_text},
+                    trace.end(output={"answer": answer.text, "error": error_text},
                               metadata=meta,
                               error_info={"exception_type": "TurnError",
                                           "message": error_text, "traceback": ""})
                 else:
-                    trace.end(output={"answer": "".join(answer)}, metadata=meta)
+                    trace.end(output={"answer": answer.text}, metadata=meta)
             except Exception as e:  # noqa: BLE001
                 _disable(f"Opik trace close failed: {e}")
 

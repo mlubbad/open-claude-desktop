@@ -98,4 +98,18 @@ describe("SettingsModal shell", () => {
     expect(screen.getByLabelText("Site permissions")).toBeDisabled();
     expect(screen.getByRole("button", { name: "Add website" })).toBeDisabled();
   });
+
+  // Every reference-faithful inert page mounts and its signature control is
+  // actually disabled — the "faithful but locked" contract, page by page.
+  it.each([
+    ["privacy", () => screen.getByLabelText("Location metadata")],
+    ["billing", () => screen.getByRole("button", { name: "Update" })],
+    ["usage", () => screen.getByRole("button", { name: "Buy usage credits" })],
+    ["claude-code", () => screen.getByLabelText("Branch prefix")],
+    ["cowork", () => screen.getByLabelText("Dispatch")],
+    ["desktop-general", () => screen.getByRole("button", { name: "Add app" })],
+  ] as const)("locked page %s renders with its controls disabled", (page, control) => {
+    renderShell(page);
+    expect(control()).toBeDisabled();
+  });
 });

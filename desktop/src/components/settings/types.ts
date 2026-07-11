@@ -71,6 +71,13 @@ export interface PluginControls {
 // Grouped left-nav, mirroring Claude Desktop's Settings window. `keywords` feed the
 // nav search box (matches label + keywords, case-insensitive). `icon` names come
 // from the shared Icon set.
+// The machine-local subset of connectors (stdio transport) that the Desktop-app
+// pages (Extensions, Developer) present — defined once so "local" means the same
+// thing everywhere.
+export function localServers(servers: McpServer[]): McpServer[] {
+  return servers.filter((s) => s.transport === "stdio");
+}
+
 export interface SettingsNavItem {
   id: SettingsPage;
   label: string;

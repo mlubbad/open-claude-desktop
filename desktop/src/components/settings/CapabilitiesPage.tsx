@@ -1,6 +1,4 @@
-import { useEffect, useState } from "react";
-
-import { settings as settingsApi } from "../../api/client";
+import { useSettingsFields } from "../../state/useSettingsFields";
 import { InlineSelect, LockedButton, Row, Section, Toggle } from "./controls";
 import { ObservabilitySection } from "./ObservabilitySection";
 
@@ -10,40 +8,11 @@ import { ObservabilitySection } from "./ObservabilitySection";
 // toggles, tool-access mode, artifact master switches (those are per-chat via the
 // composer's + menu), and network-egress allowlists.
 export function CapabilitiesPage() {
-  const [searchProvider, setSearchProvider] = useState("ddg");
-  const [searxngUrl, setSearxngUrl] = useState("");
-  const [codeExecution, setCodeExecution] = useState("auto");
-  const [permissionMode, setPermissionMode] = useState("ask");
-  const [err, setErr] = useState<string | null>(null);
-
-  useEffect(() => {
-    settingsApi
-      .get()
-      .then((s) => {
-        setSearchProvider(s.search_provider ?? "ddg");
-        setSearxngUrl(s.searxng_url ?? "");
-        setCodeExecution(s.code_execution ?? "auto");
-        setPermissionMode(s.permission_mode ?? "ask");
-      })
-      .catch(() => {});
-  }, []);
-
-  function save(next: {
-    search_provider?: string;
-    searxng_url?: string;
-    code_execution?: string;
-    permission_mode?: string;
-  }) {
-    void settingsApi
-      .save({
-        search_provider: searchProvider,
-        searxng_url: searxngUrl,
-        code_execution: codeExecution,
-        permission_mode: permissionMode,
-        ...next,
-      })
-      .catch((e) => setErr(String(e)));
-  }
+  const { values, set, save, err } = useSettingsFields();
+  const searchProvider = values?.search_provider ?? "ddg";
+  const searxngUrl = values?.searxng_url ?? "";
+  const codeExecution = values?.code_execution ?? "auto";
+  const permissionMode = values?.permission_mode ?? "ask";
 
   return (
     <>
@@ -89,10 +58,7 @@ export function CapabilitiesPage() {
               { value: "ddg", label: "DuckDuckGo (keyless)" },
               { value: "searxng", label: "SearXNG (self-hosted)" },
             ]}
-            onChange={(v) => {
-              setSearchProvider(v);
-              save({ search_provider: v });
-            }}
+            onChange={(v) => save({ search_provider: v })}
           />
         </Row>
         {searchProvider === "searxng" && (
@@ -102,8 +68,8 @@ export function CapabilitiesPage() {
               placeholder="http://localhost:8888"
               aria-label="SearXNG base URL"
               value={searxngUrl}
-              onChange={(e) => setSearxngUrl(e.target.value)}
-              onBlur={() => save({})}
+              onChange={(e) => set({ searxng_url: e.target.value })}
+              onBlur={() => save({ searxng_url: searxngUrl })}
             />
           </Row>
         )}
@@ -134,10 +100,7 @@ export function CapabilitiesPage() {
               { value: "local", label: "This device" },
               { value: "off", label: "Off" },
             ]}
-            onChange={(v) => {
-              setCodeExecution(v);
-              save({ code_execution: v });
-            }}
+            onChange={(v) => save({ code_execution: v })}
           />
         </Row>
         <Row label="Allow network egress"
@@ -164,10 +127,7 @@ export function CapabilitiesPage() {
               { value: "ask", label: "Approve sensitive steps" },
               { value: "auto", label: "Autonomous" },
             ]}
-            onChange={(v) => {
-              setPermissionMode(v);
-              save({ permission_mode: v });
-            }}
+            onChange={(v) => save({ permission_mode: v })}
           />
         </Row>
       </Section>

@@ -73,7 +73,7 @@ export function ObservabilitySection() {
       {err && <div className="settings-err">{err}</div>}
       <Row
         label="Trace agent turns"
-        desc="Mirror every turn into an Opik trace (tool spans, thinking phases, usage). Opik is free and open-source — self-host it, or use Opik Cloud."
+        desc="Mirror every turn into an Opik trace (tool spans, thinking phases, usage). Traces include your prompts, tool inputs, and answers — send them only to an instance you trust. Opik is free and open-source: self-host it, or use Opik Cloud."
       >
         <Toggle
           label="Trace agent turns"

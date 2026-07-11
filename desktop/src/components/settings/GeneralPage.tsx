@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
-import { settings as settingsApi, type UserProfile } from "../../api/client";
-import { type ChatFont, getChatFont, getMotion, type MotionPref, setChatFont, setMotion } from "../../state/uiPrefs";
+import type { UserProfile } from "../../api/client";
 import type { ThemePref } from "../../state/theme";
+import { type ChatFont, getChatFont, getMotion, type MotionPref, setChatFont, setMotion } from "../../state/uiPrefs";
+import { useSettingsFields } from "../../state/useSettingsFields";
 import { Icon } from "../Icon";
 import { InlineSelect, Row, Section, Segmented } from "./controls";
 
@@ -18,27 +19,16 @@ function initials(name: string): string {
 }
 
 // General: profile (injected into every chat's system prompt) + app preferences.
-// Layout mirrors Claude Desktop's General page; Voice + Notifications render
-// faithfully but disabled — there is no voice/notification backend in this build.
+// Layout mirrors Claude Desktop's General page; Voice renders faithfully but
+// disabled — there is no voice backend in this build.
 export function GeneralPage({ theme }: { theme: { pref: ThemePref; set: (p: ThemePref) => void } }) {
-  const [profile, setProfile] = useState<UserProfile>({});
+  const { values, set, save, err } = useSettingsFields();
   const [font, setFont] = useState<ChatFont>(getChatFont);
   const [motion, setMotionState] = useState<MotionPref>(getMotion);
-  const [err, setErr] = useState<string | null>(null);
 
-  useEffect(() => {
-    settingsApi
-      .get()
-      .then((s) => setProfile(s.profile ?? {}))
-      .catch(() => {});
-  }, []);
-
-  function save() {
-    void settingsApi.save({ profile }).catch((e) => setErr(String(e)));
-  }
-  function setField(k: keyof UserProfile, v: string) {
-    setProfile((p) => ({ ...p, [k]: v }));
-  }
+  const profile: UserProfile = values?.profile ?? {};
+  const setField = (k: keyof UserProfile, v: string) => set({ profile: { ...profile, [k]: v } });
+  const saveProfile = () => save({ profile });
 
   const workValue = WORK_OPTIONS.includes(profile.role ?? "") ? (profile.role as string) : profile.role ? "Other" : "";
 
@@ -52,21 +42,18 @@ export function GeneralPage({ theme }: { theme: { pref: ThemePref; set: (p: Them
         </Row>
         <Row label="Full name">
           <input className="set-input" aria-label="Full name" value={profile.name ?? ""}
-                 onChange={(e) => setField("name", e.target.value)} onBlur={save} />
+                 onChange={(e) => setField("name", e.target.value)} onBlur={saveProfile} />
         </Row>
         <Row label="What should Claude call you?">
           <input className="set-input" aria-label="What should Claude call you?" value={profile.call_me ?? ""}
-                 onChange={(e) => setField("call_me", e.target.value)} onBlur={save} />
+                 onChange={(e) => setField("call_me", e.target.value)} onBlur={saveProfile} />
         </Row>
         <Row label="What best describes your work?">
           <InlineSelect
             label="What best describes your work?"
             value={workValue}
             options={[{ value: "", label: "Select…" }, ...WORK_OPTIONS.map((w) => ({ value: w, label: w }))]}
-            onChange={(v) => {
-              setField("role", v);
-              void settingsApi.save({ profile: { ...profile, role: v } }).catch((e) => setErr(String(e)));
-            }}
+            onChange={(v) => save({ profile: { ...profile, role: v } })}
           />
         </Row>
         <Row
@@ -81,7 +68,7 @@ export function GeneralPage({ theme }: { theme: { pref: ThemePref; set: (p: Them
             placeholder="Tone, format, standing instructions…"
             value={profile.preferences ?? ""}
             onChange={(e) => setField("preferences", e.target.value)}
-            onBlur={save}
+            onBlur={saveProfile}
           />
         </Row>
       </Section>

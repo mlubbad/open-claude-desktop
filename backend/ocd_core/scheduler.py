@@ -16,7 +16,7 @@ from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from . import agent, config, cowork
+from . import agent, config, cowork, opik_tracing
 
 
 def _now() -> datetime:
@@ -112,10 +112,17 @@ class ScheduleStore:
 def default_launch(s: Schedule) -> str:
     """Launch a scheduled goal as an autonomous Cowork task (returns the task id)."""
     def gen_factory():
-        return agent.run_turn(
-            s.goal, [], s.project_id, s.model or config.AGENT_MODEL,
-            effort=s.effort, provider=s.provider, permission_mode="auto",
-            web_search=True, web_fetch=True, artifacts=True, memory=True, subagents=True)
+        # Opik tap (opt-in): scheduled runs were the one turn source left invisible
+        # in traces — chat and Cowork are already wrapped at their routes.
+        model = s.model or config.AGENT_MODEL
+        return opik_tracing.traced(
+            agent.run_turn(
+                s.goal, [], s.project_id, model,
+                effort=s.effort, provider=s.provider, permission_mode="auto",
+                web_search=True, web_fetch=True, artifacts=True, memory=True,
+                subagents=True),
+            goal=s.goal, model=model, provider=s.provider, effort=s.effort,
+            tags=["scheduled"])
     return cowork.manager.start(s.goal, gen_factory).id
 
 

@@ -34,6 +34,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # backend/ on sys.path
 
 from ocd_core import agent, opik_tracing, settings  # noqa: E402
+from ocd_core.events import AnswerAccumulator  # noqa: E402
 
 GOLDEN = Path(__file__).with_name("golden.jsonl")
 
@@ -41,22 +42,18 @@ GOLDEN = Path(__file__).with_name("golden.jsonl")
 def run_agent_turn(goal: str) -> dict[str, Any]:
     """One full (non-streamed) agent turn: returns the final answer text + the raw
     tool events, so metrics can judge the trace as well as the text."""
-    answer: list[str] = []
+    fold = AnswerAccumulator()
     tool_events: list[dict] = []
 
     async def _drive() -> None:
         async for ev in agent.run_turn(goal, [], None, settings.get_settings()["model"],
                                        effort="Low", permission_mode="auto"):
-            t = ev.get("type")
-            if t in ("answer_open", "answer_to_think"):
-                answer.clear()
-            elif t == "delta" and ev.get("scope") == "answer":
-                answer.append(ev.get("text", ""))
-            elif t in ("tool", "tool_result", "tool_error"):
+            fold.feed(ev)
+            if ev.get("type") in ("tool", "tool_result", "tool_error"):
                 tool_events.append(ev)
 
     asyncio.run(_drive())
-    return {"output": "".join(answer).strip(), "tool_events": tool_events}
+    return {"output": fold.text.strip(), "tool_events": tool_events}
 
 
 def main() -> int:

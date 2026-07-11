@@ -82,6 +82,7 @@ from . import (
     bigquery_tools,
     config,
     context,
+    events,
     permissions,
     prompts,
     schema_catalog,
@@ -1015,8 +1016,10 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
     # A delegated subtask runs a fresh, isolated agent turn: same model/provider/effort
     # and tool CAPABILITIES, but auto-permission (no HITL to answer), no UI artifacts, and
     # no further nesting (subagents=False). Only its final answer flows back to the parent.
+    # Subagent turns are deliberately NOT Opik-traced individually: the parent turn's
+    # spawn_subagent tool span already covers them in the trace tree.
     async def _run_subagent(sub_prompt: str, description: str) -> dict:
-        answer_buf: list[str] = []
+        fold = events.AnswerAccumulator()
         tools_used: list[str] = []
         err: str | None = None
         async for ev in run_turn(
@@ -1025,12 +1028,9 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
                 code_exec=code_exec, bash=bash, text_editor=text_editor, memory=memory,
                 artifacts=False, effort=effort, parallel=parallel, provider=provider,
                 permission_mode="auto", subagents=False):
+            fold.feed(ev)
             t = ev.get("type")
-            if t in ("answer_open", "answer_to_think"):
-                answer_buf.clear()          # keep only the final answer block
-            elif t == "delta" and ev.get("scope") == "answer":
-                answer_buf.append(ev.get("text", ""))
-            elif t == "tool":
+            if t == "tool":
                 tools_used.append(ev.get("name", ""))
             elif t == "error":
                 err = ev.get("text", "subagent error")
@@ -1038,7 +1038,7 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
             return {"ok": False, "error": err,
                     "result": f"The subagent failed: {err}. Proceed without it, or retry "
                               "with a clearer, more self-contained prompt."}
-        answer = "".join(answer_buf).strip() or "(the subagent produced no answer)"
+        answer = fold.text.strip() or "(the subagent produced no answer)"
         used = ", ".join(dict.fromkeys(x for x in tools_used if x)) or "no tools"
         return {"ok": True, "result": answer,
                 "summary": f"{(description or 'subtask')[:60]} · used {used} · "

@@ -315,8 +315,31 @@ MCP_FILE = config.REPO_ROOT / "mcp_servers.json"
 EXTENSIONS_DIR = config.REPO_ROOT / "extensions"
 
 
+# mtime-keyed cache of the registry file's TEXT. call_mcp re-reads the registry on
+# EVERY MCP tool call (and mcp_tools on every turn), so the per-call disk read was a
+# hot-path tax. Caching the text and parsing per call keeps the uncached semantics
+# exactly — every caller still gets fresh objects it may mutate before saving.
+# Writes go through _save_mcp_servers (jsonstore's atomic replace), which bumps the
+# mtime and invalidates naturally — including edits by another process.
+_MCP_CACHE: dict = {"mtime": None, "text": ""}
+
+
 def _load_mcp_servers() -> list[dict]:
-    return jsonstore.load_json(MCP_FILE, [])
+    try:
+        mtime = MCP_FILE.stat().st_mtime_ns
+    except OSError:
+        return []
+    if _MCP_CACHE["mtime"] != mtime:
+        try:
+            _MCP_CACHE.update({"mtime": mtime,
+                               "text": MCP_FILE.read_text(encoding="utf-8")})
+        except OSError:
+            return []
+    try:
+        data = json.loads(_MCP_CACHE["text"])
+        return data if isinstance(data, list) else []
+    except Exception:  # noqa: BLE001 - corrupt file reads as empty, like load_json
+        return []
 
 
 def _save_mcp_servers(items: list[dict]):

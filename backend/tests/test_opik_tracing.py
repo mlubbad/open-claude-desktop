@@ -221,19 +221,58 @@ def test_local_mode_needs_no_key_and_uses_the_url(monkeypatch, fake_opik):
     assert client.kw["api_key"] is None and client.kw["workspace"] is None
 
 
-def test_mode_inference_when_unset(monkeypatch):
-    # A key present and no self-hosted URL => Cloud; otherwise self-hosted.
+def test_mode_comes_from_settings_only(monkeypatch):
+    """No inference, no env re-reads: the clamped opik_mode setting decides. (The old
+    guess-from-key-presence branch was deleted when settings gained enum clamping.)"""
     monkeypatch.setattr(opik_tracing, "api_key", lambda: "sk-1")
     monkeypatch.setattr(opik_tracing.settings, "get_settings",
-                        lambda: {"opik_enabled": True, "opik_url": ""})
-    assert opik_tracing._mode() == "cloud"
+                        lambda: {"opik_enabled": True, "opik_mode": "cloud"})
+    assert opik_tracing.config()["mode"] == "cloud"
+    # Even with a key present, an explicit local mode stays local.
     monkeypatch.setattr(opik_tracing.settings, "get_settings",
-                        lambda: {"opik_enabled": True, "opik_url": "http://x/api/"})
-    assert opik_tracing._mode() == "local"
-    monkeypatch.setattr(opik_tracing, "api_key", lambda: None)
+                        lambda: {"opik_enabled": True, "opik_mode": "local", "opik_url": ""})
+    assert opik_tracing.config()["mode"] == "local"
+    # Absent (defensive: fake settings dicts in tests) -> local.
     monkeypatch.setattr(opik_tracing.settings, "get_settings",
-                        lambda: {"opik_enabled": True, "opik_url": ""})
-    assert opik_tracing._mode() == "local"
+                        lambda: {"opik_enabled": True})
+    assert opik_tracing.config()["mode"] == "local"
+
+
+def test_ui_status_shape(monkeypatch):
+    """ui_status is the single home for the section's defaults (route is a passthrough)."""
+    monkeypatch.setattr(opik_tracing, "has_api_key", lambda: True)
+    monkeypatch.setattr(opik_tracing, "sdk_installed", lambda: False)
+    monkeypatch.setattr(opik_tracing.settings, "get_settings",
+                        lambda: {"opik_enabled": True, "opik_mode": "cloud",
+                                 "opik_url": "", "opik_project": " ", "opik_workspace": "w"})
+    st = opik_tracing.ui_status()
+    assert st == {"enabled": True, "mode": "cloud", "url": "", "workspace": "w",
+                  "project": "open-claude-desktop", "has_key": True,
+                  "sdk_installed": False}
+
+
+def test_bad_enum_values_clamp_on_read_and_write(tmp_path, monkeypatch):
+    """settings.get/save clamp every enumerated setting — a corrupt opik_mode (or
+    permission_mode etc.) can no longer persist or propagate."""
+    import json as _json
+
+    from ocd_core import config as _config
+    from ocd_core import settings as _settings
+    monkeypatch.setattr(_config, "SETTINGS_FILE", tmp_path / "settings.json")
+    (tmp_path / "settings.json").write_text(_json.dumps(
+        {"opik_mode": "banana", "permission_mode": "yolo", "theme": "neon",
+         "code_execution": "everywhere", "search_provider": "bing"}), encoding="utf-8")
+    s = _settings.get_settings()
+    assert s["opik_mode"] == "local"
+    assert s["permission_mode"] == "ask"
+    assert s["theme"] == "light"
+    assert s["code_execution"] == "auto"
+    assert s["search_provider"] == "ddg"
+    # save_settings refuses to persist a bad enum, clamping it to the default.
+    out = _settings.save_settings({"opik_mode": "banana", "theme": "dark"})
+    assert out["opik_mode"] == "local" and out["theme"] == "dark"
+    on_disk = _json.loads((tmp_path / "settings.json").read_text(encoding="utf-8"))
+    assert on_disk["opik_mode"] == "local"
 
 
 def test_api_key_store_roundtrip(monkeypatch):
@@ -301,3 +340,38 @@ def test_opik_settings_persist_through_the_route(monkeypatch, db, tmp_path):
     assert got["opik_mode"] == "cloud"
     assert got["opik_project"] == "proj-x"
     assert got["opik_workspace"] == "ws-y"
+
+
+def test_scheduled_runs_are_traced(monkeypatch, fake_opik):
+    """The scheduler was the one turn source invisible in Opik — its launcher must
+    wrap run_turn in the tap with the 'scheduled' tag."""
+    from ocd_core import scheduler
+
+    _enable(monkeypatch)
+
+    async def _fake_turn(*a, **k):
+        yield {"type": "answer_open"}
+        yield {"type": "delta", "scope": "answer", "text": "done"}
+
+    monkeypatch.setattr(scheduler.agent, "run_turn", _fake_turn)
+    captured = {}
+
+    class _FakeTask:
+        id = "t1"
+
+    def _fake_start(goal, gen_factory):
+        captured["gen"] = gen_factory()
+        return _FakeTask()
+
+    monkeypatch.setattr(scheduler.cowork.manager, "start", _fake_start)
+    s = scheduler.Schedule(id="s1", goal="daily report", model="m")
+    scheduler.default_launch(s)
+
+    async def _drain():
+        return [ev async for ev in captured["gen"]]
+
+    out = asyncio.run(_drain())
+    assert any(ev.get("type") == "delta" for ev in out)  # stream intact
+    trace = _FakeOpik.instances[-1].traces[-1]
+    assert "scheduled" in trace.kw["tags"]
+    assert trace.ended["output"] == {"answer": "done"}

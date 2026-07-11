@@ -117,6 +117,8 @@ DEFAULT_SETTINGS = {"model": AGENT_MODEL,
                     "opik_project": os.getenv("OPIK_PROJECT_NAME", "open-claude-desktop"),
                     "opik_workspace": os.getenv("OPIK_WORKSPACE", "")}
 OPIK_MODES = ("local", "cloud")
+THEME_CHOICES = ("system", "light", "dark")
+SEARCH_PROVIDERS = ("ddg", "searxng")
 CODE_EXECUTION_MODES = ("auto", "docker", "local", "off")
 # User-selectable HITL autonomy levels (plan mode is a separate per-turn toggle).
 PERMISSION_MODE_CHOICES = ("strict", "ask", "auto")

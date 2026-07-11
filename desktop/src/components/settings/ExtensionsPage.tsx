@@ -2,7 +2,7 @@ import { useRef, useState } from "react";
 
 import { Icon } from "../Icon";
 import { LockedButton, Row, Section, Toggle } from "./controls";
-import type { ConnectorControls } from "./types";
+import { type ConnectorControls, localServers } from "./types";
 
 // Desktop app → Extensions: the local (stdio) MCP servers running ON this machine,
 // including one-click .mcpb/.dxt bundles — Claude Desktop's "Installed on your
@@ -11,7 +11,7 @@ import type { ConnectorControls } from "./types";
 export function ExtensionsPage({ c }: { c: ConnectorControls }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [advanced, setAdvanced] = useState(false);
-  const local = c.servers.filter((s) => s.transport === "stdio");
+  const local = localServers(c.servers);
 
   return (
     <>

@@ -11,6 +11,32 @@ import json
 
 from . import config
 
+# Enumerated settings and their allowed values. A value outside its enum — a corrupt
+# file, a stale client, a hand-edit — must never persist or propagate: it silently
+# falls into downstream else-branches (e.g. an unknown permission_mode would be
+# treated as "not auto"). get/save clamp every one of these back to its default.
+_ENUMS: dict[str, tuple] = {}
+
+
+def _enums() -> dict[str, tuple]:
+    if not _ENUMS:
+        _ENUMS.update({
+            "effort": tuple(config.EFFORT_LEVELS),
+            "theme": config.THEME_CHOICES,
+            "search_provider": config.SEARCH_PROVIDERS,
+            "code_execution": config.CODE_EXECUTION_MODES,
+            "permission_mode": config.PERMISSION_MODE_CHOICES,
+            "opik_mode": config.OPIK_MODES,
+        })
+    return _ENUMS
+
+
+def _clamp_enums(s: dict) -> dict:
+    for key, allowed in _enums().items():
+        if s.get(key) not in allowed:
+            s[key] = config.DEFAULT_SETTINGS[key]
+    return s
+
 
 def get_settings() -> dict:
     s = dict(config.DEFAULT_SETTINGS)
@@ -24,9 +50,7 @@ def get_settings() -> dict:
                 s.update({k: v for k, v in data.items() if k in config.DEFAULT_SETTINGS})
     except Exception:
         pass
-    if s.get("effort") not in config.EFFORT_LEVELS:
-        s["effort"] = "High"
-    return s
+    return _clamp_enums(s)
 
 
 def save_settings(values: dict) -> dict:
@@ -36,6 +60,7 @@ def save_settings(values: dict) -> dict:
         from . import profile
         values["profile"] = profile.sanitize(values.get("profile"))
     s.update({k: v for k, v in values.items() if k in config.DEFAULT_SETTINGS})
+    _clamp_enums(s)  # never persist an out-of-enum value from a stale/buggy client
     try:
         config.SETTINGS_FILE.write_text(json.dumps(s, ensure_ascii=False, indent=2),
                                         encoding="utf-8")

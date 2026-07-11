@@ -1,14 +1,14 @@
 import { useState } from "react";
 
 import { LockedButton, Row, Section } from "./controls";
-import type { ConnectorControls } from "./types";
+import { type ConnectorControls, localServers } from "./types";
 
 // Desktop app → Developer: the raw view of local MCP servers (command, args, status)
 // with an mcpServers-style JSON export — Claude Desktop's "Local MCP servers" page.
 // Editing happens in Customize → Connectors; this page is the inspector.
 export function DeveloperPage({ c }: { c: ConnectorControls }) {
   const [copied, setCopied] = useState(false);
-  const local = c.servers.filter((s) => s.transport === "stdio");
+  const local = localServers(c.servers);
 
   const configJson = JSON.stringify(
     {

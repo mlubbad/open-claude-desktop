@@ -9,13 +9,14 @@ result/error), a ``general`` span per thinking phase, the final answer as the tr
 output, and the turn's usage event as metadata.
 
 Design rules:
-  * OFF by default; enabled via settings (``opik_enabled`` + ``opik_url`` +
-    ``opik_project``) or env (OPIK_URL_OVERRIDE / OPIK_PROJECT_NAME). The ``opik``
-    package is an optional extra — absent, everything silently no-ops.
+  * OFF by default; enabled via the ``opik_*`` settings (OPIK_* env vars fold into
+    the defaults once at import). The ``opik`` package is an optional extra —
+    absent, everything no-ops and the UI shows an install hint.
   * Observability must never break or slow a turn: every SDK call is guarded, and
-    the first failure disables tracing for the rest of the process (logged once).
-  * No secrets in settings.json: an Opik Cloud API key comes only from the
-    OPIK_API_KEY environment variable; self-hosted needs none.
+    the first failure disables tracing until the config changes (logged once).
+    Any opik_* settings or key change calls invalidate() for a fresh attempt.
+  * No secrets in settings.json: an Opik Cloud API key lives in the OS keychain
+    (OPIK_API_KEY env as fallback); self-hosted needs none.
 """
 from __future__ import annotations
 
@@ -44,10 +45,21 @@ _state: dict = {"client": None, "cfg": None, "failed": False}
 
 
 def sdk_installed() -> bool:
-    """Whether the optional ``opik`` package is importable (for the UI's install hint)."""
+    """Whether the optional ``opik`` package is importable (for the UI's install hint).
+
+    Retries after invalidating import caches so a ``pip install opik`` done while
+    the backend is running is detected the next time the Settings UI asks."""
     try:
         import opik  # noqa: F401
         return True
+    except ImportError:
+        import importlib
+        importlib.invalidate_caches()
+        try:
+            import opik  # noqa: F401
+            return True
+        except Exception:  # noqa: BLE001
+            return False
     except Exception:  # noqa: BLE001
         return False
 
@@ -69,13 +81,13 @@ def set_api_key(key: str) -> None:
     """Store the Opik Cloud API key in the OS keychain and force a client rebuild."""
     from . import secrets
     secrets.get_secret_store().set(_API_KEY_SECRET, (key or "").strip())
-    _invalidate()
+    invalidate()
 
 
 def delete_api_key() -> None:
     from . import secrets
     secrets.get_secret_store().delete(_API_KEY_SECRET)
-    _invalidate()
+    invalidate()
 
 
 def config() -> dict | None:
@@ -129,7 +141,12 @@ def _client(cfg: dict):
             workspace=cfg.get("workspace"), api_key=cfg.get("api_key"))
         _state["cfg"] = cfg
         return _state["client"]
-    except Exception as e:  # noqa: BLE001 - missing package, bad config…
+    except ModuleNotFoundError:
+        _disable("Opik SDK not installed — install it into the app's venv "
+                 "(pip install -e backend[observability]) and restart, "
+                 "or toggle tracing off and on")
+        return None
+    except Exception as e:  # noqa: BLE001 - bad config, network at import…
         _disable(f"Opik client unavailable: {e}")
         return None
 
@@ -141,9 +158,13 @@ def _disable(reason: str) -> None:
     _state["client"] = None
 
 
-def _invalidate() -> None:
+def invalidate() -> None:
     """Drop the cached client AND clear the failure latch — the user changed the
-    config (key/mode/url), so a previously-failed setup deserves a fresh attempt."""
+    config (any opik_* setting or the API key), so a previously-failed setup
+    deserves a fresh attempt. Called by the key setters here and by the settings
+    route whenever a saved patch touches an opik_* key; without it the one-way
+    latch would keep tracing dead until a full restart even after the user fixed
+    the problem (installed the SDK, corrected the URL…)."""
     _state.update({"client": None, "cfg": None, "failed": False})
 
 
@@ -264,4 +285,4 @@ async def traced(events: AsyncIterator[dict], *, goal: str, model: str,
 
 def reset_for_tests() -> None:
     """Drop the cached client + failure latch (unit tests only)."""
-    _invalidate()
+    invalidate()

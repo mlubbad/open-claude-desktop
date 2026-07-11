@@ -161,6 +161,24 @@ def test_sdk_failure_never_breaks_the_stream(monkeypatch, fake_opik):
     assert opik_tracing.config() is None  # latched off for the session
 
 
+def test_invalidate_recovers_from_the_latch(monkeypatch, fake_opik):
+    """The latch is one-way per CONFIG, not per process: after a failure, an opik
+    config change (settings route / key setters call invalidate()) gives tracing a
+    fresh attempt — no backend restart needed once the user fixes their setup."""
+    _enable(monkeypatch)
+    real_trace = _FakeOpik.trace
+    monkeypatch.setattr(
+        _FakeOpik, "trace",
+        lambda self, **kw: (_ for _ in ()).throw(RuntimeError("transient")))
+    assert _drive(_EVENTS) == _EVENTS
+    assert opik_tracing.config() is None  # latched
+
+    monkeypatch.setattr(_FakeOpik, "trace", real_trace)
+    opik_tracing.invalidate()  # what PUT /settings does when a patch touches opik_*
+    assert _drive(_EVENTS) == _EVENTS
+    assert _FakeOpik.instances[-1].traces  # a real trace was recorded again
+
+
 def test_span_capture_failure_latches_but_streams_on(monkeypatch, fake_opik):
     _enable(monkeypatch)
 

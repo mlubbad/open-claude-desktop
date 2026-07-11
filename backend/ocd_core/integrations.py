@@ -803,14 +803,56 @@ def _tag_auth_failure(result: str) -> str:
     return result
 
 
+def coerce_args_to_schema(args: dict, schema: dict) -> dict:
+    """Best-effort repair of LLM-emitted argument types against the tool's JSON schema.
+
+    Models (especially smaller BYOK ones) often stringify structured values —
+    ``"[0, 0]"`` for an array, ``"true"`` for a boolean, ``"3"`` for an integer —
+    which strict (pydantic-validated) MCP servers reject verbatim, and a weak model
+    can then burn its whole step budget re-issuing the same failing call. Coerce ONLY
+    when the value is a string and the parsed result matches the declared type;
+    everything else passes through untouched so the server's own validation stays the
+    source of truth."""
+    props = (schema or {}).get("properties")
+    if not isinstance(args, dict) or not isinstance(props, dict):
+        return args
+    out = dict(args)
+    for key, val in args.items():
+        spec = props.get(key)
+        if not isinstance(spec, dict) or not isinstance(val, str):
+            continue
+        t = spec.get("type")
+        if isinstance(t, list):  # union like ["array", "null"] — first concrete type
+            t = next((x for x in t if x != "null"), None)
+        try:
+            if t in ("array", "object"):
+                parsed = json.loads(val)
+                if (t == "array" and isinstance(parsed, list)) or \
+                        (t == "object" and isinstance(parsed, dict)):
+                    out[key] = parsed
+            elif t == "integer":
+                out[key] = int(val.strip())
+            elif t == "number":
+                out[key] = float(val.strip())
+            elif t == "boolean":
+                low = val.strip().lower()
+                if low in ("true", "false"):
+                    out[key] = low == "true"
+        except (ValueError, json.JSONDecodeError):
+            pass  # leave as-is; the server's error message will guide the model
+    return out
+
+
 def call_mcp(full_name: str, args: dict) -> str:
     for s in _load_mcp_servers():
         prefix = f"mcp_{s['id']}_"
         if full_name.startswith(prefix):
             tool = full_name[len(prefix):]
-            if any(t["name"] == tool for t in s.get("tools", [])):
+            spec = next((t for t in s.get("tools", []) if t["name"] == tool), None)
+            if spec is not None:
                 try:
-                    return _tag_auth_failure(mcp_registry.registry.call(_resolve_cfg(s), tool, args or {}))
+                    coerced = coerce_args_to_schema(args or {}, spec.get("inputSchema") or {})
+                    return _tag_auth_failure(mcp_registry.registry.call(_resolve_cfg(s), tool, coerced))
                 except Exception as e:
                     return _tag_auth_failure(f"MCP '{s['id']}' call failed: {str(e)[:200]}")
     return f"MCP tool '{full_name}' not found."

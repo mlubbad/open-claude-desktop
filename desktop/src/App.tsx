@@ -818,6 +818,7 @@ export default function App() {
             onAddSource: pluginMgr.addSource,
             onRemoveSource: (id) => void pluginMgr.removeSource(id),
           }}
+          theme={{ pref: theme.pref, set: theme.set }}
         />
       )}
 

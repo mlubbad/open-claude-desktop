@@ -61,6 +61,10 @@ Effort levels (Low/Medium/High/Extra/Max) control the depth of multi-turn thinki
   Low/Medium — direct tool loop, no extra reasoning passes.
   High       — a planning pass before acting.
   Max        — planning pass + a self-verification pass before the final answer.
+Each level also sets the tool-round budget (see EFFORT). Exhausting it never ends the
+turn with a harness error: the model is warned as the budget runs low and, if it still
+runs out, is forced through one final no-tools call to synthesize its best answer from
+everything gathered.
 """
 from __future__ import annotations
 
@@ -260,13 +264,55 @@ PLAN_MODE_SECTION = (
 
 # Effort -> behaviour. `steps` is the tool-loop iteration cap; `plan`/`verify` add
 # explicit thinking passes; `temp` raises exploration at higher effort.
+#
+# Budgets are sized for agentic work: one iteration = one LLM round, and a real task
+# (browse N pages, run SQL, iterate on errors) routinely needs 10-25 rounds. Budgets
+# this small used to guillotine long turns mid-gathering; exhaustion now also degrades
+# gracefully (wrap-up warning + forced no-tools synthesis below) so the cap is a cost
+# ceiling, not a cliff.
 EFFORT = {
-    "Low":    {"steps": 3,  "plan": False, "verify": False, "temp": 0.0},
-    "Medium": {"steps": 7,  "plan": False, "verify": False, "temp": 0.1},
-    "High":   {"steps": 11, "plan": True,  "verify": False, "temp": 0.2},
-    "Extra":  {"steps": 13, "plan": True,  "verify": False, "temp": 0.25},
-    "Max":    {"steps": 16, "plan": True,  "verify": True,  "temp": 0.3},
+    "Low":    {"steps": 4,  "plan": False, "verify": False, "temp": 0.0},
+    "Medium": {"steps": 8,  "plan": False, "verify": False, "temp": 0.1},
+    "High":   {"steps": 16, "plan": True,  "verify": False, "temp": 0.2},
+    "Extra":  {"steps": 24, "plan": True,  "verify": False, "temp": 0.25},
+    "Max":    {"steps": 32, "plan": True,  "verify": True,  "temp": 0.3},
 }
+
+# When this many tool rounds remain, tell the model — so it converges on an answer
+# instead of being cut off mid-gathering. Without the warning the model has no idea a
+# budget even exists and happily keeps opening new lines of investigation.
+WRAP_UP_WARNING_AT = 2
+
+_WRAP_UP_NOTE = (
+    "[Turn budget: only {n} tool rounds remain.] Stop opening new lines of "
+    "investigation. Finish at most the essential call(s), then write your final "
+    "answer from what you already have.")
+
+# Injected for the forced no-tools synthesis call when the budget is exhausted.
+_FINALIZE_NOTE = (
+    "You have used this turn's entire tool budget — no more tool calls are possible. "
+    "Write your best FINAL answer now from everything gathered above: synthesize the "
+    "findings, tool results, and partial data into a complete, well-organized "
+    "response. If something important could not be checked, note it briefly at the "
+    "end. Do not apologize about the budget; just answer.")
+
+# Shown only if that synthesis call itself fails. Accurate advice: a LARGER budget
+# (higher effort) helps; "lowering effort" (the old text) would shrink it further.
+_STEP_LIMIT_FALLBACK = (
+    "I hit this turn's step limit before I could finish. My work so far is shown "
+    "above — say “continue” to pick up from there, or raise the effort "
+    "level for a larger budget.")
+
+# Escalating feedback for a tool call repeated verbatim after it already failed —
+# without this a model can burn the whole budget re-issuing one broken call.
+_REPEAT_FAIL_NOTE = (
+    "\n\n[NOTE: this exact call already failed once with the same arguments. Do not "
+    "repeat it verbatim — fix the arguments to match the error message, use a "
+    "different tool, or continue without it.]")
+_REPEAT_FAIL_STOP = (
+    "\n\n[STOP: this identical call has now failed {n} times. It will not succeed. "
+    "Do NOT call '{name}' with these arguments again this turn — change approach or "
+    "answer with what you have.]")
 
 # The system prompt is composed by ocd_core.prompts (domain-agnostic base + opt-in
 # sections). The BigQuery/AJ360 guidance is contributed by bigquery_tools only when
@@ -844,7 +890,7 @@ def _completion_events(out: dict, streamed_artifacts: set | None = None):
 
 async def run_turn(goal: str, history: list[dict], active_project: str | None,
                    model: str, project_instructions: str = "",
-                   top_k: int = 6, max_steps: int = 8,
+                   top_k: int = 6,
                    web_search: bool = False, skill_instructions: str = "",
                    research: bool = False, extra_tools: list | None = None,
                    effort: str = "High", parallel: bool = True,
@@ -866,7 +912,7 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
     """
     cfg = EFFORT.get(effort, EFFORT["High"])
     temperature = cfg["temp"]
-    steps = max(cfg["steps"], 14 if research else 0)
+    steps = max(cfg["steps"], 24 if research else 0)
     # HITL gate is active only with a turn_id (a reply channel) and a non-auto mode.
     # Fail CLOSED when the request omits permission_mode: fall back to the user's
     # PERSISTED autonomy setting (defaults to "ask"), never config.PERMISSION_MODE
@@ -1004,7 +1050,10 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
     final_text = None
     answer_shown = False
     out_parts: list[str] = []  # accumulated generated text, for the usage estimate
-    for _ in range(steps):
+    # (name, canonical-args) -> observed failure count, for the repeat-fail breaker.
+    fail_counts: dict[tuple[str, str], int] = {}
+    warned = False  # wrap-up note is injected at most once per turn
+    for step_i in range(steps):
         yield {"type": "answer_open"}
         done = {}
         async for ev in _stream_llm(llm, model, messages, tools, temperature, 4096,
@@ -1049,12 +1098,19 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
         # appear at once), then execute — concurrently when independent.
         calls = []
         blocked_outcomes = []
+        sig_by_id: dict[str, tuple[str, str]] = {}  # tc.id -> repeat-fail signature
         for tc in tool_calls:
-            try:
-                args = json.loads(tc.function.arguments or "{}")
-            except Exception:
-                args = {}
+            raw_args = tc.function.arguments or ""
             name = tc.function.name
+            try:
+                args = json.loads(raw_args or "{}")
+                # Canonicalize so key order / whitespace don't hide a verbatim repeat.
+                sig_by_id[tc.id] = (name, json.dumps(args, sort_keys=True, default=str))
+            except Exception:
+                # Unparseable arguments: the raw string is the identity — two DIFFERENT
+                # malformed payloads must not collapse into one breaker counter.
+                args = {}
+                sig_by_id[tc.id] = (name, raw_args)
             # H6: refuse any tool not enabled for this turn (hallucinated/injected
             # names). Still emit a card + a tool result so the loop stays consistent.
             if name not in allowed_tool_names:
@@ -1118,6 +1174,7 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
                 yield {"type": "tool_error", "id": tc.id, "name": name,
                        "text": "Blocked in plan mode — research only, then present a plan."}
                 blocked_outcomes.append({"id": tc.id, "name": name, "ok": False,
+                    "skip_breaker": True,  # a mode rule, not a fixable tool failure
                     "result": (f"BLOCKED: '{name}' cannot run in PLAN MODE. Do not modify "
                                "anything yet. Finish researching read-only, then call "
                                "exit_plan_mode with your plan for the user to approve.")})
@@ -1131,7 +1188,11 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
                 if not approved:
                     yield {"type": "tool_error", "id": tc.id, "name": name,
                            "text": "Declined by the user."}
+                    # skip_breaker: a decline is the USER's decision, not a tool failure
+                    # — the repeat-fail breaker's "fix the arguments and retry" advice
+                    # would contradict the decline message.
                     blocked_outcomes.append({"id": tc.id, "name": name, "ok": False,
+                        "skip_breaker": True,
                         "result": (f"The user DECLINED to run '{name}'. Do not retry it; "
                                    "continue without it or ask how to proceed.")})
                     continue
@@ -1182,20 +1243,58 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
         # (executed + any blocked-by-enablement calls, preserving the model's order).
         by_id = {o["id"]: o for o in (outcomes + blocked_outcomes)}
         for tc in tool_calls:
-            if tc.id in by_id:
-                # Cap any single oversized tool output so it can't overflow the window.
-                messages.append({"role": "tool", "tool_call_id": tc.id,
-                                 "content": context.truncate_tool_result(by_id[tc.id]["result"])})
+            if tc.id not in by_id:
+                continue
+            out = by_id[tc.id]
+            # Cap any single oversized tool output so it can't overflow the window.
+            result = context.truncate_tool_result(out["result"])
+            if not out.get("ok") and not out.get("skip_breaker"):
+                # Repeat-fail breaker: the SAME call failing again gets escalating
+                # feedback, so one broken call can't silently eat the whole budget
+                # (seen in the wild: 7 identical invalid Click calls in one turn).
+                sig = sig_by_id.get(tc.id)
+                if sig is not None:
+                    n = fail_counts[sig] = fail_counts.get(sig, 0) + 1
+                    if n == 2:
+                        result += _REPEAT_FAIL_NOTE
+                    elif n >= 3:
+                        result += _REPEAT_FAIL_STOP.format(n=n, name=out["name"])
+            messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
+        # Landing gear: tell the model the budget is nearly spent so it converges
+        # instead of being cut off mid-gathering. <= plus the flag (not ==) so a
+        # blank-answer round at the threshold can't silently skip the warning.
+        if not warned and steps - step_i - 1 <= WRAP_UP_WARNING_AT:
+            warned = True
+            messages.append({"role": "user",
+                             "content": _WRAP_UP_NOTE.format(n=steps - step_i - 1)})
 
     if final_text is None:
-        final_text = ("Stopped after the step limit without a final answer. "
-                      "Try narrowing the question or lowering effort.")
+        # Budget exhausted mid-work. Don't throw the gathered material away: make one
+        # last NO-TOOLS call so the model synthesizes its best answer from everything
+        # above. A long agentic turn should always end with the model's answer, never
+        # a harness error — the canned text below is only the double-failure fallback.
+        messages.append({"role": "user", "content": _FINALIZE_NOTE})
         yield {"type": "answer_open"}
-        yield {"type": "delta", "scope": "answer", "text": final_text}
+        done = {}
+        async for ev in _stream_llm(llm, model, messages, None, temperature, 4096,
+                                    content_scope="answer", fallback_model=fallback_model):
+            if "__done__" in ev:
+                done = ev["__done__"]
+            else:
+                yield ev
+        # Keep whatever synthesis arrived — even a partial one cut short by a stream
+        # error is the model's actual answer and beats the canned fallback.
+        wrap = (done.get("content") or "").strip()
+        if wrap:
+            final_text = wrap
+            out_parts.append(wrap)
+        else:
+            final_text = _STEP_LIMIT_FALLBACK
+            yield {"type": "delta", "scope": "answer", "text": final_text}
         answer_shown = True
 
     # ---- Verification pass (Max): self-critique and refine, streamed ----
-    if cfg["verify"] and not answer_shown and not final_text.startswith("Stopped"):
+    if cfg["verify"] and not answer_shown:
         t0 = time.monotonic()
         yield {"type": "think_open", "phase": "verify"}
         yield {"type": "delta", "scope": "think",

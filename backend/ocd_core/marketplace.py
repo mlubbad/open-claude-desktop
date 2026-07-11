@@ -146,6 +146,27 @@ def list_sources() -> list[dict]:
     return out
 
 
+def _foreign_repo_hint(root: Path) -> str:
+    """A synced repo with no plugins of this app's format is very often a Claude Code
+    plugin / Agent Skills repository (``.claude-plugin/`` manifests, ``SKILL.md``
+    folders). Saying just "no plugins found" sends the user in circles — detect the
+    shape and point at the importer that CAN use it. The tree is already size-capped,
+    so the globs are bounded."""
+    has_skills = any(root.glob("**/SKILL.md"))
+    is_claude_code = ((root / ".claude-plugin").is_dir()
+                      or any(root.glob("**/plugin.json"))
+                      or any(root.glob("**/marketplace.json")))
+    if has_skills:
+        return ("this looks like a Claude Code plugin / Agent Skills repository, not a "
+                "Python-plugin marketplace. Import its skills instead: Settings → Skills "
+                "→ Add from repository, with this same URL.")
+    if is_claude_code:
+        return ("this looks like a Claude Code plugin repository, which this app cannot "
+                "run as a Python plugin. If it ships skills (SKILL.md), import them via "
+                "Settings → Skills → Add from repository.")
+    return ""
+
+
 def add_source(url: str, ref: str = "", name: str = "") -> dict:
     """Sync a git repo as a marketplace source: clone it, then expose the plugins it
     contains as installable catalog entries. Re-adding the same URL re-syncs it."""
@@ -169,8 +190,9 @@ def add_source(url: str, ref: str = "", name: str = "") -> dict:
         return {"ok": False, "detail": "repository is too large"}
     plugins = _discover(dest)
     if not plugins:
+        hint = _foreign_repo_hint(dest)
         shutil.rmtree(dest, ignore_errors=True)
-        return {"ok": False, "detail": "no plugins found in this repository"}
+        return {"ok": False, "detail": hint or "no plugins found in this repository"}
     entry = {
         "id": sid,
         "name": (name.strip() or git_sync.repo_name(url)),

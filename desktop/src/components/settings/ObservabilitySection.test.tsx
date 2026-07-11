@@ -30,6 +30,17 @@ describe("ObservabilitySection", () => {
     clearKeySpy.mockClear();
     state.status.has_key = false;
     state.status.mode = "cloud";
+    state.status.sdk_installed = true;
+  });
+
+  it("shouts when tracing is on but the SDK is missing (install banner)", async () => {
+    state.status.sdk_installed = false;
+    render(<ObservabilitySection />);
+    const banner = await screen.findByRole("alert");
+    expect(banner.textContent).toContain("No traces are being sent");
+    expect(banner.textContent).toContain(".venv\\Scripts\\pip install opik"); // Windows
+    expect(banner.textContent).toContain(".venv/bin/pip install opik"); // macOS/Linux
+    expect(banner.textContent).toContain("toggle tracing off and back on");
   });
 
   it("tells the user what traces contain (consent copy)", async () => {

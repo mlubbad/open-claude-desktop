@@ -86,10 +86,15 @@ export function ObservabilitySection() {
       </Row>
 
       {st.enabled && !st.sdk_installed && (
-        <p className="settings-hint">
-          The <code>opik</code> package isn't installed in the backend — run{" "}
-          <code>pip install -e backend[observability]</code> and restart the app.
-        </p>
+        <div className="settings-warn" role="alert">
+          <strong>No traces are being sent</strong> — the <code>opik</code> package isn't
+          installed in the app's backend. Install it into the app's own venv (not your
+          global Python):
+          <pre className="settings-warn-cmd">
+            {"Windows:      .venv\\Scripts\\pip install opik\nmacOS/Linux:  .venv/bin/pip install opik"}
+          </pre>
+          Then restart the app, or just toggle tracing off and back on.
+        </div>
       )}
 
       {st.enabled && (

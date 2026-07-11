@@ -724,6 +724,11 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-
 .settings-head { display: flex; justify-content: space-between; align-items: center; }
 .settings-head button { background: none; border: none; font-size: 18px; cursor: pointer; color: var(--muted); }
 .settings-err { color: var(--danger); font-size: 13px; margin: 8px 0; }
+.settings-warn { border: 1px solid var(--danger); border-radius: 10px; padding: 10px 12px;
+  margin: 0 0 14px; font-size: 13px; line-height: 1.5; color: var(--text);
+  background: color-mix(in srgb, var(--danger) 7%, transparent); }
+.settings-warn-cmd { margin: 8px 0; padding: 8px 10px; border-radius: 8px; font-size: 12px;
+  background: var(--surface-2); overflow-x: auto; white-space: pre; }
 .provider-list { list-style: none; padding: 0; margin: 8px 0 0; }
 .provider-list li { border: 1px solid var(--border); border-radius: 10px; padding: 10px; margin-bottom: 8px; }
 .provider-list li.active { border-color: var(--accent); }

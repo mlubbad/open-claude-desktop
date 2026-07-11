@@ -169,13 +169,36 @@ export interface HistoryTurn {
   kind: string;
 }
 
+// One-line-per-call digest of a turn's tool activity (name, input, outcome), carried
+// in history so a follow-up ("continue", "try again") builds on what was already
+// gathered instead of redoing every call — matching Claude Desktop, where prior tool
+// use stays visible to the model for the rest of the conversation. Tightly capped:
+// the digest is a trail marker, not a transcript.
+const TRAIL_MAX_TOOLS = 12;
+const TRAIL_MAX_LINE = 160;
+
+export function toolTrail(m: AssistantMessage): string {
+  const cards = m.blocks.filter((b): b is ToolCard => b.kind === "tool");
+  if (cards.length === 0) return "";
+  const lines = cards.slice(-TRAIL_MAX_TOOLS).map((c) => {
+    const outcome = c.error ? `ERROR: ${c.error}` : c.summary || c.status;
+    return `${c.name}(${c.input}) → ${outcome}`.slice(0, TRAIL_MAX_LINE);
+  });
+  const omitted = cards.length - lines.length;
+  const head = omitted > 0 ? `…${omitted} earlier calls omitted; ` : "";
+  return `[Tool activity this turn: ${head}${lines.join("; ")}]`;
+}
+
 // Reconstruct the (role, content) history the backend expects from prior messages.
+// Assistant turns carry the tool trail alongside the answer text: without it, a turn
+// that ended before a full answer (step limit, stream drop) contributed NOTHING to
+// the next turn, so "continue" restarted the work from zero — and hit the same wall.
 export function buildHistory(messages: Message[]): HistoryTurn[] {
-  return messages.map((m) =>
-    m.role === "user"
-      ? { role: "user", content: m.text, kind: "user" }
-      : { role: "assistant", content: answerText(m), kind: "final" },
-  );
+  return messages.map((m) => {
+    if (m.role === "user") return { role: "user", content: m.text, kind: "user" };
+    const content = [toolTrail(m), answerText(m)].filter(Boolean).join("\n\n");
+    return { role: "assistant", content, kind: "final" };
+  });
 }
 
 // Truncate to just after the last user message and append a fresh assistant slot

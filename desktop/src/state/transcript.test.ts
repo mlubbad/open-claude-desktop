@@ -21,6 +21,7 @@ import {
   setVersion,
   startTurn,
   type ToolCard,
+  toolTrail,
   type TranscriptState,
 } from "./transcript";
 
@@ -437,5 +438,66 @@ describe("transcript reducer", () => {
     const firstAns = firstAssistant.blocks.find((b) => b.kind === "answer");
     expect(firstAns && firstAns.kind === "answer" && firstAns.text).toBe("first");
     expect(s.messages.filter((m) => m.role === "user")).toHaveLength(2);
+  });
+});
+
+// The tool-activity trail carried in history: a turn that ended before a full answer
+// (step limit, stream drop) must still tell the model what was already gathered, so
+// "continue" resumes the work instead of restarting it from zero.
+describe("toolTrail + buildHistory digest", () => {
+  const tool = (over: Partial<ToolCard>): ToolCard => ({
+    kind: "tool",
+    id: "t1",
+    name: "browser_navigate",
+    input: "https://example.com",
+    labelRunning: "Browsing",
+    labelDone: "Browsed",
+    icon: "🌐",
+    status: "done",
+    ...over,
+  });
+
+  it("digests tool cards into name(input) → outcome lines", () => {
+    const m: AssistantMessage = {
+      role: "assistant",
+      blocks: [
+        tool({ id: "a", name: "Scrape", input: "https://x.com", summary: "HTTP 403" }),
+        tool({ id: "b", name: "Click", input: "loc=[0,0]", error: "loc must be a list" }),
+        { kind: "answer", text: "partial", streaming: false },
+      ],
+    };
+    const trail = toolTrail(m);
+    expect(trail).toContain("Scrape(https://x.com) → HTTP 403");
+    expect(trail).toContain("Click(loc=[0,0]) → ERROR: loc must be a list");
+  });
+
+  it("caps the trail and reports what it omitted", () => {
+    const blocks = Array.from({ length: 20 }, (_, i) =>
+      tool({ id: `t${i}`, name: `tool${i}`, summary: "ok" }),
+    );
+    const trail = toolTrail({ role: "assistant", blocks });
+    expect(trail).toContain("…8 earlier calls omitted");
+    expect(trail).not.toContain("tool0(");
+    expect(trail).toContain("tool19(");
+  });
+
+  it("buildHistory prepends the trail so an answerless turn still contributes", () => {
+    const msgs: Message[] = [
+      { role: "user", text: "audit the site" },
+      {
+        role: "assistant",
+        blocks: [tool({ id: "a", name: "Scrape", input: "https://x.com", summary: "HTTP 403" })],
+      },
+    ];
+    const h = buildHistory(msgs);
+    expect(h[1].content).toContain("Scrape(https://x.com) → HTTP 403");
+  });
+
+  it("buildHistory without tool cards is unchanged (answer only)", () => {
+    const msgs: Message[] = [
+      { role: "user", text: "q1" },
+      { role: "assistant", blocks: [{ kind: "answer", text: "a1", streaming: false }] },
+    ];
+    expect(buildHistory(msgs)[1]).toEqual({ role: "assistant", content: "a1", kind: "final" });
   });
 });

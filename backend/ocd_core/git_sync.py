@@ -37,6 +37,37 @@ def repo_name(url: str) -> str:
     return re.sub(r'\.git$', '', tail) or "repository"
 
 
+def clone_error_detail(stderr: bytes | str | None) -> str:
+    """Distill git's stderr into one actionable message.
+
+    git explains failures across several lines — e.g. the SSH-transport failure
+        fatal: Could not read from remote repository.
+        Please make sure you have the correct access rights
+        and the repository exists.
+    Reporting only the last line (the old behavior) produced nonsense fragments like
+    "and the repository exists." with the actual reason thrown away. Keep the tail of
+    the real message and, for the failure shapes users actually hit, append what to DO
+    about it."""
+    text = stderr.decode("utf-8", "replace") if isinstance(stderr, bytes) else (stderr or "")
+    lines = [ln.strip() for ln in text.strip().splitlines()
+             if ln.strip() and not ln.strip().startswith("Cloning into")]
+    msg = " ".join(lines[-4:])[:400] or "git clone failed"
+    low = msg.lower()
+    if "could not read from remote repository" in low or "correct access rights" in low:
+        msg += (" — git switched to SSH or needs credentials for this URL. A global git "
+                "config rewrite (url.…insteadOf) or credential helper on this machine is "
+                "likely intercepting it; run `git clone <url>` in a terminal to see the "
+                "full error.")
+    elif "terminal prompts disabled" in low or "authentication failed" in low:
+        msg += (" — the repository seems to require sign-in (is it private?). Use a "
+                "public URL, or set up a git credential helper for this host.")
+    elif "remote branch" in low and "not found" in low:
+        msg += " — leave the branch field empty to use the repository's default branch."
+    elif "could not resolve host" in low or "unable to access" in low:
+        msg += " — check the network/proxy connection and that the URL is correct."
+    return msg
+
+
 def clone_repo(url: str, ref: str, dest: Path) -> None:
     """Shallow-clone ``url`` into ``dest``. Isolated here so tests can monkeypatch it.
 
@@ -68,8 +99,7 @@ def clone_repo(url: str, ref: str, dest: Path) -> None:
     except subprocess.TimeoutExpired as e:
         raise RuntimeError("clone timed out") from e
     except subprocess.CalledProcessError as e:
-        detail = (e.stderr or b"").decode("utf-8", "replace").strip().splitlines()
-        raise RuntimeError(detail[-1] if detail else "git clone failed") from e
+        raise RuntimeError(clone_error_detail(e.stderr)) from e
 
 
 def dir_size(root: Path) -> int:

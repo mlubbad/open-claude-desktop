@@ -185,9 +185,14 @@ def add_source(url: str, ref: str = "", name: str = "") -> dict:
     except RuntimeError as e:
         shutil.rmtree(dest, ignore_errors=True)
         return {"ok": False, "detail": f"could not sync: {e}"}
-    if git_sync.dir_size(dest) > config.MARKETPLACE_MAX_SOURCE_BYTES:
+    size = git_sync.dir_size(dest)
+    if size > config.MARKETPLACE_MAX_SOURCE_BYTES:
         shutil.rmtree(dest, ignore_errors=True)
-        return {"ok": False, "detail": "repository is too large"}
+        mb = 1024 * 1024
+        return {"ok": False, "detail":
+                f"repository is too large ({size // mb} MB of scannable text; "
+                f"limit {config.MARKETPLACE_MAX_SOURCE_BYTES // mb} MB — set the "
+                f"MARKETPLACE_MAX_SOURCE_MB environment variable to raise it)"}
     plugins = _discover(dest)
     if not plugins:
         hint = _foreign_repo_hint(dest)

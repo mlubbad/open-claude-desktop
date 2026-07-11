@@ -172,8 +172,10 @@ def test_clone_repo_inherits_env_for_proxy(monkeypatch):
     captured = {}
 
     def fake_run(cmd, **kw):
-        captured["cmd"] = cmd
-        captured["env"] = kw.get("env")
+        # The first call is the clone itself; later calls are the per-pattern text
+        # checkouts (see test_git_sync_partial_clone.py).
+        captured.setdefault("cmd", cmd)
+        captured.setdefault("env", kw.get("env"))
 
         class _R:
             returncode = 0

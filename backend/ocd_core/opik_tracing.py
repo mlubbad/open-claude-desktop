@@ -28,24 +28,83 @@ from . import settings
 
 log = logging.getLogger(__name__)
 
+# Opik's documented base URLs (from opik.config). Cloud is the default SaaS; local is
+# the self-hosted docker stack's default. We set host explicitly rather than relying
+# on SDK inference so a mode switch is unambiguous.
+OPIK_URL_CLOUD = "https://www.comet.com/opik/api/"
+OPIK_URL_LOCAL = "http://localhost:5173/api/"
+
+# Keychain slot for the Opik Cloud API key — never settings.json (secrets rule C3).
+_API_KEY_SECRET = "opik:api_key"
+
 # Process-wide client cache + one-way failure latch (observability must not retry
 # itself into the request path).
 _state: dict = {"client": None, "cfg": None, "failed": False}
 
 
+def sdk_installed() -> bool:
+    """Whether the optional ``opik`` package is importable (for the UI's install hint)."""
+    try:
+        import opik  # noqa: F401
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def api_key() -> str | None:
+    """The Opik Cloud API key: OS keychain first, then the OPIK_API_KEY env var."""
+    from . import secrets
+    stored = secrets.get_secret_store().get(_API_KEY_SECRET)
+    if stored:
+        return stored
+    return os.getenv("OPIK_API_KEY") or None
+
+
+def has_api_key() -> bool:
+    return bool(api_key())
+
+
+def set_api_key(key: str) -> None:
+    """Store the Opik Cloud API key in the OS keychain and force a client rebuild."""
+    from . import secrets
+    secrets.get_secret_store().set(_API_KEY_SECRET, (key or "").strip())
+    _invalidate()
+
+
+def delete_api_key() -> None:
+    from . import secrets
+    secrets.get_secret_store().delete(_API_KEY_SECRET)
+    _invalidate()
+
+
+def _mode() -> str:
+    s = settings.get_settings()
+    mode = (s.get("opik_mode") or os.getenv("OPIK_MODE") or "").strip().lower()
+    if mode in ("local", "cloud"):
+        return mode
+    # Infer when unset: a key present and no self-hosted URL => Cloud, else self-hosted.
+    return "cloud" if has_api_key() and not (s.get("opik_url") or os.getenv("OPIK_URL_OVERRIDE")) else "local"
+
+
 def config() -> dict | None:
-    """The active Opik config, or None when tracing is off/unavailable."""
+    """The active Opik config (host/project/workspace/api_key/mode), or None when
+    tracing is off/unavailable. Mode-aware: ``cloud`` targets comet.com with the
+    keychain key; ``local`` targets the self-hosted URL and needs no key."""
     if _state["failed"]:
         return None
     s = settings.get_settings()
     enabled = bool(s.get("opik_enabled")) or os.getenv("OPIK_ENABLED", "").lower() in ("1", "true")
     if not enabled:
         return None
-    return {
-        "host": (s.get("opik_url") or os.getenv("OPIK_URL_OVERRIDE") or "").strip() or None,
-        "project": (s.get("opik_project") or os.getenv("OPIK_PROJECT_NAME") or "").strip()
-                   or "open-claude-desktop",
-    }
+    project = (s.get("opik_project") or os.getenv("OPIK_PROJECT_NAME") or "").strip() \
+        or "open-claude-desktop"
+    if _mode() == "cloud":
+        return {"mode": "cloud", "host": OPIK_URL_CLOUD, "project": project,
+                "workspace": (s.get("opik_workspace") or os.getenv("OPIK_WORKSPACE") or "").strip() or None,
+                "api_key": api_key()}
+    return {"mode": "local",
+            "host": (s.get("opik_url") or os.getenv("OPIK_URL_OVERRIDE") or "").strip() or OPIK_URL_LOCAL,
+            "project": project, "workspace": None, "api_key": None}
 
 
 def _client(cfg: dict):
@@ -56,7 +115,7 @@ def _client(cfg: dict):
         import opik  # optional extra: pip install ocd-backend[observability]
         _state["client"] = opik.Opik(
             project_name=cfg["project"], host=cfg["host"],
-            api_key=os.getenv("OPIK_API_KEY") or None)
+            workspace=cfg.get("workspace"), api_key=cfg.get("api_key"))
         _state["cfg"] = cfg
         return _state["client"]
     except Exception as e:  # noqa: BLE001 - missing package, bad config…
@@ -69,6 +128,12 @@ def _disable(reason: str) -> None:
         log.warning("%s — tracing disabled for this session.", reason)
     _state["failed"] = True
     _state["client"] = None
+
+
+def _invalidate() -> None:
+    """Drop the cached client AND clear the failure latch — the user changed the
+    config (key/mode/url), so a previously-failed setup deserves a fresh attempt."""
+    _state.update({"client": None, "cfg": None, "failed": False})
 
 
 def flush(timeout: int = 5) -> bool:
@@ -191,4 +256,4 @@ async def traced(events: AsyncIterator[dict], *, goal: str, model: str,
 
 def reset_for_tests() -> None:
     """Drop the cached client + failure latch (unit tests only)."""
-    _state.update({"client": None, "cfg": None, "failed": False})
+    _invalidate()

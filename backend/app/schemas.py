@@ -98,6 +98,13 @@ class SettingsBody(BaseModel):
     code_execution: str | None = None   # auto | docker | local | off
     permission_mode: str | None = None  # strict | ask | auto (HITL autonomy)
     visible_models: dict | None = None  # {provider_id: [model, ...]} shown in the picker
+    # Opik observability (opt-in). The API key is NEVER accepted here — it goes to the
+    # keychain via /observability/key. These are non-secret config only.
+    opik_enabled: bool | None = None
+    opik_mode: str | None = None         # local | cloud
+    opik_url: str | None = None          # self-hosted base URL (local mode)
+    opik_project: str | None = None
+    opik_workspace: str | None = None    # Opik Cloud workspace (cloud mode)
 
 
 class TitleRequest(BaseModel):

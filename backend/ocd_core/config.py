@@ -4,6 +4,9 @@ import hashlib
 import os
 from pathlib import Path
 
+# Product name, surfaced in user-facing messages (e.g. marketplace hints).
+APP_NAME = "Open Claude Desktop"
+
 # --- paths (data dir override) ---
 # Match the pre-refactor core.py exactly: the AJ360_DATA_DIR override is taken
 # verbatim (no .resolve()); only the default branch resolves __file__.
@@ -103,11 +106,17 @@ DEFAULT_SETTINGS = {"model": AGENT_MODEL,
                     # Opik observability (opt-in; free/open-source, self-hostable).
                     # When enabled, every agent turn is mirrored into an Opik trace
                     # (tool spans, thinking phases, usage) by ocd_core.opik_tracing —
-                    # a pass-through event tap, so it can never block a turn. A Cloud
-                    # API key comes ONLY from the OPIK_API_KEY env var, never this file.
+                    # a pass-through event tap, so it can never block a turn.
+                    #   opik_mode: "local" (self-hosted URL) | "cloud" (comet.com/opik).
+                    # The API key is NEVER stored here — it lives in the OS keychain
+                    # (ocd_core.secrets), set through the /observability/key endpoint,
+                    # with the OPIK_API_KEY env var as a fallback.
                     "opik_enabled": os.getenv("OPIK_ENABLED", "").lower() in ("1", "true"),
+                    "opik_mode": os.getenv("OPIK_MODE", "local"),
                     "opik_url": os.getenv("OPIK_URL_OVERRIDE", ""),
-                    "opik_project": os.getenv("OPIK_PROJECT_NAME", "open-claude-desktop")}
+                    "opik_project": os.getenv("OPIK_PROJECT_NAME", "open-claude-desktop"),
+                    "opik_workspace": os.getenv("OPIK_WORKSPACE", "")}
+OPIK_MODES = ("local", "cloud")
 CODE_EXECUTION_MODES = ("auto", "docker", "local", "off")
 # User-selectable HITL autonomy levels (plan mode is a separate per-turn toggle).
 PERMISSION_MODE_CHOICES = ("strict", "ask", "auto")

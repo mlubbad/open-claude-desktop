@@ -146,24 +146,53 @@ def list_sources() -> list[dict]:
     return out
 
 
+def _looks_like_mcp_server(root: Path) -> bool:
+    """A repo shaped like an MCP server (belongs under Connectors, not here): an
+    ``.mcp.json`` config, or a package.json/pyproject that advertises MCP."""
+    if any(root.glob("**/.mcp.json")):
+        return True
+    manifests = list(root.glob("package.json"))[:1] + list(root.glob("*/package.json"))[:3]
+    manifests += list(root.glob("pyproject.toml"))[:1]
+    for m in manifests:
+        try:
+            low = m.read_text(encoding="utf-8").lower()
+        except OSError:
+            continue
+        if "modelcontextprotocol" in low or "mcp-server" in low or '"mcp"' in low:
+            return True
+    return False
+
+
 def _foreign_repo_hint(root: Path) -> str:
-    """A synced repo with no plugins of this app's format is very often a Claude Code
-    plugin / Agent Skills repository (``.claude-plugin/`` manifests, ``SKILL.md``
-    folders). Saying just "no plugins found" sends the user in circles — detect the
-    shape and point at the importer that CAN use it. The tree is already size-capped,
-    so the globs are bounded."""
-    has_skills = any(root.glob("**/SKILL.md"))
-    is_claude_code = ((root / ".claude-plugin").is_dir()
-                      or any(root.glob("**/plugin.json"))
-                      or any(root.glob("**/marketplace.json")))
-    if has_skills:
-        return ("this looks like a Claude Code plugin / Agent Skills repository, not a "
-                "Python-plugin marketplace. Import its skills instead: Settings → Skills "
-                "→ Add from repository, with this same URL.")
-    if is_claude_code:
+    """A synced repo with no plugins of THIS app's Python format is very often
+    something we DO support through another door — Agent Skills, or an MCP server —
+    or a Claude Code plugin we can't run. Detect the shape and point at the importer
+    that can actually use it, so the user isn't dead-ended at "no plugins found".
+
+    Skills detection reuses the skills importer's OWN discovery (not a narrow
+    ``SKILL.md`` glob), so the redirect fires EXACTLY when that importer would find
+    something — a repo of ``.md`` skills under ``skills/`` (e.g. the get-shit-done /
+    superpowers layout) is caught, not just the canonical ``SKILL.md`` folders. The
+    tree is already size-capped, so discovery is bounded."""
+    from . import skills  # lazy: skills already depends on git_sync, not marketplace
+    n_skills = len(skills._discover_skill_files(root))
+    if n_skills:
+        s = "s" if n_skills != 1 else ""
+        return (f"this repository has no {config.APP_NAME} plugins, but it does contain "
+                f"{n_skills} importable skill{s}. Import them via Settings → Skills → "
+                "Add from repository, with this same URL.")
+    if _looks_like_mcp_server(root):
+        return ("this looks like an MCP server, not a plugin marketplace. Add it under "
+                "Settings → Connectors (a remote URL or a local command), not here.")
+    if ((root / ".claude-plugin").is_dir() or any(root.glob("**/plugin.json"))
+            or any(root.glob("**/marketplace.json"))):
         return ("this looks like a Claude Code plugin repository, which this app cannot "
-                "run as a Python plugin. If it ships skills (SKILL.md), import them via "
-                "Settings → Skills → Add from repository.")
+                "run as a Python plugin. If it ships skills, import them via Settings → "
+                "Skills → Add from repository.")
+    if any(root.glob("package.json")) or any(root.glob("*/package.json")):
+        return (f"this looks like an npm/Node package, not a {config.APP_NAME} plugin "
+                f"marketplace. {config.APP_NAME} plugins are Python files exposing "
+                "NAME / DESCRIPTION / TOOL / run.")
     return ""
 
 

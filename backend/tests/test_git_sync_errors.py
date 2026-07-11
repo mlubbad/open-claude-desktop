@@ -84,6 +84,34 @@ def test_foreign_repo_hint_empty_for_ordinary_repo(tmp_path):
     assert marketplace._foreign_repo_hint(tmp_path) == ""
 
 
+def test_foreign_repo_hint_detects_loose_skills(tmp_path):
+    """The real gap: a repo of .md skills under skills/ that the importer WOULD import,
+    but with no canonical SKILL.md (e.g. get-shit-done). The hint must reuse the
+    importer's discovery, count them, and redirect — not dead-end at 'no plugins'."""
+    from ocd_core import marketplace
+    (tmp_path / "skills").mkdir()
+    for name in ("planner", "reviewer", "fixer"):
+        (tmp_path / "skills" / f"{name}.md").write_text(
+            f"---\nname: {name}\ndescription: does {name}\n---\n# {name}\nDo the thing.")
+    hint = marketplace._foreign_repo_hint(tmp_path)
+    assert "3 importable skills" in hint
+    assert "Settings → Skills → Add from repository" in hint
+
+
+def test_foreign_repo_hint_detects_mcp_server(tmp_path):
+    from ocd_core import marketplace
+    (tmp_path / "package.json").write_text('{"dependencies":{"@modelcontextprotocol/sdk":"1"}}')
+    hint = marketplace._foreign_repo_hint(tmp_path)
+    assert "MCP server" in hint and "Connectors" in hint
+
+
+def test_foreign_repo_hint_detects_plain_npm(tmp_path):
+    from ocd_core import marketplace
+    (tmp_path / "package.json").write_text('{"name":"some-cli","bin":"x"}')
+    hint = marketplace._foreign_repo_hint(tmp_path)
+    assert "npm" in hint.lower()
+
+
 def test_add_source_surfaces_the_skills_redirect(monkeypatch, tmp_path):
     """End-to-end through add_source: clone succeeds, repo is Claude-Code-shaped,
     the 400 detail tells the user where to import it."""

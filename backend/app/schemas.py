@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 
 class LoginRequest(BaseModel):
@@ -30,6 +30,11 @@ class AgentOptions(BaseModel):
     subagents: bool = False
 
 
+# Image attachments: bounded so one request can't blow the backend or the provider.
+MAX_IMAGES = 6
+MAX_IMAGE_CHARS = 8_000_000  # ~6 MB of base64 per image
+
+
 class AgentTurnRequest(BaseModel):
     project_id: str | None = None
     goal: str
@@ -42,6 +47,20 @@ class AgentTurnRequest(BaseModel):
     enabled_plugins: list[str] = []
     enabled_connectors: list[str] = []
     enabled_mcp: list[str] = []
+    # data-URI images attached to THIS message (vision input). History stays text.
+    images: list[str] = []
+
+    @field_validator("images")
+    @classmethod
+    def _bound_images(cls, v: list[str]) -> list[str]:
+        if len(v) > MAX_IMAGES:
+            raise ValueError(f"at most {MAX_IMAGES} images per message")
+        for u in v:
+            if not u.startswith("data:image/"):
+                raise ValueError("images must be data:image/* URIs")
+            if len(u) > MAX_IMAGE_CHARS:
+                raise ValueError("image too large")
+        return v
 
 
 class PermissionReply(BaseModel):

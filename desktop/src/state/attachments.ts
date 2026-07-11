@@ -7,9 +7,31 @@ export interface Attachment {
   content: string;
 }
 
+// Image attachments travel separately from text: as data-URI vision input on the
+// turn request, not inlined into the goal text.
+export interface ImageAttachment {
+  name: string;
+  dataUrl: string;
+}
+
 // Per-file cap so a huge paste can't blow the request (the backend also truncates
 // tool/context, but bound it early on the client too).
 export const MAX_ATTACH_CHARS = 100_000;
+
+// Bounds mirrored by the backend schema (MAX_IMAGES / MAX_IMAGE_CHARS): at most 6
+// images, ~6 MB each before base64 expansion.
+export const MAX_IMAGES = 6;
+export const MAX_IMAGE_BYTES = 6_000_000;
+
+export function isImageFile(f: { type: string }): boolean {
+  return f.type.startsWith("image/");
+}
+
+// Enforce the image caps on an incoming batch: keeps the first MAX_IMAGES that fit
+// the size bound, given how many are already attached. Pure — the caller reads files.
+export function admitImages<T extends { size: number }>(existing: number, files: T[]): T[] {
+  return files.filter((f) => f.size <= MAX_IMAGE_BYTES).slice(0, Math.max(0, MAX_IMAGES - existing));
+}
 
 export function clampContent(content: string, max: number = MAX_ATTACH_CHARS): string {
   return content.length <= max ? content : content.slice(0, max) + "\n… [truncated]";

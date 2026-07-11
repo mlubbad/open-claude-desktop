@@ -36,7 +36,10 @@ function baseRequest(config: TurnConfig): Omit<AgentTurnRequest, "goal" | "histo
 export function useTranscript(config: TurnConfig) {
   const snap = useSyncExternalStore(store.subscribe, store.getSnapshot);
 
-  const send = useCallback((goal: string) => store.sendActive(goal, baseRequest(config)), [config]);
+  const send = useCallback(
+    (goal: string, images?: string[]) => store.sendActive(goal, baseRequest(config), images),
+    [config],
+  );
   const retryLast = useCallback(() => store.retryActive(baseRequest(config)), [config]);
   const editAndResend = useCallback(
     (index: number, text: string) => store.editActive(index, text, baseRequest(config)),

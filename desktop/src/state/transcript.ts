@@ -88,6 +88,9 @@ export interface AssistantMessage {
 export interface UserMessage {
   role: "user";
   text: string;
+  // data-URI images attached to this message (rendered as thumbnails; re-sent on
+  // retry). Not persisted server-side — images ride only the turn they were sent on.
+  images?: string[];
 }
 
 export type Message = UserMessage | AssistantMessage;
@@ -228,7 +231,7 @@ export function editFrom(state: TranscriptState, index: number, text: string): T
 }
 
 // Begin a new user turn: append the user message + a fresh assistant message.
-export function startTurn(state: TranscriptState, goal: string): TranscriptState {
+export function startTurn(state: TranscriptState, goal: string, images?: string[]): TranscriptState {
   return {
     ...state,
     running: true,
@@ -236,7 +239,7 @@ export function startTurn(state: TranscriptState, goal: string): TranscriptState
     pendingApproval: null,
     messages: [
       ...state.messages,
-      { role: "user", text: goal },
+      { role: "user", text: goal, ...(images?.length ? { images } : {}) },
       { role: "assistant", blocks: [] },
     ],
   };

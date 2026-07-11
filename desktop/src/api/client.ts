@@ -162,6 +162,8 @@ export interface AgentTurnRequest {
   enabled_plugins?: string[];
   enabled_connectors?: string[];
   enabled_mcp?: string[];
+  // data-URI images attached to this message (vision input; bounded server-side).
+  images?: string[];
 }
 
 // The backend routes non-project chats under this implicit project.

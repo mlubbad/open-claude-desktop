@@ -1,4 +1,4 @@
-// Plugin management: installed plugins (with the per-session enabled set fed into each
+// Plugin management: installed plugins (with the PERSISTED enabled set fed into each
 // turn as enabled_plugins), plus the bundled marketplace (browse / install / uninstall).
 
 import { useCallback, useEffect, useState } from "react";
@@ -11,14 +11,36 @@ import {
 } from "../api/client";
 import { toggleId } from "./useConnectors";
 
+// The user's plugin on/off choices survive reloads (mirrors ocd.enabledConnectors) —
+// previously plain useState, so every app start silently disabled every plugin.
+const ENABLED_KEY = "ocd.enabledPlugins";
+
+function loadEnabled(): string[] {
+  try {
+    const raw = localStorage.getItem(ENABLED_KEY);
+    const val: unknown = raw ? JSON.parse(raw) : [];
+    return Array.isArray(val) ? val.filter((x): x is string => typeof x === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
 export function usePlugins() {
   const [installed, setInstalled] = useState<PluginSummary[]>([]);
   const [market, setMarket] = useState<MarketplacePlugin[]>([]);
   const [sources, setSources] = useState<MarketplaceSource[]>([]);
   const [allowRemote, setAllowRemote] = useState(false);
-  const [enabled, setEnabled] = useState<string[]>([]);
+  const [enabled, setEnabled] = useState<string[]>(loadEnabled);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(ENABLED_KEY, JSON.stringify(enabled));
+    } catch {
+      /* storage full/blocked — the session still works, it just won't persist */
+    }
+  }, [enabled]);
 
   const refresh = useCallback(async () => {
     try {

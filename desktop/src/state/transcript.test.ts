@@ -501,3 +501,20 @@ describe("toolTrail + buildHistory digest", () => {
     expect(buildHistory(msgs)[1]).toEqual({ role: "assistant", content: "a1", kind: "final" });
   });
 });
+
+describe("image attachments on user turns", () => {
+  it("startTurn stores images on the user message (and omits the key when none)", () => {
+    const withImgs = startTurn(initialState(), "look", ["data:image/png;base64,AA"]);
+    expect((withImgs.messages[0] as { images?: string[] }).images).toEqual([
+      "data:image/png;base64,AA",
+    ]);
+    const plain = startTurn(initialState(), "hi");
+    expect("images" in (plain.messages[0] as object)).toBe(false);
+  });
+
+  it("buildHistory stays text-only — images ride only the turn they were sent on", () => {
+    const s = startTurn(initialState(), "look", ["data:image/png;base64,AA"]);
+    const hist = buildHistory(s.messages);
+    expect(hist[0]).toEqual({ role: "user", content: "look", kind: "user" });
+  });
+});

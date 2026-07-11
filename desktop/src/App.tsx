@@ -234,9 +234,9 @@ export default function App() {
   );
   // Sending from the project home reveals the chat surface with the streaming reply.
   const sendFromProject = useCallback(
-    (text: string) => {
+    (text: string, images?: string[]) => {
       setProjectsScreen(false);
-      send(text);
+      void send(text, images);
     },
     [send],
   );

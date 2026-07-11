@@ -58,6 +58,7 @@ def build_system_prompt(
     user_profile: str = "",
     memory: bool = False,
     project_instructions: str = "",
+    project_memory: str = "",
     skill_instructions: str = "",
     research: bool = False,
     today: date | None = None,
@@ -87,6 +88,13 @@ def build_system_prompt(
             "PROJECT-SPECIFIC INSTRUCTIONS",
             "You are operating inside a project. Adhere strictly to:\n"
             f"{project_instructions.strip()}"))
+
+    if project_memory.strip():
+        parts.append(_labeled_section(
+            "PROJECT MEMORY",
+            "Durable notes saved for this project (facts, decisions, preferences "
+            "from earlier work). Treat them as established context:\n"
+            f"{project_memory.strip()}"))
 
     if skill_instructions.strip():
         parts.append(_labeled_section(

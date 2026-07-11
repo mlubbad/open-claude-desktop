@@ -20,7 +20,9 @@ export function SkillsPage({ c }: { c: SkillControls }) {
     setErr(null);
     // A .zip is a skill FOLDER (SKILL.md + references/) — the server extracts it and
     // imports like a synced repo. Reading it as text would just store zip bytes.
-    const failure = file.name.toLowerCase().endsWith(".zip")
+    // A .skill (claude.ai's skill-bundle download) is the same thing under another
+    // extension, so it takes the archive path too.
+    const failure = /\.(zip|skill)$/.test(file.name.toLowerCase())
       ? await c.importZip(file)
       : await c.importFile(file.name, await file.text());
     if (failure) setErr(failure);
@@ -31,18 +33,19 @@ export function SkillsPage({ c }: { c: SkillControls }) {
       {err && <div className="settings-err">{err}</div>}
       <p className="settings-hint">
         Skills are markdown instruction packs. Type <code>/</code> in the composer to invoke one;
-        auto skills trigger on matching messages. Import a <code>.md</code> file or a{" "}
-        <code>.zip</code> of a skill folder, or sync a whole repository of skills.
+        auto skills trigger on matching messages. Import a <code>.md</code> file, a{" "}
+        <code>.zip</code> of a skill folder, or a <code>.skill</code> bundle, or sync a whole
+        repository of skills.
       </p>
       <div className="settings-toolbar">
         <DirToolbar q={q} onQ={setQ} placeholder="Search skills…" />
         <span className="settings-toolbar-spacer" />
-        <label className="settings-add-file" title="A .md file, or a .zip of a skill folder (SKILL.md + references)">
-          Import skill (.md / .zip)
+        <label className="settings-add-file" title="A .md file, a .zip of a skill folder (SKILL.md + references), or a .skill bundle">
+          Import skill (.md / .zip / .skill)
           <input
             ref={fileRef}
             type="file"
-            accept=".md,.markdown,.zip,text/markdown,text/plain,application/zip,application/x-zip-compressed"
+            accept=".md,.markdown,.zip,.skill,text/markdown,text/plain,application/zip,application/x-zip-compressed"
             style={{ display: "none" }}
             onChange={(e) => {
               void onFile(e.target.files?.[0]);

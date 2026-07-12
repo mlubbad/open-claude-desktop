@@ -40,6 +40,13 @@ dev = ["pytest", "ruff", "mypy", "respx"]
 # tap in ocd_core.opik_tracing no-ops when the package is absent.
 observability = ["opik"]
 
+# File-creation libraries for the LOCAL code-execution engine (the Docker engine
+# bakes these into backend/sandbox/Dockerfile instead). Opt in so "make me an
+# xlsx/docx/pptx/pdf" works when code runs on this device:
+#   pip install -e "./backend[files]"
+files = ["pandas", "numpy", "matplotlib", "openpyxl", "python-docx", "python-pptx",
+         "reportlab", "Pillow"]
+
 # The terminal client. Same engine (ocd_core) as the desktop app — no duplicate
 # agent logic — exposed as the `ocd` command.
 [project.scripts]

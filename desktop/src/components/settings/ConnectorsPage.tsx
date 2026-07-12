@@ -13,6 +13,8 @@ export function ConnectorsPage({ c }: { c: ConnectorControls }) {
   const [showAdd, setShowAdd] = useState(false);
   const [showBrowse, setShowBrowse] = useState(false);
   const [directory, setDirectory] = useState<DirectoryEntry[]>([]);
+  // Which server's per-tool toggle list is expanded (P1-12).
+  const [toolsFor, setToolsFor] = useState<string | null>(null);
 
   useEffect(() => {
     if (!showBrowse || directory.length > 0) return;
@@ -259,6 +261,34 @@ export function ConnectorsPage({ c }: { c: ConnectorControls }) {
             </p>
             {s.status === "error" && s.detail && (
               <p className="dir-card-err" title={s.detail}>{s.detail}</p>
+            )}
+            {s.tools.length > 0 && (
+              <div className="conn-tools">
+                <button
+                  className="conn-tools-head"
+                  aria-expanded={toolsFor === s.id}
+                  onClick={() => setToolsFor((v) => (v === s.id ? null : s.id))}
+                >
+                  Tools ({s.tools.length - s.disabled_tools.length}/{s.tools.length} on)
+                </button>
+                {toolsFor === s.id && (
+                  <ul className="conn-tools-list">
+                    {s.tools.map((t) => (
+                      <li key={t}>
+                        <label>
+                          <input
+                            type="checkbox"
+                            checked={!s.disabled_tools.includes(t)}
+                            aria-label={`Enable tool ${t}`}
+                            onChange={(e) => c.onToolToggle(s.id, t, e.target.checked)}
+                          />
+                          <span className="conn-tool-name">{t}</span>
+                        </label>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
             )}
             <div className="dir-card-actions">
               <label className="dir-toggle">

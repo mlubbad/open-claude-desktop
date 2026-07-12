@@ -561,6 +561,7 @@ export default function App() {
                 void homeDetail.addText(name, text);
               }
             }}
+            onRemoveFile={(name) => void homeDetail.removeFile(name)}
             onEditDetails={() => setEditDetailsFor(projectDetail)}
             onTogglePin={() => void proj.update(projectDetail, { pinned: !detailProject.pinned })}
             onArchive={() => { void proj.update(projectDetail, { archived: true }); openProjectsPage(); }}
@@ -835,6 +836,7 @@ export default function App() {
             onToggle: connectors.toggle,
             onRetry: (sid) => void connectors.retry(sid),
             retrying: connectors.retrying,
+            onToolToggle: (sid, tool, enabled) => void connectors.setToolEnabled(sid, tool, enabled),
           }}
           plug={{
             installed: pluginMgr.installed,

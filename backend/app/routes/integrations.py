@@ -183,6 +183,20 @@ def list_mcp(user: str = Depends(current_user)) -> list[dict]:
     return integrations.list_mcp_servers()
 
 
+class ToolEnabledBody(BaseModel):
+    enabled: bool
+
+
+@router.post("/mcp-servers/{sid}/tools/{tool_name}")
+def set_mcp_tool(sid: str, tool_name: str, body: ToolEnabledBody,
+                 user: str = Depends(current_user)) -> dict:
+    """Enable/disable ONE tool within a connector (P1-12)."""
+    server = integrations.set_mcp_tool_enabled(sid, tool_name, body.enabled)
+    if server is None:
+        raise HTTPException(404, "no such server")
+    return server
+
+
 @router.get("/connectors/directory")
 def connectors_directory(user: str = Depends(current_user)) -> list[dict]:
     """Curated catalog of well-known open MCP servers ("browse connectors"). Static

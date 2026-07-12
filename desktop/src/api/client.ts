@@ -214,6 +214,11 @@ export const projects = {
   getMemory: (pid: string) => api.get<{ content: string; updated_rel: string }>(`/projects/${pid}/memory`),
   capacity: (pid: string) => api.get<Capacity>(`/projects/${pid}/capacity`),
   files: (pid: string) => api.get<ProjectFile[]>(`/projects/${pid}/files`),
+  removeFile: (pid: string, name: string) =>
+    api.del<{ ok: boolean }>(`/projects/${pid}/files/${encodeURIComponent(name)}`),
+  reindexFile: (pid: string, name: string) =>
+    api.post<{ ok: boolean; chunks: number }>(
+      `/projects/${pid}/files/${encodeURIComponent(name)}/reindex`, {}),
   uploadFile: async (pid: string, file: File) => {
     const form = new FormData();
     form.append("file", file);
@@ -288,6 +293,8 @@ export interface McpServer {
   status: string;
   detail: string;
   tool_count: number;
+  tools: string[]; // tool names (for the per-tool toggles)
+  disabled_tools: string[]; // tools the user switched off (P1-12)
 }
 
 export interface AddMcpBody {
@@ -543,6 +550,9 @@ export const mcp = {
   getPrompt: (sid: string, name: string, args: Record<string, string> = {}) =>
     api.post<{ messages: { role: string; content: string }[] }>(
       `/mcp-servers/${sid}/prompts/${encodeURIComponent(name)}`, args),
+  // Per-tool enable/disable within a connector (P1-12).
+  setToolEnabled: (sid: string, tool: string, enabled: boolean) =>
+    api.post<McpServer>(`/mcp-servers/${sid}/tools/${encodeURIComponent(tool)}`, { enabled }),
   // Curated open-source connector catalog (P1-3); entries prefill the add form.
   directory: () => api.get<DirectoryEntry[]>("/connectors/directory"),
 };

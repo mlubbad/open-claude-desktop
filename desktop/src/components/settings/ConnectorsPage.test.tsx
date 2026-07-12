@@ -30,6 +30,8 @@ function server(over: Partial<McpServer>): McpServer {
     status: "error",
     detail: "connection timed out after 90s",
     tool_count: 0,
+    tools: [],
+    disabled_tools: [],
     ...over,
   } as McpServer;
 }
@@ -47,6 +49,7 @@ function makeControls(over: Partial<ConnectorControls> = {}): ConnectorControls 
     onToggle: vi.fn(),
     onRetry: vi.fn(),
     retrying: null,
+    onToolToggle: vi.fn(),
     ...over,
   };
 }
@@ -89,5 +92,21 @@ describe("connector directory (P1-3)", () => {
     expect(screen.getByLabelText("Command arguments")).toHaveValue("mcp-server-fetch");
     // Nothing was added yet — the user must confirm.
     expect(c.onAdd).not.toHaveBeenCalled();
+  });
+});
+
+describe("per-tool toggles (P1-12)", () => {
+  it("expands a connector's tool list and toggles one tool off", () => {
+    const c = makeControls({
+      servers: [server({ status: "connected", tool_count: 2,
+                         tools: ["read_file", "delete_file"], disabled_tools: ["delete_file"] })],
+    });
+    render(<ConnectorsPage c={c} />);
+    // Collapsed summary shows the on/off count.
+    fireEvent.click(screen.getByRole("button", { name: "Tools (1/2 on)" }));
+    const del = screen.getByLabelText("Enable tool delete_file");
+    expect(del).not.toBeChecked();
+    fireEvent.click(screen.getByLabelText("Enable tool read_file"));
+    expect(c.onToolToggle).toHaveBeenCalledWith("playwright", "read_file", false);
   });
 });

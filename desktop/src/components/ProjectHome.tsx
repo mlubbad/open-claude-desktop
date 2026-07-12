@@ -17,6 +17,7 @@ export function ProjectHome({
   onEditInstructions,
   onUploadFile,
   onAddText,
+  onRemoveFile,
   onEditDetails,
   onTogglePin,
   onArchive,
@@ -32,6 +33,7 @@ export function ProjectHome({
   onEditInstructions: () => void;
   onUploadFile: (file: File) => void;
   onAddText: () => void;
+  onRemoveFile: (name: string) => void;
   onEditDetails: () => void;
   onTogglePin: () => void;
   onArchive: () => void;
@@ -164,6 +166,14 @@ export function ProjectHome({
                   <div className="rail-file" key={f.name} title={f.name}>
                     <span className="rail-file-badge">{f.badge}</span>
                     <span className="rail-file-name">{f.name}</span>
+                    <button
+                      className="rail-file-del"
+                      title="Remove from project knowledge"
+                      aria-label={`Remove ${f.name}`}
+                      onClick={() => onRemoveFile(f.name)}
+                    >
+                      ✕
+                    </button>
                   </div>
                 ))}
               </div>

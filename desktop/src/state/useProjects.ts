@@ -154,6 +154,20 @@ export function useProjectDetail(pid: string | null) {
     [upload],
   );
 
+  // Delete ONE knowledge file (and its KB chunks server-side) — P1-11.
+  const removeFile = useCallback(
+    async (name: string) => {
+      if (!pid) return;
+      try {
+        await projectApi.removeFile(pid, name);
+        await load();
+      } catch {
+        /* ignore */
+      }
+    },
+    [pid, load],
+  );
+
   return {
     instructions,
     setInstructions,
@@ -164,6 +178,7 @@ export function useProjectDetail(pid: string | null) {
     capacity,
     upload,
     addText,
+    removeFile,
     reload: load,
     busy,
   };

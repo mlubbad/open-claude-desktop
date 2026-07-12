@@ -110,6 +110,19 @@ export function useConnectors() {
     [refresh],
   );
 
+  // Enable/disable ONE tool within a connector (P1-12); persisted server-side.
+  const setToolEnabled = useCallback(
+    async (sid: string, tool: string, on: boolean) => {
+      try {
+        const updated = await mcp.setToolEnabled(sid, tool, on);
+        setServers((list) => list.map((s) => (s.id === sid ? updated : s)));
+      } catch (e) {
+        setErr(String(e));
+      }
+    },
+    [],
+  );
+
   // One-click install of a .mcpb/.dxt extension bundle. Inspects the manifest,
   // prompts for any required user_config (API keys, paths…), installs, and enables
   // the server if it connected.
@@ -194,5 +207,5 @@ export function useConnectors() {
 
   // `enabled` = the user's intent (drives the checkboxes); `active` = intent ∩ healthy
   // (fed to turns as enabled_mcp). Keeping them distinct is the whole point of F4.
-  return { servers, enabled, active, err, add, addOAuth, authorize, remove, toggle, install, refresh, retry, retrying };
+  return { servers, enabled, active, err, add, addOAuth, authorize, remove, toggle, install, refresh, retry, retrying, setToolEnabled };
 }

@@ -60,8 +60,15 @@ def get_client(provider_id: str | None = None):
             raise LLMConfigError(
                 f"No API key configured for provider '{prov.label}'. Set one via the "
                 f"settings/keys API or the {prov.key_env or 'LLM_API_KEY'} env var.")
-        from openai import OpenAI
-        client = OpenAI(base_url=_base_url(pid), api_key=api_key or "not-needed")
+        if pid == "anthropic":
+            # Native Messages API behind the same chat.completions call shape —
+            # prompt caching + real extended thinking (see llm.anthropic_native).
+            from .anthropic_native import AnthropicNativeClient
+            client: object = AnthropicNativeClient(api_key=api_key or "",
+                                                   base_url=_base_url(pid))
+        else:
+            from openai import OpenAI
+            client = OpenAI(base_url=_base_url(pid), api_key=api_key or "not-needed")
         _clients[pid] = client
         return client
 

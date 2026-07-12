@@ -74,7 +74,7 @@ def test_run_turn_streams_artifact_events(monkeypatch, _env):
     state = {"n": 0}
 
     async def _fake_stream(llm, model, messages, tools, temperature, max_tokens,
-                           content_scope="answer", fallback_model=None):
+                           content_scope="answer", fallback_model=None, **_kw):
         state["n"] += 1
         if state["n"] == 1:
             args = json.dumps({"title": "Page", "kind": "html", "content": "<p>x</p>"})
@@ -98,7 +98,7 @@ def test_artifacts_off_by_default_in_run_turn(monkeypatch, _env):
     seen = {}
 
     async def _fake_stream(llm, model, messages, tools, temperature, max_tokens,
-                           content_scope="answer", fallback_model=None):
+                           content_scope="answer", fallback_model=None, **_kw):
         seen["tools"] = [t["function"]["name"] for t in (tools or [])]
         yield {"__done__": {"content": "hi", "tool_calls": [], "note": None}}
 

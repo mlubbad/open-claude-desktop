@@ -36,6 +36,7 @@ import { useCowork } from "./state/useCowork";
 import { useConnectors } from "./state/useConnectors";
 import { useConversations } from "./state/useConversations";
 import { useKeyboard } from "./state/useKeyboard";
+import { useMcpPrompts } from "./state/useMcpPrompts";
 import { usePlugins } from "./state/usePlugins";
 import { useProjectDetail, useProjects } from "./state/useProjects";
 import { useSchedules } from "./state/useSchedules";
@@ -66,6 +67,9 @@ export default function App() {
   // Plan mode: the agent researches read-only and proposes a plan to approve before it
   // changes anything. Only meaningful in the interactive Chat/Code views.
   const [planMode, setPlanMode] = useState(false);
+  // Incognito chat (P1-5): the conversation is never persisted — no history row, no
+  // save, no auto-title. Exited by starting a normal chat or opening a saved one.
+  const [incognito, setIncognito] = useState(false);
   // HITL autonomy (set in Settings): "strict" asks before every step, "ask" only before
   // sensitive actions (default), "auto" runs autonomously. Plan mode overrides it.
   const [approvalMode, setApprovalMode] = useState("ask");
@@ -84,6 +88,7 @@ export default function App() {
 
   const proj = useProjects();
   const connectors = useConnectors();
+  const mcpPrompts = useMcpPrompts(connectors.servers, connectors.enabled);
   const pluginMgr = usePlugins();
   const skillsMgr = useSkills();
   const theme = useTheme();
@@ -102,6 +107,7 @@ export default function App() {
       provider: active.provider,
       model: active.model,
       effort: active.effort,
+      style: active.style,
       permissionMode: planMode ? "plan" : approvalMode,
       projectId: proj.active,
       // Feed the turn the ACTIVE set (intent ∩ healthy), not raw intent, so an
@@ -141,7 +147,7 @@ export default function App() {
     rename,
     togglePin,
     move,
-  } = useConversations(config);
+  } = useConversations(config, incognito);
 
   // Sync the composer's live settings when the open conversation changes: load that
   // conversation's saved settings, or fall back to the workspace defaults for a new
@@ -206,6 +212,7 @@ export default function App() {
     async (cid: string, pid: string) => {
       if (await openConversation(cid, pid)) {
         setActiveProject(pid === "general" ? null : pid);
+        setIncognito(false); // a saved chat is by definition not incognito
       }
       setProjectsScreen(false); // opening a chat leaves the Projects screen
     },
@@ -246,6 +253,14 @@ export default function App() {
   const goNewChat = useCallback(() => {
     setProjectsScreen(false);
     setActiveProject(null);
+    setIncognito(false);
+    newChat();
+  }, [newChat, setActiveProject]);
+  // An incognito chat: same fresh-draft flow, but nothing about it will persist.
+  const goNewIncognito = useCallback(() => {
+    setProjectsScreen(false);
+    setActiveProject(null);
+    setIncognito(true);
     newChat();
   }, [newChat, setActiveProject]);
   const goView = useCallback((v: "chat" | "code" | "cowork") => {
@@ -274,6 +289,7 @@ export default function App() {
   const commands: Command[] = useMemo(() => {
     const actions: Command[] = [
       { label: "New chat", hint: "⌘⇧O", run: goNewChat },
+      { label: "New incognito chat", hint: "not saved to history", run: goNewIncognito },
       { label: "Settings: models & keys", run: () => setSettingsPage("providers") },
       { label: "Settings: connectors (MCP)", run: () => setSettingsPage("connectors") },
       { label: "Settings: plugins", run: () => setSettingsPage("plugins") },
@@ -287,7 +303,7 @@ export default function App() {
       run: () => void openFromRecents(c.id, c.project_id ?? "general"),
     }));
     return [...actions, ...chats];
-  }, [goNewChat, proj.active, list, openFromRecents]);
+  }, [goNewChat, goNewIncognito, proj.active, list, openFromRecents]);
 
   // Global summon hotkey (desktop only; no-op on web). Fired from the OS even when the
   // app is unfocused; brings it forward and starts a fresh chat.
@@ -363,6 +379,8 @@ export default function App() {
     onWebSearch: (on) => applyOptions({ webSearch: on }),
     codeExec: active.codeExec,
     onCodeExec: (on) => applyOptions({ codeExec: on }),
+    style: active.style,
+    onStyle: (style) => applyOptions({ style }),
   };
   const modelControl: ModelControlInfo = {
     provider: active.provider,
@@ -505,6 +523,13 @@ export default function App() {
           </div>
         </header>
 
+        {incognito && !projectsScreen && view === "chat" && (
+          <div className="incognito-banner" role="status">
+            <Icon name="eye-off" size={14} />
+            Incognito chat — this conversation won't be saved to your history.
+          </div>
+        )}
+
         {projectsScreen && projectDetail && detailProject ? (
           <ProjectHome
             project={detailProject}
@@ -518,6 +543,7 @@ export default function App() {
                 onSend={sendFromProject}
                 onStop={stop}
                 skills={skillsMgr.list}
+                mcpPrompts={mcpPrompts}
                 draftKey={`project-${projectDetail}`}
                 placeholder="How can I help with this project?"
                 addMenu={addMenu}
@@ -589,6 +615,7 @@ export default function App() {
                   onSend={send}
                   onStop={stop}
                   skills={skillsMgr.list}
+                mcpPrompts={mcpPrompts}
                   draftKey={current?.cid ?? "new"}
                   initialText={getDraft(drafts, current?.cid ?? "new")}
                   onTextChange={(t) => setDrafts((d) => setDraft(d, current?.cid ?? "new", t))}
@@ -662,6 +689,7 @@ export default function App() {
               onSend={send}
               onStop={stop}
               skills={skillsMgr.list}
+                mcpPrompts={mcpPrompts}
               draftKey={current?.cid ?? "new"}
               initialText={getDraft(drafts, current?.cid ?? "new")}
               onTextChange={(t) => setDrafts((d) => setDraft(d, current?.cid ?? "new", t))}

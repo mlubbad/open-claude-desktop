@@ -43,7 +43,7 @@ def test_subagent_delegates_and_returns_answer(monkeypatch):
     state = {"n": 0}
 
     async def _fake_stream(llm, model, messages, tools, temperature, max_tokens,
-                           content_scope="answer", fallback_model=None):
+                           content_scope="answer", fallback_model=None, **_kw):
         state["n"] += 1
         tool_sets.append([t["function"]["name"] for t in (tools or [])])
         n = state["n"]
@@ -87,7 +87,7 @@ def test_subagent_refused_when_not_enabled(monkeypatch):
     state = {"n": 0}
 
     async def _fake_stream(llm, model, messages, tools, temperature, max_tokens,
-                           content_scope="answer", fallback_model=None):
+                           content_scope="answer", fallback_model=None, **_kw):
         state["n"] += 1
         if state["n"] == 1:
             yield {"__done__": {"content": "", "note": None, "tool_calls": [
@@ -113,7 +113,7 @@ def test_subagent_error_propagates_as_tool_error(monkeypatch):
     state = {"n": 0}
 
     async def _fake_stream(llm, model, messages, tools, temperature, max_tokens,
-                           content_scope="answer", fallback_model=None):
+                           content_scope="answer", fallback_model=None, **_kw):
         state["n"] += 1
         n = state["n"]
         if n == 1:

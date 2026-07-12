@@ -63,32 +63,170 @@ def list_all_files(limit: int = 500) -> list[dict]:
 
 
 # --------------------------------------------------------------------------- #
-#  KB ingest (sync; no Chainlit Step) — chunk + upsert into project collection
+#  KB ingest — chunk + upsert into project collection
 # --------------------------------------------------------------------------- #
+class ExtractionError(Exception):
+    """A file type we DO understand failed to parse. Raised (not swallowed) so the
+    upload route can tell the user their document didn't ingest, instead of the old
+    behavior of silently indexing nothing."""
+
+
+# One pathological file must not flood the KB or the ingest loop.
+_MAX_EXTRACT_CHARS = 2_000_000
+_PDF_MAX_PAGES = 300
+
+_W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+_A = "{http://schemas.openxmlformats.org/drawingml/2006/main}"
+_S = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
+
+
+def _num_key(name: str) -> int:
+    import re
+    m = re.search(r"(\d+)", name)
+    return int(m.group(1)) if m else 0
+
+
+def _docx_text(path: Path) -> str:
+    import xml.etree.ElementTree as ET
+    import zipfile
+    with zipfile.ZipFile(path) as z:
+        root = ET.fromstring(z.read("word/document.xml"))
+    paras = []
+    for p in root.iter(f"{_W}p"):
+        runs = "".join(t.text or "" for t in p.iter(f"{_W}t"))
+        if runs.strip():
+            paras.append(runs)
+    return "\n".join(paras)
+
+
+def _pptx_text(path: Path) -> str:
+    import re
+    import xml.etree.ElementTree as ET
+    import zipfile
+    out = []
+    with zipfile.ZipFile(path) as z:
+        slides = sorted((n for n in z.namelist()
+                         if re.fullmatch(r"ppt/slides/slide\d+\.xml", n)), key=_num_key)
+        for i, name in enumerate(slides, 1):
+            root = ET.fromstring(z.read(name))
+            texts = [t.text or "" for t in root.iter(f"{_A}t") if (t.text or "").strip()]
+            if texts:
+                out.append(f"[slide {i}]\n" + "\n".join(texts))
+    return "\n\n".join(out)
+
+
+def _xlsx_text(path: Path) -> str:
+    import re
+    import xml.etree.ElementTree as ET
+    import zipfile
+    with zipfile.ZipFile(path) as z:
+        shared: list[str] = []
+        if "xl/sharedStrings.xml" in z.namelist():
+            sroot = ET.fromstring(z.read("xl/sharedStrings.xml"))
+            shared = ["".join(t.text or "" for t in si.iter(f"{_S}t"))
+                      for si in sroot.iter(f"{_S}si")]
+        sheets = sorted((n for n in z.namelist()
+                         if re.fullmatch(r"xl/worksheets/sheet\d+\.xml", n)), key=_num_key)
+        out = []
+        for name in sheets:
+            root = ET.fromstring(z.read(name))
+            rows = []
+            for row in root.iter(f"{_S}row"):
+                cells = []
+                for c in row.iter(f"{_S}c"):
+                    v = c.find(f"{_S}v")
+                    if v is not None and v.text is not None:
+                        if c.get("t") == "s":  # shared-string reference
+                            try:
+                                cells.append(shared[int(v.text)])
+                            except (ValueError, IndexError):
+                                cells.append(v.text)
+                        else:
+                            cells.append(v.text)
+                    else:  # inline string cell
+                        inline = c.find(f"{_S}is")
+                        cells.append("".join(t.text or "" for t in inline.iter(f"{_S}t"))
+                                     if inline is not None else "")
+                if any(x.strip() for x in cells):
+                    rows.append("\t".join(cells))
+            if rows:
+                out.append("\n".join(rows))
+    return "\n\n".join(out)
+
+
+def _html_text(path: Path) -> str:
+    from html.parser import HTMLParser
+
+    class _Text(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.parts: list[str] = []
+            self._skip = 0
+
+        def handle_starttag(self, tag, attrs):
+            if tag in ("script", "style"):
+                self._skip += 1
+
+        def handle_endtag(self, tag):
+            if tag in ("script", "style"):
+                self._skip = max(0, self._skip - 1)
+
+        def handle_data(self, data):
+            if not self._skip and data.strip():
+                self.parts.append(data.strip())
+
+    p = _Text()
+    p.feed(path.read_text(encoding="utf-8", errors="ignore"))
+    return "\n".join(p.parts)
+
+
+def _rtf_text(path: Path) -> str:
+    import re
+    raw = path.read_text(encoding="utf-8", errors="ignore")
+    raw = re.sub(r"\\'[0-9a-fA-F]{2}", " ", raw)    # hex escapes
+    raw = re.sub(r"\\[a-zA-Z]+-?\d*\s?", " ", raw)  # control words
+    raw = raw.replace("{", " ").replace("}", " ").replace("\\", " ")
+    return re.sub(r"[ \t]{2,}", " ", raw).strip()
+
+
+def _csv_text(path: Path) -> str:
+    import csv as _csv
+    with open(path, newline="", encoding="utf-8", errors="ignore") as fh:
+        return "\n".join(", ".join(row) for row in _csv.reader(fh))
+
+
 def extract_text_from_file(path: Path) -> str:
+    """Text of a knowledge file for chunking. Office formats (docx/xlsx/pptx) are read
+    with the stdlib (zip + XML) — no heavyweight parser dependencies; html/rtf/csv are
+    handled in full; PDFs via pdfplumber. A structured format that fails to parse
+    raises ExtractionError (surfaced to the uploader); anything unrecognized falls
+    back to a plain text read."""
     suffix = path.suffix.lower()
+    handlers = {".docx": _docx_text, ".pptx": _pptx_text, ".xlsx": _xlsx_text,
+                ".html": _html_text, ".htm": _html_text, ".rtf": _rtf_text,
+                ".csv": _csv_text}
     if suffix == ".pdf":
         try:
             import pdfplumber
             out = []
             with pdfplumber.open(str(path)) as pdf:
-                for page in pdf.pages[:50]:
+                for page in pdf.pages[:_PDF_MAX_PAGES]:
                     out.append(page.extract_text() or "")
-            return "\n".join(out)
-        except Exception:
-            return ""
-    if suffix == ".csv":
+            return "\n".join(out)[:_MAX_EXTRACT_CHARS]
+        except Exception as e:
+            raise ExtractionError(f"could not read PDF: {e}") from e
+    if suffix in handlers:
         try:
-            import pandas as pd
-            df = pd.read_csv(path)
-            return (f"CSV {len(df)} rows, cols: {', '.join(map(str, df.columns))}\n"
-                    + df.head(20).to_string(index=False))
-        except Exception:
-            pass
+            return handlers[suffix](path)[:_MAX_EXTRACT_CHARS]
+        except ExtractionError:
+            raise
+        except Exception as e:
+            raise ExtractionError(
+                f"could not parse {suffix.lstrip('.')} file: {e}") from e
     try:
-        return path.read_text(encoding="utf-8", errors="ignore")
-    except Exception:
-        return ""
+        return path.read_text(encoding="utf-8", errors="ignore")[:_MAX_EXTRACT_CHARS]
+    except OSError as e:
+        raise ExtractionError(f"could not read file: {e}") from e
 
 
 def chunk_text(text: str, size: int = 1200, overlap: int = 200) -> list[str]:

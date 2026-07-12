@@ -24,9 +24,11 @@ class Capabilities:
 # Ordered (substring-or-prefix, Capabilities) rules; first match wins. Patterns are
 # lowercased and matched against the bare model name (any 'provider/' prefix stripped).
 _RULES: tuple[tuple[str, Capabilities], ...] = (
+    ("gpt-5", Capabilities(400_000, 128_000, vision=True, tools=True, reasoning=True)),
     ("gpt-4o", Capabilities(128_000, 16_384, vision=True, tools=True)),
     ("o3", Capabilities(200_000, 100_000, tools=True, reasoning=True)),
     ("o1", Capabilities(200_000, 100_000, tools=True, reasoning=True)),
+    ("claude", Capabilities(200_000, 64_000, vision=True, tools=True, reasoning=True)),
     ("glm-4v", Capabilities(8_192, 4_096, vision=True, tools=True)),
     ("glm-4-plus", Capabilities(128_000, 4_096, tools=True)),
     ("glm-4-long", Capabilities(1_000_000, 4_096, tools=True)),

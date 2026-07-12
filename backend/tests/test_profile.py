@@ -33,7 +33,7 @@ def test_profile_reaches_the_system_prompt(monkeypatch, _env):
     seen = {}
 
     async def _fake_stream(llm, model, messages, tools, temperature, max_tokens,
-                           content_scope="answer", fallback_model=None):
+                           content_scope="answer", fallback_model=None, **_kw):
         seen["system"] = messages[0]["content"]
         yield {"__done__": {"content": "hi", "tool_calls": [], "note": None}}
 

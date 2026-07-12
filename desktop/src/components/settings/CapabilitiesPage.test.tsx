@@ -48,4 +48,13 @@ describe("CapabilitiesPage", () => {
     expect(screen.getByLabelText("Tool access mode")).toBeDisabled();
     expect(screen.getByLabelText("Allow network egress")).toBeDisabled();
   });
+
+  it("memory: 'Search and reference chats' is a real toggle saving memory_search", async () => {
+    render(<CapabilitiesPage />);
+    await waitFor(() =>
+      expect(screen.getByLabelText("Search and reference chats")).toBeEnabled());
+    fireEvent.click(screen.getByLabelText("Search and reference chats"));
+    await waitFor(() => expect(saveSpy).toHaveBeenCalled());
+    expect(saveSpy.mock.calls.at(-1)![0]).toEqual({ memory_search: false });
+  });
 });

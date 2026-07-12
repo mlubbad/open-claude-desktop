@@ -37,3 +37,11 @@ describe("applySlash", () => {
     expect(applySlash({ name: "hero" })).toBe("/hero ");
   });
 });
+
+describe("MCP prompt suggestions (P1-2)", () => {
+  it("namespaced server:prompt entries match alongside skills", () => {
+    const merged = [...skills, { name: "fs:summarize", description: "Summarize a file" }];
+    expect(slashSuggestions(merged, "/fs:").map((s) => s.name)).toContain("fs:summarize");
+    expect(slashSuggestions(merged, "/summar").map((s) => s.name)).toContain("fs:summarize");
+  });
+});

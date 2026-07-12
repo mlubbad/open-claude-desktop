@@ -42,7 +42,7 @@ def test_disallowed_tool_is_not_dispatched(monkeypatch):
     state = {"n": 0}
 
     async def _fake_stream(llm, model, messages, tools, temperature, max_tokens,
-                           content_scope="answer", fallback_model=None):
+                           content_scope="answer", fallback_model=None, **_kw):
         state["n"] += 1
         if state["n"] == 1:
             # The model "calls" a tool that was never offered this turn.
@@ -84,7 +84,7 @@ def test_allowed_builtin_tool_still_dispatches(monkeypatch):
     state = {"n": 0}
 
     async def _fake_stream(llm, model, messages, tools, temperature, max_tokens,
-                           content_scope="answer", fallback_model=None):
+                           content_scope="answer", fallback_model=None, **_kw):
         state["n"] += 1
         if state["n"] == 1:
             # With the connector enabled, search_schema is in the tool set -> dispatches.

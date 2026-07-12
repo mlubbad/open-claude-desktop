@@ -45,7 +45,7 @@ def _drive(monkeypatch, arguments: str, turn_id="t1", second_call=None):
     state = {"n": 0, "tools_sent": []}
 
     async def _fake_stream(llm, model, messages, tools, temperature, max_tokens,
-                           content_scope="answer", fallback_model=None):
+                           content_scope="answer", fallback_model=None, **_kw):
         state["n"] += 1
         state["tools_sent"].append([t["function"]["name"] for t in (tools or [])])
         if state["n"] == 1:
@@ -102,7 +102,7 @@ def test_ask_user_not_offered_without_turn_id(monkeypatch):
     state = {"n": 0, "tools_sent": []}
 
     async def _fake_stream(llm, model, messages, tools, temperature, max_tokens,
-                           content_scope="answer", fallback_model=None):
+                           content_scope="answer", fallback_model=None, **_kw):
         state["n"] += 1
         state["tools_sent"].append([t["function"]["name"] for t in (tools or [])])
         if state["n"] == 1:

@@ -13,6 +13,7 @@ export function CapabilitiesPage() {
   const searxngUrl = values?.searxng_url ?? "";
   const codeExecution = values?.code_execution ?? "auto";
   const permissionMode = values?.permission_mode ?? "ask";
+  const memorySearch = values?.memory_search ?? true;
 
   return (
     <>
@@ -20,8 +21,9 @@ export function CapabilitiesPage() {
 
       <Section title="Memory">
         <Row label="Search and reference chats"
-             desc="Allow Claude to search for relevant details in past chats." locked>
-          <Toggle label="Search and reference chats" on={false} disabled />
+             desc="Let the agent search your past chats mid-conversation (local, read-only) when you reference earlier discussions.">
+          <Toggle label="Search and reference chats" on={memorySearch}
+                  onChange={(v) => save({ memory_search: v })} />
         </Row>
         <Row label="Generate memory from chat history" badge="Legacy"
              desc="Allow Claude to remember relevant context from your chats." locked>

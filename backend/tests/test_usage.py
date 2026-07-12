@@ -56,7 +56,7 @@ def _env(monkeypatch):
 
 def test_run_turn_emits_usage_event(monkeypatch, _env):
     async def _fake_stream(llm, model, messages, tools, temperature, max_tokens,
-                           content_scope="answer", fallback_model=None):
+                           content_scope="answer", fallback_model=None, **_kw):
         yield {"type": "delta", "scope": "answer", "text": "the answer"}
         yield {"__done__": {"content": "the answer", "tool_calls": [], "note": None}}
 

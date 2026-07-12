@@ -34,7 +34,7 @@ def _wire(monkeypatch, captured):
     state = {"n": 0}
 
     async def _fake_stream(llm, model, messages, tools, temperature, max_tokens,
-                           content_scope="answer", fallback_model=None):
+                           content_scope="answer", fallback_model=None, **_kw):
         state["n"] += 1
         captured.setdefault("tools", [t["function"]["name"] for t in tools])
         captured.setdefault("messages", messages)

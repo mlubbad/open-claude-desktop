@@ -85,6 +85,7 @@ export interface AppSettings {
   searxng_url?: string;
   code_execution?: string; // "auto" | "docker" | "local" | "off"
   permission_mode?: string; // "strict" | "ask" | "auto" (HITL autonomy)
+  memory_search?: boolean; // agent may search past chats mid-turn
   // Which models each provider shows in the chat model picker; empty/missing
   // provider entry = the picker's default (the first few of the catalog).
   visible_models?: Record<string, string[]>;
@@ -164,6 +165,8 @@ export interface AgentTurnRequest {
   enabled_mcp?: string[];
   // data-URI images attached to this message (vision input; bounded server-side).
   images?: string[];
+  // Response style: normal | concise | explanatory | formal (or custom text).
+  style?: string;
 }
 
 // The backend routes non-project chats under this implicit project.
@@ -516,7 +519,33 @@ export const mcp = {
   addOAuth: (name: string, url: string, transport = "http") =>
     api.post<McpServer>("/mcp-servers/oauth", { name, url, transport }),
   authorize: (sid: string) => api.post<McpServer>(`/mcp-servers/${sid}/authorize`),
+  // MCP prompts (P1-2): listed per server, rendered on demand for `/` commands.
+  prompts: (sid: string) => api.get<{ prompts: McpPromptInfo[] }>(`/mcp-servers/${sid}/prompts`),
+  getPrompt: (sid: string, name: string, args: Record<string, string> = {}) =>
+    api.post<{ messages: { role: string; content: string }[] }>(
+      `/mcp-servers/${sid}/prompts/${encodeURIComponent(name)}`, args),
+  // Curated open-source connector catalog (P1-3); entries prefill the add form.
+  directory: () => api.get<DirectoryEntry[]>("/connectors/directory"),
 };
+
+export interface McpPromptInfo {
+  name: string;
+  description?: string;
+}
+
+// A curated connector-directory entry ("browse connectors").
+export interface DirectoryEntry {
+  id: string;
+  name: string;
+  description: string;
+  transport: string; // "stdio" | "http" | "sse"
+  command?: string;
+  args?: string[];
+  url?: string;
+  env_keys: string[];
+  runtime?: string; // "node" | "python"
+  tags: string[];
+}
 
 // Stream an agent turn. Invokes onEvent for each typed event; resolves on `done`.
 // The returned AbortController lets the caller stop the turn.

@@ -181,7 +181,8 @@ def import_skill(filename: str, content: str) -> dict:
 
 
 def remove_skill(name: str) -> dict:
-    """Remove a previously-imported skill (never a bundled one)."""
+    """Remove a previously-imported skill (never a bundled one), including any
+    supporting assets imported alongside it (references/scripts/…)."""
     d = _dir()
     imported = _load_imported(d)
     fn = imported.get(name)
@@ -191,6 +192,9 @@ def remove_skill(name: str) -> dict:
     path = (root / fn).resolve()
     if path.parent == root and path.exists():
         path.unlink()
+    assets = (root / Path(fn).stem).resolve()
+    if assets.parent == root and assets.is_dir():
+        shutil.rmtree(assets, ignore_errors=True)
     del imported[name]
     _save_imported(d, imported)
     return {"ok": True, "name": name}
@@ -199,6 +203,40 @@ def remove_skill(name: str) -> dict:
 # Directories that hold a skill's supporting material, not skills themselves.
 _SKILL_SUPPORT_DIRS = {"references", "reference", "assets", "examples", "example",
                        "images", "img", "scripts", "templates", "node_modules"}
+
+# Support dirs COPIED alongside an imported SKILL.md (P1-7) — previously dropped on
+# import, so a skill that shipped references/scripts lost them. node_modules and the
+# like stay excluded. Bounded so a hostile repo can't fill the disk.
+_ASSET_COPY_DIRS = ("references", "reference", "assets", "scripts", "templates",
+                    "examples")
+_MAX_ASSET_FILES = 200
+_MAX_ASSET_BYTES = 5 * 1024 * 1024
+
+
+def _copy_skill_assets(skill_md: Path, dest_root: Path) -> int:
+    """Copy the support dirs sitting next to a SKILL.md into ``dest_root``
+    (skills/<stem>/references/…). Skips symlinks and oversized files; returns the
+    number of files copied."""
+    copied = 0
+    for sub in _ASSET_COPY_DIRS:
+        src = skill_md.parent / sub
+        if not src.is_dir() or src.is_symlink():
+            continue
+        for f in sorted(src.rglob("*")):
+            if copied >= _MAX_ASSET_FILES:
+                return copied
+            if f.is_symlink() or not f.is_file():
+                continue
+            try:
+                if f.stat().st_size > _MAX_ASSET_BYTES:
+                    continue
+            except OSError:
+                continue
+            target = dest_root / sub / f.relative_to(src)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(f, target)
+            copied += 1
+    return copied
 
 
 def _discover_skill_files(root: Path) -> list[Path]:
@@ -264,6 +302,9 @@ def _import_tree(root: Path, source: str) -> dict:
             continue  # already imported this skill by name; don't duplicate
         path = _unique_path(d, _safe_stem(name), set(imported.values()))
         path.write_text(content, encoding="utf-8")
+        # Canonical skill folders keep their supporting material (P1-7).
+        if f.name.lower() == "skill.md":
+            _copy_skill_assets(f, d / path.stem)
         imported[name] = path.name
         names.append(name)
     if not names:

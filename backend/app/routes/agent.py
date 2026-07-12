@@ -63,7 +63,7 @@ async def agent_turn(req: AgentTurnRequest, user: str = Depends(current_user)):
                     code_exec=o.code_exec, bash=o.bash, text_editor=o.text_editor, memory=o.memory,
                     provider=req.provider, turn_id=turn_id, permission_mode=req.permission_mode,
                     artifacts=o.artifacts, user_profile=user_profile, subagents=o.subagents,
-                    project_memory=proj_mem, images=req.images)
+                    project_memory=proj_mem, images=req.images, style=req.style or "")
             async for ev in opik_tracing.traced(
                     turn, goal=goal, model=req.model, provider=req.provider,
                     effort=req.effort, turn_id=turn_id, tags=["chat"]):

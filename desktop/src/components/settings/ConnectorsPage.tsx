@@ -1,14 +1,23 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
+import { type DirectoryEntry, mcp } from "../../api/client";
 import { parseEnvLines, parseMcpJson, splitArgs } from "../../state/mcpConfig";
 import { Icon } from "../Icon";
 import { DirCard, DirEmpty } from "./DirCard";
 import type { ConnectorControls } from "./types";
 
-// Connectors (MCP): the server list + a three-tab add form (Remote / Local / JSON).
+// Connectors (MCP): the server list + a three-tab add form (Remote / Local / JSON),
+// plus a curated "Browse connectors" directory (P1-3) whose entries prefill the form.
 export function ConnectorsPage({ c }: { c: ConnectorControls }) {
   const [filter, setFilter] = useState<"all" | "connected" | "not">("all");
   const [showAdd, setShowAdd] = useState(false);
+  const [showBrowse, setShowBrowse] = useState(false);
+  const [directory, setDirectory] = useState<DirectoryEntry[]>([]);
+
+  useEffect(() => {
+    if (!showBrowse || directory.length > 0) return;
+    mcp.directory().then(setDirectory).catch(() => {});
+  }, [showBrowse, directory.length]);
   const [mode, setMode] = useState<"stdio" | "remote" | "json">("remote");
   const [name, setName] = useState("");
   const [command, setCommand] = useState("");
@@ -35,6 +44,24 @@ export function ConnectorsPage({ c }: { c: ConnectorControls }) {
     setUrl("");
     setToken("");
     setShowAdd(false);
+  }
+
+  // A directory pick PREFILLS the add form (never adds silently): the user reviews
+  // the command/args — and fills any required env key — before confirming.
+  function applyEntry(e: DirectoryEntry) {
+    setShowBrowse(false);
+    setShowAdd(true);
+    setName(e.name);
+    if (e.url) {
+      setMode("remote");
+      setUrl(e.url);
+      setTransport(e.transport === "sse" ? "sse" : "http");
+    } else {
+      setMode("stdio");
+      setCommand(e.command ?? "");
+      setArgs((e.args ?? []).map((a) => (a.includes(" ") ? `"${a}"` : a)).join(" "));
+      setEnvText(e.env_keys.map((k) => `${k}=`).join("\n"));
+    }
   }
 
   function submit() {
@@ -98,10 +125,35 @@ export function ConnectorsPage({ c }: { c: ConnectorControls }) {
             }}
           />
         </label>
+        <button className="settings-add" onClick={() => setShowBrowse((v) => !v)}>
+          {showBrowse ? "Close" : "Browse"}
+        </button>
         <button className="settings-add" onClick={() => setShowAdd((v) => !v)}>
           {showAdd ? "Cancel" : "Add ▾"}
         </button>
       </div>
+
+      {showBrowse && (
+        <div className="dir-grid" aria-label="Connector directory">
+          {directory.map((e) => (
+            <DirCard key={e.id} icon="sliders" title={e.name}
+                     badges={e.tags.includes("official")
+                       ? <span className="badge-pill">official</span> : undefined}>
+              <p className="dir-card-desc">{e.description}</p>
+              <div className="dir-card-actions">
+                <span className="dir-card-actions-right">
+                  <button className="conn-authorize"
+                          title="Prefill the add form with this connector"
+                          onClick={() => applyEntry(e)}>
+                    Use
+                  </button>
+                </span>
+              </div>
+            </DirCard>
+          ))}
+          {directory.length === 0 && <DirEmpty>Loading directory…</DirEmpty>}
+        </div>
+      )}
 
       {showAdd && (
         <div className="conn-add">

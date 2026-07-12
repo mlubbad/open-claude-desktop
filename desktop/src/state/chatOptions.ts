@@ -13,7 +13,12 @@ export interface ChatOptions {
   // Let the agent actually run code (code_execution tool) in this chat — every run is
   // still gated by the Approve prompt. The Code tab forces this on regardless.
   codeExec: boolean;
+  // Response style (P0-6): normal | concise | explanatory | formal. Per-conversation,
+  // like model + effort.
+  style: string;
 }
+
+export const RESPONSE_STYLES = ["normal", "concise", "explanatory", "formal"] as const;
 
 export const DEFAULT_CHAT_OPTIONS: ChatOptions = {
   provider: "zhipu",
@@ -23,6 +28,7 @@ export const DEFAULT_CHAT_OPTIONS: ChatOptions = {
   webSearch: false,
   research: false,
   codeExec: false,
+  style: "normal",
 };
 
 // Merge a conversation's override onto the workspace defaults.

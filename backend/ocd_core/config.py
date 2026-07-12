@@ -99,6 +99,9 @@ DEFAULT_SETTINGS = {"model": AGENT_MODEL,
                     #   "ask"    — ask before sensitive actions only (code/shell/files/DB) [default]
                     #   "auto"   — autonomous: never ask (auto-pilot)
                     "permission_mode": os.getenv("PERMISSION_MODE", "ask"),
+                    # Memory: let the agent search PAST conversations mid-turn
+                    # (the search_past_chats tool). Local + read-only; on by default.
+                    "memory_search": True,
                     # Which models each provider shows in the chat model picker
                     # ({provider_id: [model, ...]}). Empty/missing = the picker's
                     # default (the first few of the provider's catalog).

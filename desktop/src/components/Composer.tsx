@@ -1,6 +1,6 @@
 import { type KeyboardEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
-import type { SkillSummary } from "../api/client";
+import { mcp, type SkillSummary } from "../api/client";
 import {
   admitImages,
   type Attachment,
@@ -10,6 +10,10 @@ import {
   withAttachments,
 } from "../state/attachments";
 import { applySlash, slashSuggestions } from "../state/slashCommands";
+import type { McpSlashPrompt } from "../state/useMcpPrompts";
+
+// A `/` suggestion is either an Agent Skill or an MCP prompt (P1-2).
+type SlashItem = SkillSummary | McpSlashPrompt;
 import { Icon } from "./Icon";
 import { MicPicker, type VoiceInfo } from "./MicPicker";
 import { ModelPicker } from "./ModelPicker";
@@ -64,7 +68,18 @@ export interface AddMenuInfo {
   onWebSearch: (on: boolean) => void;
   codeExec: boolean;
   onCodeExec: (on: boolean) => void;
+  // Response style (P0-6): per-conversation, like model + effort.
+  style: string;
+  onStyle: (style: string) => void;
 }
+
+// The selectable response styles (labels for the flyout).
+export const STYLE_OPTIONS: { value: string; label: string }[] = [
+  { value: "normal", label: "Normal" },
+  { value: "concise", label: "Concise" },
+  { value: "explanatory", label: "Explanatory" },
+  { value: "formal", label: "Formal" },
+];
 
 // The model + effort control (contract §3), rendered as a pill that opens the
 // two-column picker. Selections apply instantly; the caller persists per conversation.
@@ -88,6 +103,7 @@ export function Composer({
   onSend,
   onStop,
   skills = [],
+  mcpPrompts = [],
   draftKey = "new",
   initialText = "",
   onTextChange,
@@ -100,6 +116,7 @@ export function Composer({
   onSend: (text: string, images?: string[]) => void;
   onStop: () => void;
   skills?: SkillSummary[];
+  mcpPrompts?: McpSlashPrompt[];
   draftKey?: string;
   initialText?: string;
   onTextChange?: (text: string) => void;
@@ -117,7 +134,7 @@ export function Composer({
   const [addOpen, setAddOpen] = useState(false);
   // Which Add-menu flyout is open (Add to project / Skills / Connectors / Plugins) —
   // only one at a time, hover- or click-driven, mirroring the Recents ⋮ submenu.
-  const [subOpen, setSubOpen] = useState<"project" | "skills" | "connectors" | "plugins" | null>(null);
+  const [subOpen, setSubOpen] = useState<"project" | "skills" | "connectors" | "plugins" | "style" | null>(null);
   const [modelOpen, setModelOpen] = useState(false);
   const [micOpen, setMicOpen] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -136,7 +153,10 @@ export function Composer({
     ta.style.height = `${ta.scrollHeight}px`;
   }, [text]);
   const addMenuRef = useRef<HTMLDivElement>(null);
-  const suggestions = useMemo(() => slashSuggestions(skills, text), [skills, text]);
+  const suggestions = useMemo(
+    () => slashSuggestions<SlashItem>([...skills, ...mcpPrompts], text),
+    [skills, mcpPrompts, text],
+  );
   // Escape hides the menu without erasing the draft; typing re-arms it.
   const [dismissed, setDismissed] = useState(false);
   const open = suggestions.length > 0 && !dismissed;
@@ -241,8 +261,18 @@ export function Composer({
     setAttachments((a) => [...a, ...readTexts.filter((x) => x.content)]);
   }
 
-  function accept(skill: SkillSummary) {
-    setText(applySlash(skill));
+  function accept(item: SlashItem) {
+    if ("sid" in item) {
+      // MCP prompt (P1-2): render it server-side and insert the resulting text —
+      // the user reviews/edits before sending.
+      void mcp
+        .getPrompt(item.sid, item.prompt)
+        .then((r) => setText(r.messages.map((m) => m.content).join("\n\n")))
+        .catch(() => setText(""));
+      setSel(0);
+      return;
+    }
+    setText(applySlash(item));
     setSel(0);
   }
 
@@ -587,6 +617,42 @@ export function Composer({
                 )}
               </div>
               <div className="add-divider" />
+              <div
+                className="add-submenu-anchor"
+                onMouseEnter={() => setSubOpen("style")}
+                onMouseLeave={() => setSubOpen((s) => (s === "style" ? null : s))}
+              >
+                <button
+                  role="menuitem"
+                  aria-haspopup="menu"
+                  aria-expanded={subOpen === "style"}
+                  onClick={() => setSubOpen((s) => (s === "style" ? null : "style"))}
+                >
+                  <span className="add-ic"><Icon name="pencil" size={15} /></span>
+                  Response style
+                  <span className="add-submenu-sub">
+                    {STYLE_OPTIONS.find((o) => o.value === addMenu.style)?.label ?? "Normal"}
+                  </span>
+                  <span className="add-chev" aria-hidden="true"><Icon name="chev-right" size={13} /></span>
+                </button>
+                {subOpen === "style" && (
+                  <div className="add-submenu" role="menu" aria-label="Response style">
+                    {STYLE_OPTIONS.map((o) => (
+                      <button
+                        key={o.value}
+                        role="menuitemradio"
+                        aria-checked={addMenu.style === o.value}
+                        onClick={() => { setAddOpen(false); addMenu.onStyle(o.value); }}
+                      >
+                        <span className="add-submenu-name">{o.label}</span>
+                        {addMenu.style === o.value && (
+                          <span className="add-check" aria-hidden="true"><Icon name="check" size={13} /></span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
               <button role="menuitemcheckbox" aria-checked={addMenu.research}
                       onClick={() => addMenu.onResearch(!addMenu.research)}>
                 <span className="add-ic"><Icon name="chart" size={15} /></span>

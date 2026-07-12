@@ -33,9 +33,8 @@ def test_extract_text_from_csv(tmp_path, monkeypatch):
     f = tmp_path / "data.csv"
     f.write_text("a,b\n1,2\n3,4\n", encoding="utf-8")
     out = know.extract_text_from_file(f)
-    # Original format: "CSV {n} rows, cols: a, b" + a to_string preview.
-    assert out.startswith("CSV 2 rows, cols: a, b")
-    assert "1" in out and "4" in out
+    # P0-5: the FULL CSV is ingested (header + every row), not a 20-row preview.
+    assert out.splitlines() == ["a, b", "1, 2", "3, 4"]
 
 
 def test_list_project_files_and_capacity(tmp_path, monkeypatch):

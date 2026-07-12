@@ -47,6 +47,38 @@ RESEARCH_SECTION = """# RESEARCH MODE
 Use `deep_research` ONCE to gather parallel multi-source findings, then cross-check \
 the sources and synthesize a structured answer that CITES the sources you used."""
 
+# Response styles (P0-6). "normal" adds nothing; any string that isn't a known key is
+# treated as the user's own custom style instructions, verbatim.
+STYLES: dict[str, str] = {
+    "normal": "",
+    "concise": (
+        "Be as brief as accuracy allows. Lead with the answer, cut preamble and "
+        "hedging, prefer short sentences and tight lists over prose, and stop when "
+        "the question is answered."),
+    "explanatory": (
+        "Teach as you answer. Define terms on first use, walk through the reasoning "
+        "step by step, add short examples or analogies where they help, and end "
+        "complex answers with a one-line takeaway."),
+    "formal": (
+        "Write in a polished, professional register suitable for business or "
+        "academic documents: complete sentences, precise vocabulary, no slang or "
+        "contractions, structured with clear headings where length warrants."),
+}
+
+
+def style_section(style: str) -> str:
+    """The RESPONSE STYLE section for a style key or custom instruction text
+    ("" / "normal" → no section; unknown strings are custom instructions)."""
+    s = (style or "").strip()
+    if not s:
+        return ""
+    body = STYLES[s.lower()] if s.lower() in STYLES else s
+    if not body:
+        return ""  # "normal"
+    return _labeled_section(
+        "RESPONSE STYLE",
+        f"Shape every response in this style:\n{body}")
+
 
 def _labeled_section(title: str, body: str) -> str:
     return f"# {title}\n{body.strip()}"
@@ -61,6 +93,7 @@ def build_system_prompt(
     project_memory: str = "",
     skill_instructions: str = "",
     research: bool = False,
+    style: str = "",
     today: date | None = None,
 ) -> str:
     """Compose the system prompt from the base plus whichever sections apply.
@@ -75,6 +108,10 @@ def build_system_prompt(
             "USER PROFILE",
             "Personalize your responses to the user, respecting these preferences:\n"
             f"{user_profile.strip()}"))
+
+    sec = style_section(style)
+    if sec:
+        parts.append(sec)
 
     for section in (extra_sections or []):
         if section and section.strip():

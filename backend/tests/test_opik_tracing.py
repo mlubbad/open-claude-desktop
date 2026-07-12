@@ -377,7 +377,7 @@ def test_scheduled_runs_are_traced(monkeypatch, fake_opik):
     class _FakeTask:
         id = "t1"
 
-    def _fake_start(goal, gen_factory):
+    def _fake_start(goal, gen_factory, **kwargs):
         captured["gen"] = gen_factory()
         return _FakeTask()
 

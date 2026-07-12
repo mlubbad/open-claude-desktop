@@ -44,6 +44,7 @@ export type IconName =
   | "pin-angle"
   | "eye"
   | "eye-off"
+  | "shield"
   | "code"
   | "expand"
   | "cloud-up";
@@ -152,6 +153,9 @@ const PATHS: Record<IconName, React.ReactNode> = {
       <path d="M1.8 8s2.3-4 6.2-4 6.2 4 6.2 4-2.3 4-6.2 4-6.2-4-6.2-4z" />
       <circle cx="8" cy="8" r="1.8" />
     </>
+  ),
+  shield: (
+    <path d="M8 1.6l5 1.8v4.2c0 3.1-2.1 5-5 5.8-2.9-.8-5-2.7-5-5.8V3.4l5-1.8z" />
   ),
   "eye-off": (
     <>

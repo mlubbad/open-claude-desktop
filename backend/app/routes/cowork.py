@@ -1,7 +1,18 @@
 """Cowork routes — delegate a task the agent runs autonomously in the background, then
-list / inspect / cancel those tasks. Background tasks run with permission_mode=auto
-(no human to answer HITL prompts)."""
+list / inspect / cancel those tasks.
+
+Approval mode (P1-8):
+  * ``skip``   — permission_mode=auto, no reply channel: fully autonomous (default).
+  * ``manual`` — permission_mode=ask + a turn_id: the task pauses on sensitive actions
+    and surfaces ``approval_required`` in its transcript; the task-detail view resolves
+    it through the shared ``/agent/turn/{turn_id}/permission`` endpoint.
+
+Background tasks get the full autonomous toolset — web, artifacts, memory, subagents,
+AND the code/file tools (code_execution, bash, text_editor) so a delegated job can
+actually build something in its workspace (previously it could only read/browse)."""
 from __future__ import annotations
+
+import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
 from ocd_core import agent, cowork, opik_tracing
@@ -18,6 +29,7 @@ class CoworkStart(BaseModel):
     provider: str | None = None
     effort: str = "High"
     project_id: str | None = None
+    approval: str = "skip"   # skip (autonomous) | manual (HITL gate live)
 
 
 @router.post("/cowork")
@@ -26,28 +38,42 @@ async def start_task(body: CoworkStart, user: str = Depends(current_user)) -> di
     if not body.goal.strip():
         raise HTTPException(status_code=400, detail="goal is required")
 
+    manual = body.approval == "manual"
+    turn_id = uuid.uuid4().hex if manual else None
+
     def gen_factory():
-        # A fresh run_turn generator per launch; tools run without prompting (auto), and
-        # web/artifact tools are enabled so the delegated work is autonomous. Subagents are
-        # on so a big background task can fan work out into isolated, self-contained subtasks.
-        # The Opik tap (opt-in) mirrors the run into a trace without touching the stream.
+        # Full autonomous toolset incl. the code/file tools so delegated work can
+        # actually build in its workspace. 'manual' wires a live HITL gate (ask +
+        # turn_id); 'skip' runs unattended (auto). The Opik tap (opt-in) mirrors the
+        # run into a trace without touching the stream.
         return opik_tracing.traced(
             agent.run_turn(
                 body.goal, [], body.project_id, body.model,
-                effort=body.effort, provider=body.provider, permission_mode="auto",
-                web_search=True, web_fetch=True, artifacts=True, memory=True, subagents=True,
+                effort=body.effort, provider=body.provider,
+                permission_mode=("ask" if manual else "auto"), turn_id=turn_id,
+                web_search=True, web_fetch=True, artifacts=True, memory=True,
+                subagents=True, code_exec=True, bash=True, text_editor=True,
             ),
             goal=body.goal, model=body.model, provider=body.provider,
-            effort=body.effort, tags=["cowork"],
+            effort=body.effort, turn_id=turn_id, tags=["cowork"],
         )
 
-    task = cowork.manager.start(body.goal, gen_factory)
+    task = cowork.manager.start(
+        body.goal, gen_factory, approval=body.approval, turn_id=turn_id,
+        project_id=body.project_id, model=body.model, provider=body.provider,
+        effort=body.effort)
     return task.summary()
 
 
 @router.get("/cowork")
 def list_tasks(user: str = Depends(current_user)) -> list[dict]:
     return cowork.manager.list()
+
+
+@router.post("/cowork/clear")
+def clear_tasks(user: str = Depends(current_user)) -> dict:
+    """Drop all finished tasks (the 'Clear active' action). Running tasks are kept."""
+    return {"cleared": cowork.manager.clear_finished()}
 
 
 @router.get("/cowork/{task_id}")

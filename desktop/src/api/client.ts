@@ -335,28 +335,47 @@ async function postForm<T>(path: string, form: FormData): Promise<T> {
   return (await resp.json()) as T;
 }
 
+export type CoworkStatus = "running" | "done" | "error" | "cancelled" | "interrupted";
+
 export interface CoworkTask {
   id: string;
   title: string;
-  status: "running" | "done" | "error" | "cancelled";
+  status: CoworkStatus;
+  approval: "skip" | "manual";
+  project_id?: string | null;
   created_at: string;
   updated_at: string;
   events: number;
 }
 
+export interface CoworkFile {
+  name: string;
+  kind: string;
+}
+export interface CoworkProgress {
+  label: string;
+  done: boolean;
+}
+
 export interface CoworkDetail extends CoworkTask {
   goal: string;
   error: string | null;
+  turn_id: string | null;
   event_list: import("./events").AgentEvent[];
   answer: string;
+  files: CoworkFile[];
+  progress: CoworkProgress[];
 }
 
 export const cowork = {
   list: () => api.get<CoworkTask[]>("/cowork"),
-  start: (body: { goal: string; model: string; provider?: string | null; effort?: string; project_id?: string | null }) =>
-    api.post<CoworkTask>("/cowork", body),
+  start: (body: {
+    goal: string; model: string; provider?: string | null; effort?: string;
+    project_id?: string | null; approval?: "skip" | "manual";
+  }) => api.post<CoworkTask>("/cowork", body),
   get: (id: string) => api.get<CoworkDetail>(`/cowork/${id}`),
   cancel: (id: string) => api.post<{ cancelled: boolean }>(`/cowork/${id}/cancel`),
+  clear: () => api.post<{ cleared: number }>("/cowork/clear", {}),
 };
 
 export interface Schedule {

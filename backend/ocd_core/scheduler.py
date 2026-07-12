@@ -110,20 +110,27 @@ class ScheduleStore:
 
 
 def default_launch(s: Schedule) -> str:
-    """Launch a scheduled goal as an autonomous Cowork task (returns the task id)."""
+    """Launch a scheduled goal as an autonomous Cowork task (returns the task id).
+
+    Scheduled runs are unattended by definition — no one is watching to answer a
+    prompt — so they always run with the full autonomous toolset (incl. the code/file
+    tools, so an automation can actually produce artifacts) at permission_mode=auto."""
+    model = s.model or config.AGENT_MODEL
+
     def gen_factory():
         # Opik tap (opt-in): scheduled runs were the one turn source left invisible
         # in traces — chat and Cowork are already wrapped at their routes.
-        model = s.model or config.AGENT_MODEL
         return opik_tracing.traced(
             agent.run_turn(
                 s.goal, [], s.project_id, model,
                 effort=s.effort, provider=s.provider, permission_mode="auto",
                 web_search=True, web_fetch=True, artifacts=True, memory=True,
-                subagents=True),
+                subagents=True, code_exec=True, bash=True, text_editor=True),
             goal=s.goal, model=model, provider=s.provider, effort=s.effort,
             tags=["scheduled"])
-    return cowork.manager.start(s.goal, gen_factory).id
+    return cowork.manager.start(
+        s.goal, gen_factory, approval="skip", project_id=s.project_id,
+        model=model, provider=s.provider, effort=s.effort).id
 
 
 class SchedulerService:

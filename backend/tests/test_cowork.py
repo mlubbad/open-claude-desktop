@@ -137,3 +137,118 @@ def test_cowork_routes_plumbing(client):
     assert client.get("/cowork/does-not-exist").status_code == 404
     assert client.post("/cowork", json={"goal": "", "model": "m"}).status_code == 400
     assert "cancelled" in client.post(f"/cowork/{tid}/cancel").json()
+
+
+# --------------------------------------------------------------------------- #
+#  P1-8: durable persistence, approval mode, tool parity, derived rail data
+# --------------------------------------------------------------------------- #
+def test_tasks_persist_across_a_restart(tmp_path, monkeypatch):
+    """A completed task survives a new manager reading the same store; a task caught
+    mid-run reloads as 'interrupted' rather than a phantom 'running'."""
+    store = tmp_path / "cw.json"
+    monkeypatch.setattr(cowork, "_STORE_PATH", store)
+
+    async def go():
+        mgr = cowork.CoworkManager()
+        done = mgr.start("finished", lambda: _answer_gen())
+        await done.handle
+        # Simulate a running task that never got to persist a terminal status.
+        running = cowork.Task(id="live1", goal="live", title="live", status="running")
+        mgr._tasks["live1"] = running
+        mgr._save()
+        return done.id
+
+    done_id = asyncio.run(go())
+
+    reborn = cowork.CoworkManager()  # a "restart" reading the same file
+    ids = {t["id"]: t for t in reborn.list()}
+    assert ids[done_id]["status"] == "done"
+    assert reborn.get(done_id)["answer"] == "hello world"
+    assert ids["live1"]["status"] == "interrupted"  # can't resume; not a fake 'running'
+
+
+def test_clear_finished_keeps_running():
+    async def go():
+        mgr = cowork.CoworkManager()
+        d = mgr.start("done", lambda: _answer_gen())
+        await d.handle
+        r = mgr.start("slow", lambda: _slow_gen())
+        await asyncio.sleep(0.05)
+        removed = mgr.clear_finished()
+        alive = [t["id"] for t in mgr.list()]
+        mgr.cancel(r.id)
+        with contextlib.suppress(asyncio.CancelledError):
+            await r.handle
+        return removed, alive, d.id, r.id
+
+    removed, alive, done_id, run_id = asyncio.run(go())
+    assert removed == 1
+    assert done_id not in alive and run_id in alive
+
+
+def test_manual_approval_wires_a_turn_id(client, monkeypatch):
+    """approval=manual runs with permission_mode=ask + a turn_id (a live HITL gate),
+    while skip stays autonomous."""
+    captured = {}
+
+    def fake_run_turn(*a, **k):
+        captured.clear()
+        captured.update(k)
+        return _answer_gen()
+
+    from app.routes import cowork as cowork_route
+    monkeypatch.setattr(cowork_route.agent, "run_turn", fake_run_turn)
+
+    r = client.post("/cowork", json={"goal": "build it", "model": "m", "approval": "manual"})
+    assert r.json()["approval"] == "manual"
+    assert captured["permission_mode"] == "ask" and captured["turn_id"]
+    # The full autonomous toolset incl. the code/file tools is on for background work.
+    assert captured["code_exec"] and captured["bash"] and captured["text_editor"]
+
+    client.post("/cowork", json={"goal": "browse it", "model": "m"})  # default skip
+    assert captured["permission_mode"] == "auto" and captured["turn_id"] is None
+
+
+def test_clear_route(client):
+    client.post("/cowork", json={"goal": "one", "model": "m"})
+    assert client.post("/cowork/clear").json()["cleared"] >= 0
+
+
+def test_derive_progress_and_files():
+    events = [
+        {"type": "think_open", "phase": "plan"},
+        {"type": "think_close"},
+        {"type": "files", "files": [{"name": "out.csv"}, {"name": "chart.png"}]},
+        {"type": "artifact_open", "id": "a1", "title": "Report", "kind": "markdown"},
+        {"type": "think_open", "phase": "verify"},  # still open → not done
+    ]
+    progress = cowork._derive_progress(events)
+    assert progress[0] == {"label": "Planning the approach", "done": True}
+    assert progress[1] == {"label": "Verifying the result", "done": False}
+    files = {f["name"] for f in cowork._derive_files(events)}
+    assert files == {"out.csv", "chart.png", "Report"}
+
+
+def test_scheduled_launch_has_tool_parity(monkeypatch, tmp_path):
+    """A scheduled automation launches with the code/file tools enabled so it can
+    actually produce artifacts (P1-8), at permission_mode=auto."""
+    from ocd_core import scheduler
+    monkeypatch.setattr(cowork, "_STORE_PATH", tmp_path / "s.json")
+    monkeypatch.setattr(scheduler, "cowork", cowork)
+    captured = {}
+
+    async def go():
+        def fake_run_turn(*a, **k):
+            captured.update(k)
+            return _answer_gen()
+
+        monkeypatch.setattr(scheduler.agent, "run_turn", fake_run_turn)
+        monkeypatch.setattr(scheduler.opik_tracing, "traced",
+                            lambda gen, **kw: gen)
+        s = scheduler.Schedule(id="s1", goal="daily digest", model="m")
+        tid = scheduler.default_launch(s)
+        await cowork.manager._tasks[tid].handle
+
+    asyncio.run(go())
+    assert captured["permission_mode"] == "auto"
+    assert captured["code_exec"] and captured["bash"] and captured["text_editor"]

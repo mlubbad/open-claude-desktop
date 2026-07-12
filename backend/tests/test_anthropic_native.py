@@ -121,10 +121,37 @@ def test_budget_model_gets_budget_tokens_with_headroom(monkeypatch):
     assert "output_config" not in body  # effort errors on this model
 
 
-def test_older_model_without_reasoning_keeps_temperature(monkeypatch):
+def test_adaptive_model_disables_thinking_without_reasoning(monkeypatch):
+    # Omitting `thinking` on a 4.6+/5-series model runs adaptive-on by default,
+    # which would burn a 400-token plan pass on hidden thinking. Turn it off.
     body = _shape(monkeypatch, "claude-opus-4-6", reasoning=None)
-    assert "thinking" not in body
-    assert body["temperature"] == 0.1  # allowed on 4.6 when not thinking
+    assert body["thinking"] == {"type": "disabled"}
+    assert body["temperature"] == 0.1  # allowed once thinking is off
+
+
+def test_no_trailing_assistant_prefill(monkeypatch):
+    # The agent's plan pass ends history on an assistant turn; the adapter must not
+    # send that as a prefill (400 on modern models) — it appends a user continuation.
+    body = _shape(monkeypatch, "claude-sonnet-5",
+                  messages=[{"role": "system", "content": "sys"},
+                            {"role": "user", "content": "goal"},
+                            {"role": "assistant", "content": "My plan: do X."}])
+    assert body["messages"][-1]["role"] == "user"
+    assert body["messages"][-1]["content"][0]["text"] == "Continue."
+    # The plan itself survives as assistant context (only the LAST turn was fixed).
+    assert body["messages"][-2]["role"] == "assistant"
+
+
+def test_thinking_calls_get_max_tokens_headroom(monkeypatch):
+    # A tiny answer budget (the 400-token plan/verify passes) must not be swallowed
+    # whole by thinking tokens — the adapter floors the total.
+    captured: list = []
+    client = make_client(monkeypatch, json_body=_message_json(
+        [{"type": "text", "text": "ok"}]), captured=captured)
+    client.chat.completions.create(
+        model="claude-sonnet-5", messages=[{"role": "user", "content": "hi"}],
+        reasoning_effort="high", max_tokens=400)
+    assert captured[0]["max_tokens"] >= 8192
 
 
 def test_cache_breakpoints_on_system_and_conversation_tail(monkeypatch):
@@ -321,6 +348,39 @@ def test_non_streaming_response_shape(monkeypatch):
         "function": {"name": "t", "arguments": '{"a": 1}'}}
     assert resp.choices[0].finish_reason == "tool_calls"
     assert resp.usage.prompt_tokens == 20  # 10 + 7 cache-read + 3 cache-write
+
+
+def test_streaming_refusal_surfaces_explanation(monkeypatch):
+    # A pre-output classifier refusal (empty content, stop_reason "refusal") must
+    # yield a visible explanation, not a blank turn the agent loop re-sends.
+    stream = [
+        {"type": "message_start",
+         "message": {"id": "m", "type": "message", "role": "assistant",
+                     "model": "claude-fable-5", "content": [], "stop_reason": None,
+                     "stop_sequence": None,
+                     "usage": {"input_tokens": 5, "output_tokens": 0}}},
+        {"type": "message_delta",
+         "delta": {"stop_reason": "refusal", "stop_sequence": None},
+         "usage": {"output_tokens": 0}},
+        {"type": "message_stop"},
+    ]
+    client = make_client(monkeypatch, sse_events=stream)
+    chunks = list(client.chat.completions.create(
+        model="claude-fable-5", messages=[{"role": "user", "content": "x"}],
+        stream=True, max_tokens=4096))
+    text = "".join(c.choices[0].delta.content or "" for c in chunks if c.choices)
+    assert "declined" in text.lower()
+    assert chunks[-1].choices[0].finish_reason == "content_filter"
+
+
+def test_nonstreaming_refusal_surfaces_explanation(monkeypatch):
+    body = _message_json([], stop_reason="refusal")
+    client = make_client(monkeypatch, json_body=body)
+    resp = client.chat.completions.create(
+        model="claude-fable-5", messages=[{"role": "user", "content": "x"}],
+        max_tokens=64)
+    assert "declined" in resp.choices[0].message.content.lower()
+    assert resp.choices[0].finish_reason == "content_filter"
 
 
 def test_rate_limit_maps_to_retryable_error(monkeypatch):

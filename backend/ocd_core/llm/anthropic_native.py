@@ -86,6 +86,12 @@ def _rejects_sampling(model: str) -> bool:
 # Legacy budget-based thinking: tokens the model may think with, per effort level.
 _BUDGETS = {"low": 2048, "medium": 8192, "high": 16384}
 
+# When thinking is on, reasoning tokens count against max_tokens — so a caller's
+# small answer budget (the agent's 400-token plan/verify passes) would be entirely
+# consumed by thinking, truncating the visible answer to nothing. Floor the total so
+# there is always room for both the thinking and the requested answer.
+_THINKING_FLOOR = 8192
+
 
 # --------------------------------------------------------------------------- #
 #  Thinking-block replay cache
@@ -214,6 +220,18 @@ def to_anthropic_messages(messages: list[dict], *, attach_thinking: bool = True,
                      "tool_use_id": msg.get("tool_call_id", ""),
                      "content": content if isinstance(content, str) else str(content)}
             _append("user", [block])
+    # A history that ENDS on an assistant turn is an assistant prefill — a 400 on
+    # every modern Claude model. The agent loop produces exactly this after its
+    # plan pass (it appends "My plan: …" then fires the main call), so close the
+    # turn with a continuation user message: the plan stays as assistant context,
+    # and the model resumes executing it.
+    if out and out[-1]["role"] == "assistant":
+        out.append({"role": "user",
+                    "content": [{"type": "text", "text": "Continue."}]})
+    # The Messages API rejects an empty conversation; a bare-minimum user turn keeps
+    # a degenerate history (e.g. system-only) valid.
+    if not out:
+        out.append({"role": "user", "content": [{"type": "text", "text": "Continue."}]})
     return system_blocks, out
 
 
@@ -262,6 +280,13 @@ def thinking_params(model: str, reasoning: str | None, max_tokens: int,
         if effort and thinking_ok:
             kw["thinking"] = {"type": "adaptive", "display": "summarized"}
             kw["output_config"] = {"effort": effort}
+        else:
+            # On these models (Opus 4.6+/Sonnet 4.6/5-series) OMITTING thinking runs
+            # adaptive-on by default, which would silently burn the budget of a
+            # non-reasoning call (the agent's 400-token plan/verify passes) on hidden
+            # thinking and return empty text. `disabled` is accepted here (unlike the
+            # always-on family), so turn it off explicitly for no-reasoning calls.
+            kw["thinking"] = {"type": "disabled"}
     else:  # budget (legacy models)
         if effort and thinking_ok:
             budget = _BUDGETS[effort]
@@ -270,7 +295,11 @@ def thinking_params(model: str, reasoning: str | None, max_tokens: int,
             kw["thinking"] = {"type": "enabled", "budget_tokens": budget}
             kw["max_tokens"] = max(max_tokens, budget + max_tokens)
 
-    thinking_on = "thinking" in kw or family == "always"
+    thinking_on = family == "always" or kw.get("thinking", {}).get("type") in (
+        "adaptive", "enabled")
+    if thinking_on:
+        # Reserve headroom so thinking tokens don't starve the visible answer.
+        kw["max_tokens"] = max(kw["max_tokens"], _THINKING_FLOOR)
     if temperature is not None and not _rejects_sampling(model) and not thinking_on:
         kw["temperature"] = temperature
     return kw
@@ -315,7 +344,15 @@ def _chunk(*, content=None, reasoning=None, tool_calls=None, usage=None,
                                  usage=usage)
 
 
-_FINISH = {"tool_use": "tool_calls", "max_tokens": "length"}
+_FINISH = {"tool_use": "tool_calls", "max_tokens": "length",
+           "model_context_window_exceeded": "length", "refusal": "content_filter"}
+
+# What the user sees when a safety classifier declines a request (HTTP 200 with
+# stop_reason "refusal" and empty/partial content). Without an in-band signal the
+# agent loop would treat it as a blank answer and re-send the refused conversation
+# up to the step cap. Emitted only when the turn produced no other visible text.
+_REFUSAL_TEXT = ("This request was declined by the model provider's safety system. "
+                 "Rephrase it, or switch to a different model in Settings.")
 
 
 # --------------------------------------------------------------------------- #
@@ -372,12 +409,16 @@ class _Completions:
             elif block.type in ("thinking", "redacted_thinking"):
                 thinking_blocks.append(block.model_dump(exclude_none=True))
         _remember_thinking([tc.id for tc in tool_calls], thinking_blocks)
+        # A refusal with no other visible output must not read as a blank answer —
+        # surface an explanation so the caller shows it instead of retrying blindly.
+        body = "".join(text)
+        if msg.stop_reason == "refusal" and not body and not tool_calls:
+            body = _REFUSAL_TEXT
         u = msg.usage
         usage = _usage_ns(u.input_tokens or 0, u.output_tokens or 0,
                           getattr(u, "cache_read_input_tokens", 0) or 0,
                           getattr(u, "cache_creation_input_tokens", 0) or 0)
-        message = types.SimpleNamespace(content="".join(text),
-                                        tool_calls=tool_calls or None)
+        message = types.SimpleNamespace(content=body, tool_calls=tool_calls or None)
         choice = types.SimpleNamespace(
             message=message, finish_reason=_FINISH.get(msg.stop_reason, "stop"))
         return types.SimpleNamespace(choices=[choice], usage=usage, model=msg.model)
@@ -391,6 +432,8 @@ class _Completions:
         n_tools = 0
         usage_in = usage_read = usage_write = usage_out = 0
         finish = None
+        stop_reason = None
+        emitted_visible = False   # any text or tool call the user would see
 
         for ev in events:
             et = ev.type
@@ -405,6 +448,7 @@ class _Completions:
                 if cb.type == "tool_use":
                     blocks[ev.index] = {"kind": "tool", "tool_index": n_tools}
                     tool_ids.append(cb.id)
+                    emitted_visible = True
                     yield _chunk(tool_calls=[_ToolCall(n_tools, cb.id, cb.name)])
                     n_tools += 1
                 elif cb.type == "thinking":
@@ -420,6 +464,7 @@ class _Completions:
                 d = ev.delta
                 acc = blocks.get(ev.index, {})
                 if d.type == "text_delta" and d.text:
+                    emitted_visible = True
                     yield _chunk(content=d.text)
                 elif d.type == "thinking_delta" and d.thinking:
                     acc["thinking"] = acc.get("thinking", "") + d.thinking
@@ -440,9 +485,14 @@ class _Completions:
                     usage_out = ev.usage.output_tokens or usage_out
                 stop = getattr(ev.delta, "stop_reason", None)
                 if stop:
+                    stop_reason = stop
                     finish = _FINISH.get(stop, "stop")
 
         _remember_thinking(tool_ids, thinking_blocks)
+        # Refusal with nothing visible streamed: emit the explanation so the caller
+        # doesn't treat the empty turn as a blank answer and re-send it.
+        if stop_reason == "refusal" and not emitted_visible:
+            yield _chunk(content=_REFUSAL_TEXT)
         yield _chunk(usage=_usage_ns(usage_in, usage_out, usage_read, usage_write),
                      finish_reason=finish)
 

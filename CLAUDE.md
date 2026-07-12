@@ -9,6 +9,12 @@ no proprietary Anthropic code, assets, branding, or verbatim system prompts.
   `backend/ocd_core/` (agent loop `agent.run_turn`, providers, knowledge/RAG,
   MCP registry, code execution, Cowork, scheduler, settings, keychain secrets).
   Routes in `backend/app/routes/` are thin wrappers.
+- Providers (`ocd_core/llm/`): one OpenAI-compatible client drives every backend
+  EXCEPT `anthropic`, which uses `llm/anthropic_native.py` — a native Messages-API
+  adapter behind the same `chat.completions.create` shape, for prompt caching +
+  extended thinking. Request shape is model-family-aware (always-on/adaptive/budget
+  thinking, sampling-param rejection); thinking blocks that precede tool calls are
+  cached by tool-call id and replayed. Tests: `test_anthropic_native.py`.
 - `desktop/` — the flagship client: React 18 + TS + Vite (dev port 1420 → :8000)
   inside a Tauri v2 shell (`desktop/src-tauri/`). PyInstaller freezes the backend
   as the `ocd-backend` sidecar; a pinned Node runtime ships as `ocd-node` for

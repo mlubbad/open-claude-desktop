@@ -2,6 +2,15 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
+def _isolate_secret_store(monkeypatch):
+    """Force a fresh in-memory secret store per test so nothing ever touches the
+    developer's OS keyring or writes runtime/secrets.enc into the repo (install_mcpb
+    now persists user_config answers through the secret store)."""
+    from ocd_core import secrets
+    monkeypatch.setattr(secrets, "_store", secrets.MemoryStore())
+
+
+@pytest.fixture(autouse=True)
 def _isolate_cowork_store(tmp_path, monkeypatch):
     """The Cowork manager is a module singleton that persists to
     REPO_ROOT/cowork_tasks.json. Repoint BOTH the module default and the live

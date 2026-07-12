@@ -4,6 +4,7 @@ import type { ThemePref } from "../state/theme";
 import { Icon } from "./Icon";
 import { CapabilitiesPage } from "./settings/CapabilitiesPage";
 import { ConnectorsPage } from "./settings/ConnectorsPage";
+import { DesktopGeneralPage } from "./settings/DesktopGeneralPage";
 import { DeveloperPage } from "./settings/DeveloperPage";
 import { ExtensionsPage } from "./settings/ExtensionsPage";
 import { GeneralPage } from "./settings/GeneralPage";
@@ -16,7 +17,6 @@ import {
   ChromePage,
   ClaudeCodePage,
   CoworkPage,
-  DesktopGeneralPage,
   PrivacyPage,
   UsagePage,
 } from "./settings/StaticPages";

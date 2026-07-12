@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { reconcileEnabled, requiredFields, toggleId } from "./useConnectors";
+import { parseMissingUserConfig, reconcileEnabled, requiredFields, toggleId } from "./useConnectors";
 
 describe("toggleId", () => {
   it("adds an id that is absent", () => {
@@ -45,5 +45,18 @@ describe("reconcileEnabled", () => {
   });
   it("is empty when nothing is enabled", () => {
     expect(reconcileEnabled([], servers)).toEqual([]);
+  });
+});
+
+describe("parseMissingUserConfig", () => {
+  it("extracts the keys the backend names, through the ApiError stringification", () => {
+    expect(parseMissingUserConfig("Error: 400: missing required user_config: api_key, region"))
+      .toEqual(["api_key", "region"]);
+    expect(parseMissingUserConfig("missing required user_config: token")).toEqual(["token"]);
+  });
+
+  it("returns [] for unrelated errors", () => {
+    expect(parseMissingUserConfig("Error: 400: bundle download failed (HTTP 503)")).toEqual([]);
+    expect(parseMissingUserConfig("")).toEqual([]);
   });
 });

@@ -290,6 +290,7 @@ export interface McpServer {
   authorized?: boolean; // OAuth connectors: whether a token is held
   source: string; // "mcpb" for one-click-installed extensions, else ""
   version: string;
+  repository: string; // manifest repository URL — enables the update check (P1-13)
   status: string;
   detail: string;
   tool_count: number;
@@ -306,6 +307,14 @@ export interface AddMcpBody {
   env?: Record<string, string>;
   headers?: Record<string, string>;
   auth_token?: string;
+}
+
+// Result of an extension update check (P1-13). `latest` is null when current.
+export interface McpUpdateInfo {
+  current: string;
+  latest: string | null;
+  url: string;
+  notes: string;
 }
 
 // A field the user must fill in before an extension can launch (API keys, paths…).
@@ -553,6 +562,11 @@ export const mcp = {
   // Per-tool enable/disable within a connector (P1-12).
   setToolEnabled: (sid: string, tool: string, enabled: boolean) =>
     api.post<McpServer>(`/mcp-servers/${sid}/tools/${encodeURIComponent(tool)}`, { enabled }),
+  // Extension updates (P1-13): check the manifest's GitHub repo for a newer
+  // release bundle, then reinstall in place (user_config comes from the keychain).
+  checkUpdate: (sid: string) => api.get<McpUpdateInfo>(`/mcp-servers/${sid}/update`),
+  update: (sid: string, values: Record<string, string> = {}) =>
+    api.post<McpServer>(`/mcp-servers/${sid}/update`, { values }),
   // Curated open-source connector catalog (P1-3); entries prefill the add form.
   directory: () => api.get<DirectoryEntry[]>("/connectors/directory"),
 };

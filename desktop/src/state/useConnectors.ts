@@ -3,7 +3,14 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { type AddMcpBody, type McpServer, type McpbManifestInfo, mcp, type UserConfigField } from "../api/client";
+import {
+  type AddMcpBody,
+  type McpServer,
+  type McpUpdateInfo,
+  type McpbManifestInfo,
+  mcp,
+  type UserConfigField,
+} from "../api/client";
 
 // Pure toggle of an id in a string array (kept pure for testing).
 export function toggleId(ids: string[], id: string): string[] {
@@ -37,6 +44,16 @@ function saveEnabled(ids: string[]): void {
 export function reconcileEnabled(enabled: string[], servers: { id: string; status: string }[]): string[] {
   const healthy = new Set(servers.filter((s) => s.status !== "error").map((s) => s.id));
   return enabled.filter((id) => healthy.has(id));
+}
+
+// The keys named by the backend's "missing required user_config: a, b" error
+// (an update added required fields the keychain doesn't hold). Pure for tests.
+export function parseMissingUserConfig(message: string): string[] {
+  const m = /missing required user_config: (.+)/.exec(message);
+  return (m?.[1] ?? "")
+    .split(",")
+    .map((k) => k.trim())
+    .filter(Boolean);
 }
 
 // The user_config fields an extension REQUIRES the user to supply before it can
@@ -203,9 +220,59 @@ export function useConnectors() {
     [refresh],
   );
 
+  // Extension updates (P1-13). `updates` caches check results per server id so the
+  // card can flip between "Check for updates" → "Up to date" / "Update to vX".
+  const [updates, setUpdates] = useState<Record<string, McpUpdateInfo>>({});
+  const [updating, setUpdating] = useState<string | null>(null);
+  const checkUpdate = useCallback(async (sid: string) => {
+    setErr(null);
+    setUpdating(sid);
+    try {
+      const info = await mcp.checkUpdate(sid);
+      setUpdates((u) => ({ ...u, [sid]: info }));
+    } catch (e) {
+      setErr(String(e));
+    } finally {
+      setUpdating(null);
+    }
+  }, []);
+
+  // A new manifest version may REQUIRE config the old one didn't; the backend
+  // names the missing keys. NOT window.prompt — that's a silent no-op inside
+  // Tauri's webview — the page renders an inline form for them instead.
+  const [updateNeeds, setUpdateNeeds] = useState<{ sid: string; keys: string[] } | null>(null);
+
+  const applyUpdate = useCallback(
+    async (sid: string, values?: Record<string, string>): Promise<McpServer | null> => {
+      setErr(null);
+      setUpdating(sid);
+      try {
+        const s = await mcp.update(sid, values ?? {});
+        setUpdateNeeds(null);
+        setUpdates((u) => {
+          const next = { ...u };
+          delete next[sid];
+          return next;
+        });
+        await refresh();
+        if (s.status === "connected") setEnabled((ids) => (ids.includes(s.id) ? ids : [...ids, s.id]));
+        else if (s.detail) setErr(`${s.name}: ${s.detail}`);
+        return s;
+      } catch (e) {
+        const missing = parseMissingUserConfig(String(e));
+        if (missing.length > 0) setUpdateNeeds({ sid, keys: missing });
+        else setErr(String(e));
+        return null;
+      } finally {
+        setUpdating(null);
+      }
+    },
+    [refresh],
+  );
+
   const toggle = useCallback((sid: string) => setEnabled((ids) => toggleId(ids, sid)), []);
 
   // `enabled` = the user's intent (drives the checkboxes); `active` = intent ∩ healthy
   // (fed to turns as enabled_mcp). Keeping them distinct is the whole point of F4.
-  return { servers, enabled, active, err, add, addOAuth, authorize, remove, toggle, install, refresh, retry, retrying, setToolEnabled };
+  return { servers, enabled, active, err, add, addOAuth, authorize, remove, toggle, install, refresh, retry, retrying, setToolEnabled, updates, updating, checkUpdate, applyUpdate, updateNeeds };
 }

@@ -50,6 +50,11 @@ function makeControls(over: Partial<ConnectorControls> = {}): ConnectorControls 
     onRetry: vi.fn(),
     retrying: null,
     onToolToggle: vi.fn(),
+    updates: {},
+    updating: null,
+    onCheckUpdate: vi.fn(),
+    onUpdate: vi.fn(),
+    updateNeeds: null,
     ...over,
   };
 }
@@ -92,6 +97,46 @@ describe("connector directory (P1-3)", () => {
     expect(screen.getByLabelText("Command arguments")).toHaveValue("mcp-server-fetch");
     // Nothing was added yet — the user must confirm.
     expect(c.onAdd).not.toHaveBeenCalled();
+  });
+});
+
+describe("extension updates (P1-13)", () => {
+  const ext = () =>
+    server({ status: "connected", source: "mcpb", version: "1.0.0",
+             repository: "https://github.com/acme/ext" });
+
+  it("offers Check for updates on extensions with a repository", () => {
+    const c = makeControls({ servers: [ext()] });
+    render(<ConnectorsPage c={c} />);
+    fireEvent.click(screen.getByLabelText("Check updates for playwright"));
+    expect(c.onCheckUpdate).toHaveBeenCalledWith("playwright");
+  });
+
+  it("shows Update to vX once a newer release is known", () => {
+    const c = makeControls({
+      servers: [ext()],
+      updates: { playwright: { current: "1.0.0", latest: "2.0.0", url: "u", notes: "" } },
+    });
+    render(<ConnectorsPage c={c} />);
+    fireEvent.click(screen.getByLabelText("Update playwright"));
+    expect(c.onUpdate).toHaveBeenCalledWith("playwright");
+  });
+
+  it("offers no update button on plain connectors", () => {
+    render(<ConnectorsPage c={makeControls()} />);
+    expect(screen.queryByLabelText("Check updates for playwright")).toBeNull();
+  });
+
+  it("renders an inline form when the update needs new user_config (no window.prompt)", () => {
+    const c = makeControls({
+      servers: [ext()],
+      updateNeeds: { sid: "playwright", keys: ["api_key", "region"] },
+    });
+    render(<ConnectorsPage c={c} />);
+    fireEvent.change(screen.getByLabelText("Value for api_key"), { target: { value: "k-123" } });
+    fireEvent.change(screen.getByLabelText("Value for region"), { target: { value: "eu" } });
+    fireEvent.click(screen.getByRole("button", { name: "Continue update" }));
+    expect(c.onUpdate).toHaveBeenCalledWith("playwright", { api_key: "k-123", region: "eu" });
   });
 });
 

@@ -15,11 +15,17 @@ export function ConnectorsPage({ c }: { c: ConnectorControls }) {
   const [directory, setDirectory] = useState<DirectoryEntry[]>([]);
   // Which server's per-tool toggle list is expanded (P1-12).
   const [toolsFor, setToolsFor] = useState<string | null>(null);
+  // Values typed into the inline "this update needs…" form (P1-13). Keyed by
+  // user_config key; reset whenever a different update starts asking.
+  const [updateValues, setUpdateValues] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (!showBrowse || directory.length > 0) return;
     mcp.directory().then(setDirectory).catch(() => {});
   }, [showBrowse, directory.length]);
+
+  const needsSid = c.updateNeeds?.sid ?? null;
+  useEffect(() => setUpdateValues({}), [needsSid]);
   const [mode, setMode] = useState<"stdio" | "remote" | "json">("remote");
   const [name, setName] = useState("");
   const [command, setCommand] = useState("");
@@ -290,6 +296,29 @@ export function ConnectorsPage({ c }: { c: ConnectorControls }) {
                 )}
               </div>
             )}
+            {c.updateNeeds?.sid === s.id && (
+              <div className="conn-add" aria-label={`Update settings for ${s.name}`}>
+                <p className="settings-hint" style={{ margin: 0 }}>
+                  This update adds required settings — fill them in to continue.
+                </p>
+                {c.updateNeeds.keys.map((k) => (
+                  <input
+                    key={k}
+                    placeholder={k}
+                    aria-label={`Value for ${k}`}
+                    value={updateValues[k] ?? ""}
+                    onChange={(e) => setUpdateValues((v) => ({ ...v, [k]: e.target.value }))}
+                  />
+                ))}
+                <button
+                  className="conn-submit"
+                  disabled={c.updating === s.id}
+                  onClick={() => c.onUpdate(s.id, updateValues)}
+                >
+                  {c.updating === s.id ? "Updating…" : "Continue update"}
+                </button>
+              </div>
+            )}
             <div className="dir-card-actions">
               <label className="dir-toggle">
                 <input
@@ -302,6 +331,29 @@ export function ConnectorsPage({ c }: { c: ConnectorControls }) {
                 Enabled
               </label>
               <span className="dir-card-actions-right">
+                {s.source === "mcpb" && !!s.repository && (
+                  c.updates[s.id]?.latest ? (
+                    <button
+                      className="conn-authorize"
+                      title={c.updates[s.id].notes || "Download and reinstall this extension"}
+                      aria-label={`Update ${s.name}`}
+                      disabled={c.updating === s.id}
+                      onClick={() => c.onUpdate(s.id)}
+                    >
+                      {c.updating === s.id ? "Updating…" : `Update to v${c.updates[s.id].latest}`}
+                    </button>
+                  ) : (
+                    <button
+                      className="conn-authorize"
+                      title="Check the extension's GitHub releases for a newer bundle"
+                      aria-label={`Check updates for ${s.name}`}
+                      disabled={c.updating === s.id}
+                      onClick={() => c.onCheckUpdate(s.id)}
+                    >
+                      {c.updating === s.id ? "Checking…" : c.updates[s.id] ? "Up to date" : "Check for updates"}
+                    </button>
+                  )
+                )}
                 {s.status === "error" && (
                   <button
                     className="conn-authorize"

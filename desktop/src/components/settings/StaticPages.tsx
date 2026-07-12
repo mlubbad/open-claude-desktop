@@ -258,41 +258,5 @@ export function ChromePage() {
   );
 }
 
-export function DesktopGeneralPage() {
-  return (
-    <>
-      <PageNote>
-        Window/tray behavior is managed by the desktop shell; these switches arrive with
-        deeper OS integration.
-      </PageNote>
-      <Section title="App">
-        <Row label="Quickly open Claude from anywhere" locked>
-          <span className="set-kbd">Ctrl+Alt+Space</span>
-        </Row>
-        <Row label="System tray" desc="Keep Claude running in the system tray." locked>
-          <Toggle label="System tray" on disabled />
-        </Row>
-        <Row label="Keep computer awake"
-             desc="Prevent your computer from idle-sleeping while Claude is open so scheduled tasks can run." locked>
-          <Toggle label="Keep computer awake" on={false} disabled />
-        </Row>
-      </Section>
-      <Section title="Computer use">
-        <Row label="Enable computer use" badge="Beta"
-             desc="Let Claude take screenshots and control your keyboard and mouse in apps you allow." locked>
-          <Toggle label="Enable computer use" on={false} disabled />
-        </Row>
-        <Row label="Denied apps"
-             desc="Any request Claude makes to access these apps is automatically rejected." locked>
-          <LockedButton>Add app</LockedButton>
-        </Row>
-        <Row label="Accessibility" locked>
-          <span className="set-muted">Not supported</span>
-        </Row>
-        <Row label="Screen recording" locked>
-          <span className="set-muted">Not supported</span>
-        </Row>
-      </Section>
-    </>
-  );
-}
+// DesktopGeneralPage moved to its own file — it grew a real backend (P1-9: live
+// hotkey/tray/login/update controls), so it no longer belongs with the inert pages.

@@ -1549,9 +1549,38 @@ def safe_project(project: str | None) -> str:
     return slug or config.GENERAL_ID
 
 
+def _sync_project_knowledge(project: str | None, root: Path) -> None:
+    """Mirror the project's uploaded knowledge files into the exec workspace under
+    knowledge/ so code can work on the ACTUAL uploads ("modify this CSV") — RAG
+    passages can answer questions about a file but cannot transform it. Copies are
+    stat-compared (no-op when nothing changed, refreshed on re-upload); the mirror
+    is created BEFORE the produced-files snapshot, so pristine uploads are never
+    reported back as outputs, and the originals in projects/<id>/knowledge stay
+    untouched whatever the code does to its copies."""
+    if not project:
+        return
+    src = config.PROJECTS_DIR / project / "knowledge"
+    if not src.is_dir():
+        return
+    dst = root / "knowledge"
+    _ensure_dir(dst)
+    for f in src.iterdir():
+        if not f.is_file():
+            continue
+        target = dst / f.name
+        try:
+            st = f.stat()
+            dt = target.stat() if target.exists() else None
+            if dt is None or dt.st_size != st.st_size or dt.st_mtime < st.st_mtime:
+                shutil.copy2(f, target)
+        except OSError:
+            continue  # an unreadable file must not break code execution
+
+
 def _exec_workdir(project: str | None) -> Path:
     root = SANDBOX_ROOT / safe_project(project)
     _ensure_dir(root)
+    _sync_project_knowledge(project, root)
     return root
 
 

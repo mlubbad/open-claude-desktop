@@ -2,7 +2,7 @@ import { useState } from "react";
 
 import type { CoworkDetail, CoworkTask, Schedule } from "../api/client";
 import { AssistantBubble, UserBubble } from "./Message";
-import { replayEvents, statusBadge } from "../state/coworkView";
+import { nextRun, nextRunLabel, relativeTime, replayEvents, statusBadge } from "../state/coworkView";
 import { Icon } from "./Icon";
 
 export interface SchedControls {
@@ -13,10 +13,16 @@ export interface SchedControls {
   toggle: (id: string, enabled: boolean) => void;
 }
 
-// The Cowork surface. Home = a composer-forward hero (delegate a goal), the Active
-// task list (status dot + meta + Review), and the Scheduled automations list.
-// Clicking Review opens the task transcript full-width with a back affordance.
-// All functions survive: delegate, cancel, replay transcript, schedules CRUD/toggle.
+const APPROVALS = [
+  { value: "manual", label: "Manual", desc: "Claude pauses so you can approve each action." },
+  { value: "skip", label: "Skip", desc: "Claude never pauses, even for unsafe actions." },
+] as const;
+
+// The Cowork surface. Home = a composer-forward hero (delegate a goal, with a
+// Manual/Skip approvals pill), the Active task list (status dot + relative time +
+// Review, with Clear active + Show more), and the Scheduled automations list showing
+// each next run. Review opens the task transcript with a right rail (Progress /
+// Workspace files / Context) and, for a Manual task paused for approval, Approve/Decline.
 export function CoworkPanel({
   tasks,
   selected,
@@ -27,19 +33,23 @@ export function CoworkPanel({
   onOpen,
   onBack,
   onCancel,
+  onClear,
+  onResolveApproval,
 }: {
   tasks: CoworkTask[];
   selected: CoworkDetail | null;
   err: string | null;
   sched: SchedControls;
   projectName: string;
-  onStart: (goal: string) => void;
+  onStart: (goal: string, approval: "skip" | "manual") => void;
   onOpen: (id: string) => void;
   onBack: () => void;
   onCancel: (id: string) => void;
+  onClear: () => void;
+  onResolveApproval: (turnId: string, toolCallId: string, decision: "approve" | "decline") => void;
 }) {
   if (selected) {
-    return <ReviewView detail={selected} onBack={onBack} onCancel={onCancel} />;
+    return <ReviewView detail={selected} onBack={onBack} onCancel={onCancel} onResolveApproval={onResolveApproval} />;
   }
   return (
     <CoworkHome
@@ -50,6 +60,7 @@ export function CoworkPanel({
       onStart={onStart}
       onOpen={onOpen}
       onCancel={onCancel}
+      onClear={onClear}
     />
   );
 }
@@ -62,21 +73,28 @@ function CoworkHome({
   onStart,
   onOpen,
   onCancel,
+  onClear,
 }: {
   tasks: CoworkTask[];
   err: string | null;
   sched: SchedControls;
   projectName: string;
-  onStart: (goal: string) => void;
+  onStart: (goal: string, approval: "skip" | "manual") => void;
   onOpen: (id: string) => void;
   onCancel: (id: string) => void;
+  onClear: () => void;
 }) {
   const [goal, setGoal] = useState("");
+  const [approval, setApproval] = useState<"skip" | "manual">("manual");
+  const [apprOpen, setApprOpen] = useState(false);
   const [showSchedForm, setShowSchedForm] = useState(false);
+  const [showAll, setShowAll] = useState(false);
+
+  const visible = showAll ? tasks : tasks.slice(0, 5);
 
   function delegate() {
     if (!goal.trim()) return;
-    onStart(goal);
+    onStart(goal, approval);
     setGoal("");
   }
 
@@ -88,7 +106,7 @@ function CoworkHome({
           Let’s tackle something together
         </h1>
         <p className="cw-sub">
-          Delegate a goal — the agent works on it autonomously in the background.
+          Give Claude a task (or a few) to run autonomously in the background.
         </p>
 
         <div className="composer cw-composer">
@@ -105,47 +123,89 @@ function CoworkHome({
             }}
           />
           <div className="composer-row">
-            <span className="composer-pill">Works in: {projectName}</span>
+            <span className="composer-pill" title="This task runs inside this project">
+              <Icon name="folder" size={13} /> {projectName}
+            </span>
+            <div className="cw-appr-anchor">
+              <button
+                className="composer-pill"
+                aria-haspopup="menu"
+                aria-expanded={apprOpen}
+                title="Approvals for this task"
+                onClick={() => setApprOpen((v) => !v)}
+              >
+                <Icon name="shield" size={13} /> {APPROVALS.find((a) => a.value === approval)?.label}
+                <Icon name="chev-down" size={11} />
+              </button>
+              {apprOpen && (
+                <div className="cw-appr-menu" role="menu" aria-label="Approvals">
+                  {APPROVALS.map((a) => (
+                    <button
+                      key={a.value}
+                      role="menuitemradio"
+                      aria-checked={approval === a.value}
+                      onClick={() => { setApproval(a.value); setApprOpen(false); }}
+                    >
+                      <span className="cw-appr-label">
+                        {a.label}
+                        {approval === a.value && <Icon name="check" size={13} />}
+                      </span>
+                      <span className="cw-appr-desc">{a.desc}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
             <span className="composer-spacer" />
-            <button className="composer-send" title="Delegate" disabled={!goal.trim()} onClick={delegate}>
-              ↑
+            <button className="composer-send" title="Delegate" aria-label="Delegate" disabled={!goal.trim()} onClick={delegate}>
+              <Icon name="arrow-up" size={17} />
             </button>
           </div>
         </div>
         {err && <div className="settings-err">{err}</div>}
 
         <section className="cw-section">
-          <h3 className="cw-section-head">Active</h3>
+          <div className="cw-section-row">
+            <h3 className="cw-section-head">Active</h3>
+            {tasks.some((t) => t.status !== "running") && (
+              <button className="cw-add" onClick={onClear}>Clear active</button>
+            )}
+          </div>
           {tasks.length === 0 && <div className="cw-empty">No background tasks yet.</div>}
-          {tasks.map((t) => {
+          {visible.map((t) => {
             const b = statusBadge(t.status);
             return (
-              <div key={t.id} className="cw-row">
+              <button key={t.id} className="cw-row cw-row-btn" onClick={() => onOpen(t.id)}>
                 <span className={`cowork-status ${b.cls}`} title={b.label} aria-label={b.label}>
                   ●
                 </span>
                 <span className="cw-row-main">
                   <span className="cw-row-title" title={t.title}>{t.title}</span>
                   <span className="cw-row-meta">
-                    {b.label} · {t.events} events
+                    {relativeTime(t.updated_at)}
+                    {t.approval === "manual" && " · manual"}
                   </span>
                 </span>
                 {t.status === "running" && (
-                  <button
+                  <span
                     className="cw-cancel"
+                    role="button"
+                    tabIndex={0}
                     title="Cancel task"
                     aria-label={`Cancel ${t.title}`}
-                    onClick={() => onCancel(t.id)}
+                    onClick={(e) => { e.stopPropagation(); onCancel(t.id); }}
                   >
                     <Icon name="x" size={13} />
-                  </button>
+                  </span>
                 )}
-                <button className="cw-review" onClick={() => onOpen(t.id)}>
-                  Review
-                </button>
-              </div>
+              </button>
             );
           })}
+          {tasks.length > 5 && (
+            <button className="cw-showmore" onClick={() => setShowAll((v) => !v)}>
+              {showAll ? "Show less" : `Show more (${tasks.length - 5})`}
+            </button>
+          )}
         </section>
 
         <section className="cw-section">
@@ -172,7 +232,9 @@ function CoworkHome({
               <span className="cw-clock" aria-hidden="true"><Icon name="clock" size={15} /></span>
               <span className="cw-row-main">
                 <span className="cw-row-title" title={s.goal}>{s.title}</span>
-                <span className="cw-row-meta">{s.cadence}</span>
+                <span className="cw-row-meta">
+                  {s.cadence} · {s.enabled ? nextRunLabel(nextRun(s)) : "paused"}
+                </span>
               </span>
               <input
                 type="checkbox"
@@ -257,37 +319,118 @@ function ReviewView({
   detail,
   onBack,
   onCancel,
+  onResolveApproval,
 }: {
   detail: CoworkDetail;
   onBack: () => void;
   onCancel: (id: string) => void;
+  onResolveApproval: (turnId: string, toolCallId: string, decision: "approve" | "decline") => void;
 }) {
   const state = replayEvents(detail.goal, detail.event_list);
   const lastAssistant = state.messages.reduce((acc, m, i) => (m.role === "assistant" ? i : acc), -1);
   const b = statusBadge(detail.status);
+  const pending = state.pendingApproval;
   return (
-    <div className="cowork-transcript">
-      <div className="cowork-detail-head">
-        <button className="cw-back" onClick={onBack} aria-label="Back to Cowork">
-          ← Back
-        </button>
-        <span className={`cowork-status ${b.cls}`}>●</span> {b.label}
-        {detail.status === "running" && (
-          <button className="cw-cancel" title="Cancel task" onClick={() => onCancel(detail.id)}>
-            Cancel
+    <div className="cw-detail">
+      <div className="cw-detail-main">
+        <div className="cowork-detail-head">
+          <button className="cw-back" onClick={onBack} aria-label="Back to Cowork">
+            ← Back
           </button>
-        )}
-        {detail.error && <span className="cowork-err"> — {detail.error}</span>}
+          <span className="cw-detail-title" title={detail.title}>{detail.title}</span>
+          <span className={`cowork-status ${b.cls}`}>●</span> {b.label}
+          {detail.status === "running" && (
+            <button className="cw-cancel" title="Cancel task" onClick={() => onCancel(detail.id)}>
+              Cancel
+            </button>
+          )}
+          {detail.error && <span className="cowork-err"> — {detail.error}</span>}
+        </div>
+        <div className="transcript cowork-scroll">
+          {state.messages.map((m, i) =>
+            m.role === "user" ? (
+              <UserBubble key={i} msg={m} />
+            ) : (
+              <AssistantBubble key={i} msg={m} isLast={i === lastAssistant} busy={false} />
+            ),
+          )}
+          {/* Manual-mode task paused for approval: resolve it in place. */}
+          {pending && detail.turn_id && detail.status === "running" && (
+            <div className="cw-approval" role="alertdialog" aria-label="Approval required">
+              <div className="cw-approval-body">
+                <strong>Approval needed</strong> — {pending.name}
+                {pending.input && <code className="cw-approval-input">{pending.input}</code>}
+              </div>
+              <div className="cw-approval-actions">
+                <button onClick={() => onResolveApproval(detail.turn_id!, pending.toolCallId, "decline")}>
+                  Decline
+                </button>
+                <button className="primary" onClick={() => onResolveApproval(detail.turn_id!, pending.toolCallId, "approve")}>
+                  Approve
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
-      <div className="transcript cowork-scroll">
-        {state.messages.map((m, i) =>
-          m.role === "user" ? (
-            <UserBubble key={i} msg={m} />
+
+      <aside className="cw-rail" aria-label="Task details">
+        <RailCard title="Progress" defaultOpen>
+          <ProgressList steps={detail.progress} />
+        </RailCard>
+        <RailCard title="Workspace files" defaultOpen={detail.files.length > 0}>
+          {detail.files.length === 0 ? (
+            <p className="cw-rail-empty">No files produced yet.</p>
           ) : (
-            <AssistantBubble key={i} msg={m} isLast={i === lastAssistant} busy={false} />
-          ),
-        )}
-      </div>
+            <ul className="cw-rail-files">
+              {detail.files.map((f) => (
+                <li key={f.name}>
+                  <Icon name="file" size={14} /> <span title={f.name}>{f.name}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </RailCard>
+        <RailCard title="Context" defaultOpen>
+          <p className="cw-rail-ctx">
+            <Icon name="folder" size={14} /> {detail.project_id ?? "General"}
+          </p>
+          <p className="cw-rail-sub">
+            Approvals: {detail.approval === "manual" ? "Manual" : "Skip"}
+          </p>
+        </RailCard>
+      </aside>
+    </div>
+  );
+}
+
+type ProgressStep = { label: string; done: boolean };
+
+function ProgressList({ steps }: { steps: ProgressStep[] }) {
+  if (steps.length === 0) return <p className="cw-rail-empty">No steps recorded yet.</p>;
+  return (
+    <ul className="cw-progress">
+      {steps.map((s, i) => (
+        <li key={i} className={s.done ? "done" : "active"}>
+          <span className="cw-progress-dot" aria-hidden="true">
+            {s.done ? <Icon name="check" size={12} /> : i + 1}
+          </span>
+          <span className="cw-progress-label">{s.label}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function RailCard({ title, defaultOpen = false, children }: { title: string; defaultOpen?: boolean; children: React.ReactNode }) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className="cw-rail-card">
+      <button className="cw-rail-head" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+        {title}
+        <Icon name={open ? "chev-down" : "chev-right"} size={13} />
+      </button>
+      {open && <div className="cw-rail-body">{children}</div>}
     </div>
   );
 }

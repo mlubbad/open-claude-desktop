@@ -111,6 +111,7 @@ export function Composer({
   addMenu,
   modelControl,
   voice,
+  modeToggle,
 }: {
   busy: boolean;
   onSend: (text: string, images?: string[]) => void;
@@ -124,6 +125,9 @@ export function Composer({
   addMenu?: AddMenuInfo;
   modelControl?: ModelControlInfo;
   voice?: VoiceInfo;
+  // Chat | Cowork mode switch (reference parity): flips the whole surface between
+  // an interactive chat and delegating an autonomous background task.
+  modeToggle?: { mode: "chat" | "cowork"; onMode: (m: "chat" | "cowork") => void };
 }) {
   const [text, setTextState] = useState(initialText);
   const [sel, setSel] = useState(0);
@@ -675,6 +679,25 @@ export function Composer({
             </div>
           )}
         </div>
+        {modeToggle && (
+          <div className="composer-mode" role="group" aria-label="Chat or Cowork">
+            <button
+              className={`composer-mode-btn ${modeToggle.mode === "chat" ? "active" : ""}`}
+              aria-pressed={modeToggle.mode === "chat"}
+              onClick={() => modeToggle.onMode("chat")}
+            >
+              Chat
+            </button>
+            <button
+              className={`composer-mode-btn ${modeToggle.mode === "cowork" ? "active" : ""}`}
+              aria-pressed={modeToggle.mode === "cowork"}
+              title="Give Claude a task (or a few) to run autonomously"
+              onClick={() => modeToggle.onMode("cowork")}
+            >
+              Cowork
+            </button>
+          </div>
+        )}
         {/* Context chips (Claude-Desktop style): keep the user aware that this chat is
             grounded on a project / has Research on, with an ✕ to drop each. */}
         {addMenu?.activeProjectId && (

@@ -587,6 +587,8 @@ export default function App() {
             onOpen={cowork.open}
             onBack={cowork.close}
             onCancel={cowork.cancel}
+            onClear={cowork.clear}
+            onResolveApproval={cowork.resolveApproval}
           />
         ) : (
         <div className={`workarea ${view === "code" && state.messages.length > 0 ? "with-code" : ""}`}>
@@ -623,6 +625,7 @@ export default function App() {
                   addMenu={addMenu}
                   modelControl={modelControl}
                   voice={voice}
+                  modeToggle={{ mode: "chat", onMode: (m) => m === "cowork" && goView("cowork") }}
                 />
               </div>
               <div className="chips">
@@ -696,6 +699,7 @@ export default function App() {
               addMenu={addMenu}
               modelControl={modelControl}
               voice={voice}
+              modeToggle={{ mode: "chat", onMode: (m) => m === "cowork" && goView("cowork") }}
             />
             <p className="footer-note">AI can make mistakes — double-check important information.</p>
           </footer>

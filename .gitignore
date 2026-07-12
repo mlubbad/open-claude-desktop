@@ -71,6 +71,8 @@ node_modules/
 
 # Local-first SQLite database (default DATABASE_URL)
 ocd.db
+cowork_tasks.json
+schedules.json
 ocd.db-journal
 ocd.db-wal
 ocd.db-shm

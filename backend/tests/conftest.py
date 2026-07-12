@@ -1,6 +1,19 @@
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _isolate_cowork_store(tmp_path, monkeypatch):
+    """The Cowork manager is a module singleton that persists to
+    REPO_ROOT/cowork_tasks.json. Repoint BOTH the module default and the live
+    singleton at a throwaway file (and clear it) so no test ever writes the repo's
+    real store — the singleton captured the default path at import time."""
+    from ocd_core import cowork
+    store = tmp_path / "cowork_tasks.json"
+    monkeypatch.setattr(cowork, "_STORE_PATH", store)
+    monkeypatch.setattr(cowork.manager, "_store_path", store)
+    cowork.manager.reset_for_tests()
+
+
 @pytest.fixture
 def db(monkeypatch, tmp_path):
     """Fresh in-memory SQLite DB + isolated filesystem per test."""

@@ -945,7 +945,70 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-
 .cw-sched-when { display: flex; align-items: center; gap: 6px; }
 .cw-sched-num { width: 64px; }
 .cw-sched-unit { color: var(--muted); font-size: 12px; }
-.cowork-detail-head { display: flex; align-items: center; gap: 8px; }
+.cowork-detail-head { display: flex; align-items: center; gap: 8px; padding: 12px 16px;
+  border-bottom: 1px solid var(--border); }
+.cw-detail-title { font-weight: 500; font-size: 14px; margin-right: auto;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 320px; }
+
+/* Composer Chat|Cowork mode toggle (reference parity). */
+.composer-mode { display: inline-flex; gap: 2px; padding: 2px; border-radius: 999px;
+  background: var(--surface-2); border: 1px solid var(--border); }
+.composer-mode-btn { border: none; background: none; color: var(--muted); cursor: pointer;
+  font: inherit; font-size: 12.5px; padding: 3px 12px; border-radius: 999px; }
+.composer-mode-btn.active { background: var(--surface); color: var(--text);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.06); }
+
+/* Cowork Active rows as buttons + Show more + approvals pill menu. */
+.cw-row-btn { width: 100%; text-align: left; cursor: pointer; font: inherit; }
+.cw-row-btn:hover { border-color: var(--border-strong); }
+.cw-showmore { border: none; background: none; color: var(--muted); cursor: pointer;
+  font: inherit; font-size: 12.5px; padding: 4px 0; }
+.cw-showmore:hover { color: var(--text); }
+.cw-appr-anchor { position: relative; }
+.cw-appr-menu { position: absolute; bottom: calc(100% + 6px); left: 0; z-index: 30;
+  min-width: 240px; background: var(--surface); border: 1px solid var(--border);
+  border-radius: 12px; box-shadow: var(--shadow-soft, 0 8px 24px rgba(0,0,0,0.14)); padding: 4px; }
+.cw-appr-menu button { display: flex; flex-direction: column; gap: 2px; width: 100%; text-align: left;
+  border: none; background: none; cursor: pointer; padding: 8px 10px; border-radius: 8px; font: inherit; }
+.cw-appr-menu button:hover { background: var(--surface-2); }
+.cw-appr-label { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 500;
+  color: var(--text); }
+.cw-appr-desc { font-size: 12px; color: var(--muted); }
+
+/* Cowork task detail: transcript + right rail. */
+.cw-detail { flex: 1; display: flex; min-height: 0; }
+.cw-detail-main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.cw-rail { width: 300px; flex: none; border-left: 1px solid var(--border); overflow-y: auto;
+  padding: 12px; background: var(--surface); }
+.cw-rail-card { border-bottom: 1px solid var(--border); }
+.cw-rail-head { display: flex; align-items: center; justify-content: space-between; width: 100%;
+  border: none; background: none; cursor: pointer; font: inherit; font-size: 12px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); padding: 12px 4px; }
+.cw-rail-body { padding: 0 4px 12px; }
+.cw-rail-empty, .cw-rail-sub { color: var(--muted); font-size: 12.5px; margin: 4px 0; }
+.cw-rail-ctx { display: flex; align-items: center; gap: 6px; font-size: 13px; margin: 4px 0; }
+.cw-rail-files { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 4px; }
+.cw-rail-files li { display: flex; align-items: center; gap: 6px; font-size: 12.5px;
+  color: var(--text); overflow: hidden; }
+.cw-rail-files span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cw-progress { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
+.cw-progress li { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.cw-progress li.done .cw-progress-label { color: var(--muted); text-decoration: line-through; }
+.cw-progress-dot { display: inline-flex; align-items: center; justify-content: center; flex: none;
+  width: 18px; height: 18px; border-radius: 999px; font-size: 11px; font-weight: 600;
+  background: var(--surface-2); color: var(--muted); }
+.cw-progress li.done .cw-progress-dot { background: var(--accent); color: var(--accent-fg); }
+/* Manual-approval prompt inside a Cowork task transcript. */
+.cw-approval { border: 1px solid var(--accent); border-radius: 12px; padding: 12px 14px;
+  margin: 12px 0; background: color-mix(in srgb, var(--accent) 6%, transparent);
+  max-width: 760px; margin-left: auto; margin-right: auto; }
+.cw-approval-body { font-size: 13px; }
+.cw-approval-input { display: block; margin-top: 6px; font-size: 12px; background: var(--surface-2);
+  padding: 6px 8px; border-radius: 6px; overflow-x: auto; }
+.cw-approval-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px; }
+.cw-approval-actions button { border: 1px solid var(--border); background: var(--surface); color: var(--text);
+  border-radius: 8px; padding: 5px 14px; cursor: pointer; font: inherit; font-size: 13px; }
+.cw-approval-actions button.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
 
 
 /* Inline SVG icon alignment inside rows, chips, and small action buttons. */

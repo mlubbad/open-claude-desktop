@@ -75,6 +75,11 @@ async def lifespan(_: FastAPI):
             ticker.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await ticker
+        # Persist Cowork task state (cancel + save any still-running tasks) so a
+        # graceful shutdown doesn't lose transcripts.
+        from ocd_core import cowork
+        with contextlib.suppress(Exception):
+            await cowork.manager.aclose()
 
 
 app = FastAPI(title="ocd backend", version="0.4.0", lifespan=lifespan)

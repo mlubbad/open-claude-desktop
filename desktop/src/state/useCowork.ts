@@ -3,7 +3,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { cowork as coworkApi, type CoworkDetail, type CoworkTask } from "../api/client";
+import { cowork as coworkApi, type CoworkDetail, type CoworkTask, replyPermission } from "../api/client";
 import { hasRunning } from "./coworkView";
 
 export interface CoworkConfig {
@@ -46,7 +46,7 @@ export function useCowork(config: CoworkConfig, active: boolean) {
   }, [active, tasks, selected, refresh]);
 
   const start = useCallback(
-    async (goal: string) => {
+    async (goal: string, approval: "skip" | "manual" = "skip") => {
       if (!goal.trim()) return;
       setErr(null);
       try {
@@ -56,6 +56,7 @@ export function useCowork(config: CoworkConfig, active: boolean) {
           provider: config.provider ?? null,
           effort: config.effort ?? "High",
           project_id: config.projectId ?? null,
+          approval,
         });
         selectedId.current = t.id;
         await refresh();
@@ -64,6 +65,30 @@ export function useCowork(config: CoworkConfig, active: boolean) {
       }
     },
     [config, refresh],
+  );
+
+  // Drop all finished tasks ("Clear active").
+  const clear = useCallback(async () => {
+    try {
+      await coworkApi.clear();
+      await refresh();
+    } catch (e) {
+      setErr(String(e));
+    }
+  }, [refresh]);
+
+  // Resolve a Manual-mode task's pending approval prompt (it runs with a turn_id, so
+  // the shared permission endpoint applies) and immediately refresh so the task resumes.
+  const resolveApproval = useCallback(
+    async (turnId: string, toolCallId: string, decision: "approve" | "decline") => {
+      try {
+        await replyPermission(turnId, toolCallId, decision);
+        await refresh();
+      } catch (e) {
+        setErr(String(e));
+      }
+    },
+    [refresh],
   );
 
   const open = useCallback(async (id: string) => {
@@ -93,5 +118,5 @@ export function useCowork(config: CoworkConfig, active: boolean) {
     [refresh],
   );
 
-  return { tasks, selected, err, refresh, start, open, close, cancel };
+  return { tasks, selected, err, refresh, start, open, close, cancel, clear, resolveApproval };
 }

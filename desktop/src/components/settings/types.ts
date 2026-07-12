@@ -58,7 +58,10 @@ export interface ConnectorControls {
   updates: Record<string, McpUpdateInfo>;
   updating: string | null;
   onCheckUpdate: (sid: string) => void;
-  onUpdate: (sid: string) => void;
+  onUpdate: (sid: string, values?: Record<string, string>) => void;
+  // Set when an update added required user_config: the card renders an inline
+  // form for these keys (window.prompt is a silent no-op inside Tauri webviews).
+  updateNeeds: { sid: string; keys: string[] } | null;
 }
 
 export interface PluginControls {

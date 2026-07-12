@@ -46,6 +46,16 @@ export function reconcileEnabled(enabled: string[], servers: { id: string; statu
   return enabled.filter((id) => healthy.has(id));
 }
 
+// The keys named by the backend's "missing required user_config: a, b" error
+// (an update added required fields the keychain doesn't hold). Pure for tests.
+export function parseMissingUserConfig(message: string): string[] {
+  const m = /missing required user_config: (.+)/.exec(message);
+  return (m?.[1] ?? "")
+    .split(",")
+    .map((k) => k.trim())
+    .filter(Boolean);
+}
+
 // The user_config fields an extension REQUIRES the user to supply before it can
 // launch. Fields with a default are pre-filled by the backend, so only
 // required-and-defaultless ones need prompting. Kept pure for testing.
@@ -227,28 +237,18 @@ export function useConnectors() {
     }
   }, []);
 
+  // A new manifest version may REQUIRE config the old one didn't; the backend
+  // names the missing keys. NOT window.prompt — that's a silent no-op inside
+  // Tauri's webview — the page renders an inline form for them instead.
+  const [updateNeeds, setUpdateNeeds] = useState<{ sid: string; keys: string[] } | null>(null);
+
   const applyUpdate = useCallback(
-    async (sid: string): Promise<McpServer | null> => {
+    async (sid: string, values?: Record<string, string>): Promise<McpServer | null> => {
       setErr(null);
       setUpdating(sid);
       try {
-        let s: McpServer;
-        try {
-          s = await mcp.update(sid);
-        } catch (e) {
-          // A new manifest version may REQUIRE config the old one didn't. The
-          // backend names the missing keys; prompt for them (same UX as install)
-          // and retry once. Everything else surfaces as the page error.
-          const missing = /missing required user_config: (.+)/.exec(String(e))?.[1];
-          if (!missing) throw e;
-          const values: Record<string, string> = {};
-          for (const key of missing.split(",").map((k) => k.trim()).filter(Boolean)) {
-            const v = window.prompt(`This update needs a value for "${key}"`);
-            if (v === null) return null; // user cancelled the update
-            values[key] = v;
-          }
-          s = await mcp.update(sid, values);
-        }
+        const s = await mcp.update(sid, values ?? {});
+        setUpdateNeeds(null);
         setUpdates((u) => {
           const next = { ...u };
           delete next[sid];
@@ -259,7 +259,9 @@ export function useConnectors() {
         else if (s.detail) setErr(`${s.name}: ${s.detail}`);
         return s;
       } catch (e) {
-        setErr(String(e));
+        const missing = parseMissingUserConfig(String(e));
+        if (missing.length > 0) setUpdateNeeds({ sid, keys: missing });
+        else setErr(String(e));
         return null;
       } finally {
         setUpdating(null);
@@ -272,5 +274,5 @@ export function useConnectors() {
 
   // `enabled` = the user's intent (drives the checkboxes); `active` = intent ∩ healthy
   // (fed to turns as enabled_mcp). Keeping them distinct is the whole point of F4.
-  return { servers, enabled, active, err, add, addOAuth, authorize, remove, toggle, install, refresh, retry, retrying, setToolEnabled, updates, updating, checkUpdate, applyUpdate };
+  return { servers, enabled, active, err, add, addOAuth, authorize, remove, toggle, install, refresh, retry, retrying, setToolEnabled, updates, updating, checkUpdate, applyUpdate, updateNeeds };
 }

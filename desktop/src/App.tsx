@@ -860,7 +860,8 @@ export default function App() {
             updates: connectors.updates,
             updating: connectors.updating,
             onCheckUpdate: (sid) => void connectors.checkUpdate(sid),
-            onUpdate: (sid) => void connectors.applyUpdate(sid),
+            onUpdate: (sid, values) => void connectors.applyUpdate(sid, values),
+            updateNeeds: connectors.updateNeeds,
           }}
           plug={{
             installed: pluginMgr.installed,

@@ -15,11 +15,17 @@ export function ConnectorsPage({ c }: { c: ConnectorControls }) {
   const [directory, setDirectory] = useState<DirectoryEntry[]>([]);
   // Which server's per-tool toggle list is expanded (P1-12).
   const [toolsFor, setToolsFor] = useState<string | null>(null);
+  // Values typed into the inline "this update needs…" form (P1-13). Keyed by
+  // user_config key; reset whenever a different update starts asking.
+  const [updateValues, setUpdateValues] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (!showBrowse || directory.length > 0) return;
     mcp.directory().then(setDirectory).catch(() => {});
   }, [showBrowse, directory.length]);
+
+  const needsSid = c.updateNeeds?.sid ?? null;
+  useEffect(() => setUpdateValues({}), [needsSid]);
   const [mode, setMode] = useState<"stdio" | "remote" | "json">("remote");
   const [name, setName] = useState("");
   const [command, setCommand] = useState("");
@@ -288,6 +294,29 @@ export function ConnectorsPage({ c }: { c: ConnectorControls }) {
                     ))}
                   </ul>
                 )}
+              </div>
+            )}
+            {c.updateNeeds?.sid === s.id && (
+              <div className="conn-add" aria-label={`Update settings for ${s.name}`}>
+                <p className="settings-hint" style={{ margin: 0 }}>
+                  This update adds required settings — fill them in to continue.
+                </p>
+                {c.updateNeeds.keys.map((k) => (
+                  <input
+                    key={k}
+                    placeholder={k}
+                    aria-label={`Value for ${k}`}
+                    value={updateValues[k] ?? ""}
+                    onChange={(e) => setUpdateValues((v) => ({ ...v, [k]: e.target.value }))}
+                  />
+                ))}
+                <button
+                  className="conn-submit"
+                  disabled={c.updating === s.id}
+                  onClick={() => c.onUpdate(s.id, updateValues)}
+                >
+                  {c.updating === s.id ? "Updating…" : "Continue update"}
+                </button>
               </div>
             )}
             <div className="dir-card-actions">

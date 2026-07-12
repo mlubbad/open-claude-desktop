@@ -54,10 +54,15 @@ export function DesktopGeneralPage() {
     }
   };
 
+  // A failed install keeps `update` (and platform.ts keeps the downloaded-update
+  // handle), so the "Restart & install" button stays for a direct retry instead of
+  // demoting the user back to "Check for updates" with a misleading message.
+  const [installErr, setInstallErr] = useState<string | null>(null);
   const onInstall = async () => {
     setBusy(true);
+    setInstallErr(null);
     if (!(await installUpdate())) {
-      setUpdate({ status: "error", message: "install failed — try again, or download the release manually" });
+      setInstallErr("Install failed — check your connection and try again, or download the release from GitHub.");
     }
     setBusy(false);
   };
@@ -140,6 +145,7 @@ export function DesktopGeneralPage() {
             </button>
           )}
         </Row>
+        {installErr && <p className="settings-err">{installErr}</p>}
       </Section>
       <Section title="Computer use">
         <Row

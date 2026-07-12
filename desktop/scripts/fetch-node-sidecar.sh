@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # Download the official Node.js runtime binary and place it where Tauri's externalBin
-# expects it: desktop/src-tauri/binaries/node-<target-triple>[.exe]. Bundling Node
+# expects it: desktop/src-tauri/binaries/ocd-node-<target-triple>[.exe]. Bundling Node
 # lets .mcpb extensions that launch `node` run on machines with no system install —
 # the shell hands the backend its path as OCD_NODE (see lib.rs / integrations.py).
+# Named ocd-node, not node: the Linux .deb installs external binaries into /usr/bin,
+# where a bare `node` would collide with the distro's nodejs package.
 #
 # Run before `tauri build` (release.yml does) and once for local dev builds. The
 # version is pinned; bump it deliberately (override with NODE_VERSION=…).
@@ -32,7 +34,7 @@ esac
 
 EXE_SUFFIX=""
 case "$TRIPLE" in *windows*) EXE_SUFFIX=".exe" ;; esac
-TARGET="$OUT_DIR/node-$TRIPLE$EXE_SUFFIX"
+TARGET="$OUT_DIR/ocd-node-$TRIPLE$EXE_SUFFIX"
 if [ -f "$TARGET" ]; then
   echo "Node sidecar already present: $TARGET"
   exit 0

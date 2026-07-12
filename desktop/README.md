@@ -69,7 +69,7 @@ Two self-contained binaries are bundled next to the app executable
 ```bash
 pip install ./backend pyinstaller
 bash desktop/scripts/build-backend-sidecar.sh   # → src-tauri/binaries/ocd-backend-<triple>
-bash desktop/scripts/fetch-node-sidecar.sh      # → src-tauri/binaries/node-<triple>
+bash desktop/scripts/fetch-node-sidecar.sh      # → src-tauri/binaries/ocd-node-<triple>
 ```
 
 The frozen FastAPI backend serves the app (verified: `/healthz`, `/providers`);

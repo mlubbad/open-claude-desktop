@@ -32,11 +32,13 @@ def _manifest(version="1.0.0", *, required=("greeting",), repository=True) -> di
     return m
 
 
-def _bundle_bytes(manifest: dict) -> bytes:
+def _bundle_bytes(manifest: dict, *, extra: dict | None = None) -> bytes:
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as zf:
         zf.writestr("manifest.json", json.dumps(manifest))
         zf.writestr("server/main.py", "print('hi')\n")
+        for arc, data in (extra or {}).items():
+            zf.writestr(arc, data)
     return buf.getvalue()
 
 
@@ -69,12 +71,14 @@ def isolate(monkeypatch, tmp_path):
         sid = integrations._slug(name)
         items = [s for s in integrations._load_mcp_servers() if s["id"] != sid]
         item = {"id": sid, "name": name, "transport": "stdio", "command": command,
-                "args": args or [], "env": env or {}, "tools": [],
+                "args": args or [], "env": env or {}, "tools": list(fake_add.tools),
                 "status": "connected", "detail": ""}
         items.append(item)
         integrations._save_mcp_servers(items)
         return item
 
+    # Tests that exercise disabled_tools set this to simulate what discovery found.
+    fake_add.tools = []
     monkeypatch.setattr(integrations, "add_mcp_server", fake_add)
     return tmp_path
 
@@ -189,6 +193,146 @@ def test_update_when_already_current_raises(isolate, monkeypatch):
                         lambda url, headers, timeout=15: FakeResp(200, _release("v2.0.0")))
     with pytest.raises(McpbError, match="already up to date"):
         integrations.update_mcpb(item["id"])
+
+
+def test_update_preserves_disabled_tools(isolate, monkeypatch):
+    """A one-click update must not silently re-enable tools the user switched off
+    (the P1-12 disable doubles as the dispatch-time allowlist)."""
+    integrations.add_mcp_server.tools = [{"name": "read_file"}, {"name": "delete_file"}]
+    item = _install(isolate, _manifest("1.0.0"), {"greeting": "hi"})
+    integrations.set_mcp_tool_enabled(item["id"], "delete_file", False)
+    integrations.set_mcp_tool_enabled(item["id"], "gone_tool", False)  # won't survive
+
+    new_bundle = _bundle_bytes(_manifest("2.0.0"))
+
+    def fake_get(url, headers, timeout=15):
+        if "api.github.com" in url:
+            return FakeResp(200, _release("v2.0.0"))
+        return FakeResp(200, content=new_bundle)
+
+    monkeypatch.setattr(integrations, "_http_get", fake_get)
+    updated = integrations.update_mcpb(item["id"])
+    # Kept — and pruned to tools that still exist in the new version.
+    assert updated["disabled_tools"] == ["delete_file"]
+
+
+def test_update_keeps_disabled_tools_when_discovery_fails(isolate, monkeypatch):
+    integrations.add_mcp_server.tools = [{"name": "delete_file"}]
+    item = _install(isolate, _manifest("1.0.0"), {"greeting": "hi"})
+    integrations.set_mcp_tool_enabled(item["id"], "delete_file", False)
+    integrations.add_mcp_server.tools = []  # the update's discovery finds nothing
+
+    def fake_get(url, headers, timeout=15):
+        if "api.github.com" in url:
+            return FakeResp(200, _release("v2.0.0"))
+        return FakeResp(200, content=_bundle_bytes(_manifest("2.0.0")))
+
+    monkeypatch.setattr(integrations, "_http_get", fake_get)
+    updated = integrations.update_mcpb(item["id"])
+    # No tool list to prune against — keep the user's choices, don't forget them.
+    assert updated["disabled_tools"] == ["delete_file"]
+
+
+def test_bad_update_bundle_leaves_working_install_intact(isolate, monkeypatch):
+    """A hostile/corrupt downloaded bundle must never destroy the current install:
+    extraction happens in a staging dir and swaps in only on success."""
+    item = _install(isolate, _manifest("1.0.0"), {"greeting": "hi"})
+    installed = isolate / "extensions" / "fixture_ext" / "server" / "main.py"
+    assert installed.is_file()
+
+    evil = _bundle_bytes(_manifest("2.0.0"), extra={"../evil.py": "pwned"})
+
+    def fake_get(url, headers, timeout=15):
+        if "api.github.com" in url:
+            return FakeResp(200, _release("v2.0.0"))
+        return FakeResp(200, content=evil)
+
+    monkeypatch.setattr(integrations, "_http_get", fake_get)
+    with pytest.raises(McpbError, match="unsafe path"):
+        integrations.update_mcpb(item["id"])
+    # The v1 files and record are untouched; no staging debris left behind.
+    assert installed.is_file()
+    assert integrations._find_mcp(item["id"])["version"] == "1.0.0"
+    assert not (isolate / "extensions" / "fixture_ext.staging").exists()
+
+
+def test_check_update_network_error_is_actionable(isolate, monkeypatch):
+    """Offline must surface as a clean McpbError (the route maps it to a 400),
+    not a 500 with a traceback."""
+    item = _install(isolate, _manifest(), {"greeting": "hi"})
+
+    def boom(url, headers, timeout=15):
+        raise OSError("connection refused")
+
+    monkeypatch.setattr(integrations, "_http_get", boom)
+    with pytest.raises(McpbError, match="unreachable"):
+        integrations.check_mcpb_update(item["id"])
+
+
+def test_update_that_renames_extension_retires_the_old_record(isolate, monkeypatch):
+    item = _install(isolate, _manifest("1.0.0"), {"greeting": "hi"})
+    renamed = _manifest("2.0.0")
+    renamed["name"] = "Fixture Ext Renamed"
+
+    def fake_get(url, headers, timeout=15):
+        if "api.github.com" in url:
+            return FakeResp(200, _release("v2.0.0"))
+        return FakeResp(200, content=_bundle_bytes(renamed))
+
+    monkeypatch.setattr(integrations, "_http_get", fake_get)
+    updated = integrations.update_mcpb(item["id"])
+    assert updated["id"] == "fixture_ext_renamed"
+    # The old record, its unpacked files, and its keychain entry are all gone;
+    # the stored user_config answers moved with the new id.
+    ids = [s["id"] for s in integrations._load_mcp_servers()]
+    assert ids == ["fixture_ext_renamed"]
+    assert not (isolate / "extensions" / "fixture_ext").exists()
+    store = secrets.get_secret_store()
+    assert store.get("mcp:fixture_ext:user_config") is None
+    assert json.loads(store.get("mcp:fixture_ext_renamed:user_config")) == {"greeting": "hi"}
+
+
+def test_release_tag_identity_breaks_update_loops(isolate, monkeypatch):
+    """A repo whose tag carries more numeric runs than its manifest version (tag
+    v1.2.0, manifest "1.2") must not offer the same update forever."""
+    item = _install(isolate, _manifest("1.2"), {"greeting": "hi"})
+
+    def fake_get(url, headers, timeout=15):
+        if "api.github.com" in url:
+            return FakeResp(200, _release("v1.2.0"))
+        return FakeResp(200, content=_bundle_bytes(_manifest("1.2")))
+
+    monkeypatch.setattr(integrations, "_http_get", fake_get)
+    assert integrations.check_mcpb_update(item["id"])["latest"] == "1.2.0"
+    integrations.update_mcpb(item["id"])  # installs the same manifest version
+    # The installed release tag is remembered, so the loop ends here.
+    assert integrations.check_mcpb_update(item["id"])["latest"] is None
+
+
+def test_non_github_homepage_is_not_recorded_as_repository(isolate):
+    m = _manifest(repository=False)
+    m["homepage"] = "https://example.com/tool"
+    item = _install(isolate, m, {"greeting": "hi"})
+    # An uncheckable URL would only ever produce a dead "Check for updates" button.
+    assert item["repository"] == ""
+
+
+def test_list_backfills_repository_for_preexisting_installs(isolate):
+    """Extensions installed before the update feature (no `repository` key) get it
+    read from their unpacked manifest.json once, then persisted."""
+    ext_dir = isolate / "extensions" / "old_ext"
+    ext_dir.mkdir(parents=True)
+    (ext_dir / "manifest.json").write_text(json.dumps(
+        {"name": "Old Ext", "repository": "https://github.com/acme/old-ext"}))
+    integrations._save_mcp_servers([{
+        "id": "old_ext", "name": "Old Ext", "transport": "stdio", "command": "${PYTHON}",
+        "args": [], "env": {}, "tools": [], "status": "connected", "detail": "",
+        "source": "mcpb", "dir": str(ext_dir), "version": "0.9",
+    }])
+    listed = integrations.list_mcp_servers()
+    assert listed[0]["repository"] == "https://github.com/acme/old-ext"
+    # Persisted — the manifest read happens once, not on every list.
+    assert integrations._find_mcp("old_ext")["repository"] == "https://github.com/acme/old-ext"
 
 
 def test_resolve_cfg_falls_back_to_bundled_node(monkeypatch, tmp_path):

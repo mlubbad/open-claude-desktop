@@ -52,12 +52,15 @@ fn toggle_window(app: &tauri::AppHandle) {
     }
 }
 
-// The Node runtime we ship next to the app executable (externalBin "binaries/node"),
-// if this build bundled one. Handed to the backend as OCD_NODE so .mcpb extensions
-// that launch `node` work on machines with no system Node install (P1-13).
+// The Node runtime we ship next to the app executable (externalBin
+// "binaries/ocd-node"), if this build bundled one. Handed to the backend as
+// OCD_NODE so .mcpb extensions that launch `node` work on machines with no system
+// Node install (P1-13). Named ocd-node, NOT node: the Linux .deb installs
+// external binaries into /usr/bin, where a bare `node` would collide with the
+// distro's nodejs package and abort the install.
 fn bundled_node_path() -> Option<std::path::PathBuf> {
     let exe = std::env::current_exe().ok()?;
-    let name = if cfg!(windows) { "node.exe" } else { "node" };
+    let name = if cfg!(windows) { "ocd-node.exe" } else { "ocd-node" };
     let p = exe.parent()?.join(name);
     p.is_file().then_some(p)
 }
@@ -182,6 +185,14 @@ pub fn run() {
             build_tray(&handle)?;
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running Open Claude Desktop");
+        .build(tauri::generate_context!())
+        .expect("error while building Open Claude Desktop")
+        .run(|_app, _event| {
+            // macOS: after close-to-tray hides the window, clicking the Dock icon
+            // fires Reopen — bring the window back (the tray isn't the only way in).
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen { .. } = _event {
+                show_and_focus(_app);
+            }
+        });
 }

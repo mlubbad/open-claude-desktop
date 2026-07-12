@@ -54,6 +54,7 @@ function makeControls(over: Partial<ConnectorControls> = {}): ConnectorControls 
     updating: null,
     onCheckUpdate: vi.fn(),
     onUpdate: vi.fn(),
+    updateNeeds: null,
     ...over,
   };
 }
@@ -124,6 +125,18 @@ describe("extension updates (P1-13)", () => {
   it("offers no update button on plain connectors", () => {
     render(<ConnectorsPage c={makeControls()} />);
     expect(screen.queryByLabelText("Check updates for playwright")).toBeNull();
+  });
+
+  it("renders an inline form when the update needs new user_config (no window.prompt)", () => {
+    const c = makeControls({
+      servers: [ext()],
+      updateNeeds: { sid: "playwright", keys: ["api_key", "region"] },
+    });
+    render(<ConnectorsPage c={c} />);
+    fireEvent.change(screen.getByLabelText("Value for api_key"), { target: { value: "k-123" } });
+    fireEvent.change(screen.getByLabelText("Value for region"), { target: { value: "eu" } });
+    fireEvent.click(screen.getByRole("button", { name: "Continue update" }));
+    expect(c.onUpdate).toHaveBeenCalledWith("playwright", { api_key: "k-123", region: "eu" });
   });
 });
 

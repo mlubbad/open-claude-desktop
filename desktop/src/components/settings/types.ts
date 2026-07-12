@@ -51,6 +51,8 @@ export interface ConnectorControls {
   onToggle: (sid: string) => void;
   onRetry: (sid: string) => void;
   retrying: string | null; // server id currently re-connecting (Retry pressed)
+  // Per-tool enable/disable within a connector (P1-12).
+  onToolToggle: (sid: string, tool: string, enabled: boolean) => void;
 }
 
 export interface PluginControls {

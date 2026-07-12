@@ -784,15 +784,37 @@ def _oauth_authorized(s: dict) -> bool:
 
 
 def list_mcp_servers() -> list[dict]:
-    """Registered MCP servers (without the verbose cached tool schemas)."""
+    """Registered MCP servers (tool NAMES included for the per-tool toggles, but not
+    the verbose cached schemas)."""
     return [{"id": s["id"], "name": s["name"], "transport": s.get("transport", "stdio"),
              "command": s.get("command", ""), "args": s.get("args", []),
              "url": s.get("url", ""), "auth": bool(s.get("auth")),
              "auth_mode": s.get("auth_mode", ""), "authorized": _oauth_authorized(s),
              "source": s.get("source", ""), "version": s.get("version", ""),
              "status": s.get("status", "unknown"), "detail": s.get("detail", ""),
-             "tool_count": len(s.get("tools", []))}
+             "tool_count": len(s.get("tools", [])),
+             "tools": [t.get("name", "") for t in s.get("tools", [])],
+             "disabled_tools": s.get("disabled_tools", [])}
             for s in _load_mcp_servers()]
+
+
+def set_mcp_tool_enabled(sid: str, tool_name: str, enabled: bool) -> dict | None:
+    """Enable/disable ONE tool within a connector (P1-12). Disabled tools are left out
+    of the turn's tool assembly, so the model never sees them — and the dispatch-time
+    allowlist (H6) means an injected call can't reach them either. Persisted on the
+    server record."""
+    items = _load_mcp_servers()
+    server = next((s for s in items if s["id"] == sid), None)
+    if server is None:
+        return None
+    disabled = set(server.get("disabled_tools", []))
+    if enabled:
+        disabled.discard(tool_name)
+    else:
+        disabled.add(tool_name)
+    server["disabled_tools"] = sorted(disabled)
+    _save_mcp_servers(items)
+    return next(s for s in list_mcp_servers() if s["id"] == sid)
 
 
 def mcp_oauth_status(sid: str) -> dict:
@@ -802,12 +824,17 @@ def mcp_oauth_status(sid: str) -> dict:
 
 
 def mcp_tools(enabled_ids: list[str]) -> list[dict]:
-    """Agent tool specs for the enabled MCP servers, named mcp_<sid>_<tool>."""
+    """Agent tool specs for the enabled MCP servers, named mcp_<sid>_<tool>.
+    Tools the user disabled individually (P1-12) are left out — combined with the
+    dispatch-time allowlist, they are unreachable for the turn."""
     out: list[dict] = []
     for s in _load_mcp_servers():
         if s["id"] not in enabled_ids:
             continue
+        disabled = set(s.get("disabled_tools", []))
         for t in s.get("tools", []):
+            if t.get("name") in disabled:
+                continue
             out.append({"type": "function", "function": {
                 "name": f"mcp_{s['id']}_{t['name']}",
                 "description": (t.get("description")
@@ -1512,10 +1539,34 @@ def _stream_subprocess(cmd, cwd, env, on_output, timeout, stdin_data=None,
     return (proc.returncode if proc.returncode is not None else -1), out, err, timed_out
 
 
+# P1-10: which image the docker engine runs. CODE_EXEC_IMAGE env wins; otherwise a
+# locally built `ocd-sandbox:latest` (backend/sandbox/Dockerfile — pandas, matplotlib,
+# openpyxl, python-docx, python-pptx, reportlab preinstalled, so "make me an xlsx"
+# actually works offline) is preferred when present; else the stock slim image. The
+# local-image probe runs once per process.
+_SANDBOX_IMAGE_CACHE: dict = {"name": None}
+
+
+def _sandbox_image() -> str:
+    env = os.getenv("CODE_EXEC_IMAGE", "").strip()
+    if env:
+        return env
+    if _SANDBOX_IMAGE_CACHE["name"] is None:
+        import subprocess
+        try:
+            r = subprocess.run(["docker", "image", "inspect", "ocd-sandbox:latest"],
+                               capture_output=True, timeout=10)
+            _SANDBOX_IMAGE_CACHE["name"] = ("ocd-sandbox:latest" if r.returncode == 0
+                                            else "python:3.11-slim")
+        except Exception:  # noqa: BLE001 - no docker CLI etc.; the run will error anyway
+            _SANDBOX_IMAGE_CACHE["name"] = "python:3.11-slim"
+    return _SANDBOX_IMAGE_CACHE["name"]
+
+
 def _run_docker(code: str, workdir: Path, on_output) -> tuple:
     cmd = ["docker", "run", "--rm", "-i", "--network", "none", "--memory", "512m",
            "--pids-limit", "128", "--cpus", "1", "-v", f"{workdir}:/w:rw", "-w", "/w",
-           "python:3.11-slim", "python", "-I", "-u", "-"]
+           _sandbox_image(), "python", "-I", "-u", "-"]
     # Own session for the `docker run` CLI child so a timeout kill can't reach the backend.
     return _stream_subprocess(cmd, workdir, None, on_output, _EXEC_TIMEOUT_SEC,
                               stdin_data=code or "",

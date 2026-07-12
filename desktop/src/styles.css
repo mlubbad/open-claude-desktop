@@ -1011,6 +1011,22 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-
 .cw-approval-actions button.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
 
 
+/* Per-tool toggles inside a connector card (P1-12). */
+.conn-tools { margin: 6px 0 2px; }
+.conn-tools-head { border: none; background: none; color: var(--muted); cursor: pointer;
+  font: inherit; font-size: 12px; padding: 0; }
+.conn-tools-head:hover { color: var(--text); }
+.conn-tools-list { list-style: none; margin: 6px 0 0; padding: 0; display: flex;
+  flex-direction: column; gap: 3px; max-height: 160px; overflow-y: auto; }
+.conn-tools-list label { display: flex; align-items: center; gap: 7px; font-size: 12.5px;
+  cursor: pointer; }
+.conn-tool-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Delete a single knowledge file from the project rail (P1-11). */
+.rail-file-del { border: none; background: none; color: var(--muted); cursor: pointer;
+  font-size: 11px; padding: 0 2px; margin-left: auto; visibility: hidden; }
+.rail-file:hover .rail-file-del, .rail-file-del:focus-visible { visibility: visible; }
+.rail-file-del:hover { color: var(--danger); }
+
 /* Inline SVG icon alignment inside rows, chips, and small action buttons. */
 .side-ic { display: inline-flex; align-items: center; justify-content: center; }
 .conv-act, .cw-cancel, .chip-icon, .cw-clock { display: inline-flex; align-items: center; }

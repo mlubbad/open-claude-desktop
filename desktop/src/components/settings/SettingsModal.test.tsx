@@ -26,6 +26,7 @@ const conn: ConnectorControls = {
   onToggle: vi.fn(),
   onRetry: vi.fn(),
   retrying: null,
+  onToolToggle: vi.fn(),
 };
 const plug: PluginControls = {
   installed: [],

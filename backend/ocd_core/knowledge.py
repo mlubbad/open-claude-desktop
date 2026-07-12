@@ -285,6 +285,35 @@ def chunk_text(text: str, size: int = 1200, overlap: int = 200) -> list[str]:
     return chunks
 
 
+def delete_project_file(project_id: str, name: str) -> bool:
+    """Delete ONE knowledge file and purge its chunks from the project's KB (P1-11).
+    Previously only deleting the whole project dropped the collection, so removing a
+    single file left orphaned vectors that kept matching searches."""
+    import contextlib
+    kb_dir = (config.PROJECTS_DIR / project_id / "knowledge").resolve()
+    dest = (kb_dir / Path(name).name).resolve()
+    if dest.parent != kb_dir or not dest.is_file():
+        return False
+    dest.unlink()
+    with contextlib.suppress(Exception):  # missing collection = nothing to purge
+        get_project_kb_collection(project_id).delete(where={"source": Path(name).name})
+    return True
+
+
+def reindex_project_file(project_id: str, name: str) -> int:
+    """Re-ingest ONE knowledge file: purge its old chunks, then chunk + embed afresh
+    (e.g. after an extraction fix). Returns the new chunk count; raises
+    ExtractionError like ingest. Returns -1 if the file doesn't exist."""
+    import contextlib
+    kb_dir = (config.PROJECTS_DIR / project_id / "knowledge").resolve()
+    path = (kb_dir / Path(name).name).resolve()
+    if path.parent != kb_dir or not path.is_file():
+        return -1
+    with contextlib.suppress(Exception):
+        get_project_kb_collection(project_id).delete(where={"source": path.name})
+    return ingest_file_to_kb(project_id, path)
+
+
 def ingest_file_to_kb(project_id: str, path: Path) -> int:
     """Chunk a file's text and upsert into the project's ChromaDB collection."""
     text = extract_text_from_file(path)

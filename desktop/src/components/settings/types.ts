@@ -6,6 +6,7 @@ import type {
   MarketplacePlugin,
   MarketplaceSource,
   McpServer,
+  McpUpdateInfo,
   PluginSummary,
   SkillSummary,
 } from "../../api/client";
@@ -53,6 +54,11 @@ export interface ConnectorControls {
   retrying: string | null; // server id currently re-connecting (Retry pressed)
   // Per-tool enable/disable within a connector (P1-12).
   onToolToggle: (sid: string, tool: string, enabled: boolean) => void;
+  // Extension updates (P1-13): per-server check results + the in-flight server id.
+  updates: Record<string, McpUpdateInfo>;
+  updating: string | null;
+  onCheckUpdate: (sid: string) => void;
+  onUpdate: (sid: string) => void;
 }
 
 export interface PluginControls {
@@ -106,7 +112,7 @@ export const SETTINGS_NAV: { group: string; items: SettingsNavItem[] }[] = [
   {
     group: "Desktop app",
     items: [
-      { id: "desktop-general", label: "General", icon: "panel", keywords: "shortcut tray awake computer use" },
+      { id: "desktop-general", label: "General", icon: "panel", keywords: "shortcut tray awake computer use launch login updates version" },
       { id: "extensions", label: "Extensions", icon: "plus", keywords: "mcpb dxt install local tools" },
       { id: "developer", label: "Developer", icon: "code", keywords: "mcp servers config logs" },
     ],

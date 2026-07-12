@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { conversations, settings as settingsApi } from "./api/client";
-import { notify, onTrayNewChat, registerSummonHotkey, unregisterSummonHotkey } from "./platform";
+import { notify, onTrayNewChat, registerSummonHotkey, setCloseToTray, unregisterSummonHotkey } from "./platform";
+import { loadDesktopPrefs, onDesktopPrefsChange } from "./state/desktopPrefs";
 import { ApprovalPrompt } from "./components/ApprovalPrompt";
 import { ArtifactPanel } from "./components/ArtifactPanel";
 import { ChatMenu } from "./components/ChatMenu";
@@ -306,13 +307,32 @@ export default function App() {
   }, [goNewChat, goNewIncognito, proj.active, list, openFromRecents]);
 
   // Global summon hotkey (desktop only; no-op on web). Fired from the OS even when the
-  // app is unfocused; brings it forward and starts a fresh chat.
+  // app is unfocused; brings it forward and starts a fresh chat. The Desktop-app
+  // Settings switch drives it live via the desktop-prefs change event (P1-9).
   const newChatRef = useRef(goNewChat);
   newChatRef.current = goNewChat;
   useEffect(() => {
     const accel = "CmdOrControl+Shift+Space";
-    void registerSummonHotkey(accel, () => newChatRef.current());
-    return () => void unregisterSummonHotkey(accel);
+    let registered = false;
+    const apply = (on: boolean) => {
+      if (on === registered) return;
+      registered = on;
+      if (on) void registerSummonHotkey(accel, () => newChatRef.current());
+      else void unregisterSummonHotkey(accel);
+    };
+    apply(loadDesktopPrefs().summonHotkey);
+    const unlisten = onDesktopPrefsChange((p) => apply(p.summonHotkey));
+    return () => {
+      unlisten();
+      apply(false);
+    };
+  }, []);
+
+  // Close-to-tray (desktop only): tell the shell once on startup what the persisted
+  // pref is, then keep it in sync with the Settings switch (P1-9).
+  useEffect(() => {
+    void setCloseToTray(loadDesktopPrefs().closeToTray);
+    return onDesktopPrefsChange((p) => void setCloseToTray(p.closeToTray));
   }, []);
 
   // Tray "New Chat" menu item (desktop only; no-op on web).
@@ -837,6 +857,10 @@ export default function App() {
             onRetry: (sid) => void connectors.retry(sid),
             retrying: connectors.retrying,
             onToolToggle: (sid, tool, enabled) => void connectors.setToolEnabled(sid, tool, enabled),
+            updates: connectors.updates,
+            updating: connectors.updating,
+            onCheckUpdate: (sid) => void connectors.checkUpdate(sid),
+            onUpdate: (sid) => void connectors.applyUpdate(sid),
           }}
           plug={{
             installed: pluginMgr.installed,

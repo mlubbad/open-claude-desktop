@@ -228,6 +228,32 @@ def refresh_mcp(sid: str, user: str = Depends(current_user)) -> dict:
     return res
 
 
+@router.get("/mcp-servers/{sid}/update")
+def check_mcp_update(sid: str, user: str = Depends(current_user)) -> dict:
+    """Check GitHub Releases for a newer bundle of an installed .mcpb extension
+    (P1-13). `latest` is null when already current."""
+    try:
+        return integrations.check_mcpb_update(sid)
+    except McpbError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+class McpUpdateBody(BaseModel):
+    # Extra user_config values for the NEW manifest (only needed when the update
+    # added a required field; install-time answers come from the keychain).
+    values: dict[str, str] = {}
+
+
+@router.post("/mcp-servers/{sid}/update")
+def apply_mcp_update(sid: str, body: McpUpdateBody | None = None,
+                     user: str = Depends(current_user)) -> dict:
+    """Download the newest release bundle and reinstall the extension in place."""
+    try:
+        return integrations.update_mcpb(sid, body.values if body else {})
+    except McpbError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
 @router.get("/mcp-servers/{sid}/tools")
 def mcp_tools(sid: str, user: str = Depends(current_user)) -> dict:
     return {"tools": integrations.mcp_tools([sid])}

@@ -356,6 +356,15 @@ def _mcp_auth_key(sid: str) -> str:
     return f"mcp:{sid}:auth_token"
 
 
+def _bundled_node() -> str:
+    """Path to the desktop shell's bundled Node runtime, or "" when absent. The Tauri
+    shell sets OCD_NODE when it spawns this backend so .mcpb extensions that launch
+    `node` work on machines with no system Node — the packaged app ships its own
+    runtime, mirroring the ${PYTHON} substitution for bundled-Python extensions."""
+    p = os.getenv("OCD_NODE", "").strip()
+    return p if p and Path(p).is_file() else ""
+
+
 def _resolve_cfg(cfg: dict) -> dict:
     """Resolve a stored MCP server cfg for connection: expand portable placeholders
     (${PYTHON}, ${REPO_ROOT}) for stdio, and inject the auth Bearer header (from the
@@ -394,10 +403,21 @@ def _resolve_cfg(cfg: dict) -> dict:
         # and absolute paths — and re-runs on every connect, so installing the tool
         # and pressing Retry recovers without restarting the app.
         if out["command"] and not shutil.which(out["command"]):
-            raise FileNotFoundError(
-                f"'{out['command']}' was not found on this machine. Install it and "
-                f"try again — if it was installed just now, restart the app so the "
-                f"updated PATH is picked up, then press Retry.")
+            node = _bundled_node() if out["command"] in ("node", "node.exe") else ""
+            if node:
+                # No system Node, but the desktop shell bundles one: launch with it,
+                # and put its dir first on PATH so anything the server spawns
+                # (`#!/usr/bin/env node`, npm shims) resolves the same runtime.
+                out["command"] = node
+                env = dict(out.get("env") or {})
+                env["PATH"] = (str(Path(node).parent) + os.pathsep
+                               + env.get("PATH", os.environ.get("PATH", "")))
+                out["env"] = env
+            else:
+                raise FileNotFoundError(
+                    f"'{out['command']}' was not found on this machine. Install it and "
+                    f"try again — if it was installed just now, restart the app so the "
+                    f"updated PATH is picked up, then press Retry.")
     return out
 
 
@@ -675,6 +695,8 @@ def install_mcpb(path: str | Path, user_values: dict | None = None) -> dict:
 
     # Tag the persisted record so uninstall can reclaim the unpacked files and the
     # UI can show manifest metadata / an update path.
+    repo = manifest.get("repository")
+    repo_url = repo.get("url") if isinstance(repo, dict) else repo
     items = _load_mcp_servers()
     for s in items:
         if s["id"] == item["id"]:
@@ -682,10 +704,107 @@ def install_mcpb(path: str | Path, user_values: dict | None = None) -> dict:
             s["dir"] = dirname
             s["version"] = str(manifest.get("version") or "")
             s["description"] = str(manifest.get("description") or "")[:200]
+            s["repository"] = str(repo_url or manifest.get("homepage") or "")
             item = s
             break
     _save_mcp_servers(items)
+
+    # Remember the user's config answers (API keys, paths…) in the OS keychain —
+    # never in mcp_servers.json — so a later update can re-resolve the new manifest
+    # without asking for everything again.
+    if resolved_uc:
+        from . import secrets
+        with contextlib.suppress(Exception):
+            secrets.get_secret_store().set(
+                _mcpb_user_config_key(item["id"]),
+                json.dumps({k: str(v) for k, v in resolved_uc.items()}))
     return item
+
+
+def _mcpb_user_config_key(sid: str) -> str:
+    return f"mcp:{sid}:user_config"
+
+
+_GH_REPO = re.compile(r"github\.com[:/]([\w.-]+)/([\w.-]+?)(?:\.git)?/?$")
+
+
+def _gh_repo_of(url: str) -> tuple[str, str] | None:
+    """(owner, repo) from a GitHub URL (https or git@, optional .git), else None."""
+    m = _GH_REPO.search((url or "").strip())
+    return (m.group(1), m.group(2)) if m else None
+
+
+def _ver_key(v: str) -> tuple[int, ...]:
+    """Order versions by their numeric runs ("v1.2.10" > "1.2.9") — good enough for
+    release tags without a semver dependency. Unparseable strings sort lowest."""
+    return tuple(int(n) for n in re.findall(r"\d+", v or "")) or (-1,)
+
+
+def check_mcpb_update(sid: str) -> dict:
+    """Check GitHub Releases for a newer bundle of an installed .mcpb extension,
+    using the repository URL recorded from its manifest at install time (P1-13).
+    Returns {current, latest, url, notes}; ``latest`` is None when already current."""
+    s = _find_mcp(sid)
+    if not s or s.get("source") != "mcpb":
+        raise McpbError("not an installed extension")
+    repo = _gh_repo_of(s.get("repository", ""))
+    if not repo:
+        raise McpbError("this extension's manifest declares no GitHub repository "
+                        "to check for updates")
+    r = _http_get(f"https://api.github.com/repos/{repo[0]}/{repo[1]}/releases/latest",
+                  {"Accept": "application/vnd.github+json", "User-Agent": _UA})
+    if r.status_code != 200:
+        raise McpbError(f"GitHub release lookup failed (HTTP {r.status_code})")
+    rel = r.json()
+    asset = next((a for a in rel.get("assets", [])
+                  if str(a.get("name", "")).lower().endswith((".mcpb", ".dxt"))), None)
+    if not asset:
+        raise McpbError("the latest release has no .mcpb/.dxt asset")
+    latest = str(rel.get("tag_name") or rel.get("name") or "")
+    current = str(s.get("version") or "")
+    out = {"current": current, "latest": None, "url": "", "notes": ""}
+    if _ver_key(latest) > _ver_key(current):
+        out.update({"latest": latest.lstrip("vV"),
+                    "url": str(asset.get("browser_download_url") or ""),
+                    "notes": str(rel.get("body") or "")[:400]})
+    return out
+
+
+def update_mcpb(sid: str, user_values: dict | None = None) -> dict:
+    """Download the newest release bundle and reinstall it in place (P1-13).
+
+    The install-time user_config answers come back from the OS keychain and merge
+    under any newly provided values — so an update that adds a required field fails
+    with the same "missing required user_config" error the install UI already
+    prompts for, and everything else updates with one click."""
+    import tempfile
+    info = check_mcpb_update(sid)
+    if not info.get("latest"):
+        raise McpbError("already up to date")
+    stored: dict = {}
+    from . import secrets
+    with contextlib.suppress(Exception):
+        raw = secrets.get_secret_store().get(_mcpb_user_config_key(sid))
+        stored = json.loads(raw) if raw else {}
+    if not isinstance(stored, dict):
+        stored = {}
+    values = {**stored, **(user_values or {})}
+    r = _http_get(info["url"], {"User-Agent": _UA, "Accept": "application/octet-stream"},
+                  timeout=120)
+    if r.status_code != 200:
+        raise McpbError(f"bundle download failed (HTTP {r.status_code})")
+    # Retire the running server before its launch config changes underneath it.
+    s = _find_mcp(sid)
+    if s:
+        with contextlib.suppress(Exception):
+            mcp_registry.registry.drop(_resolve_cfg(s))
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".mcpb")
+    try:
+        tmp.write(r.content)
+        tmp.close()
+        return install_mcpb(tmp.name, values)
+    finally:
+        Path(tmp.name).unlink(missing_ok=True)
 
 
 def remove_mcp_server(sid: str):
@@ -703,10 +822,14 @@ def remove_mcp_server(sid: str):
                 mcp_oauth.clear_oauth(sid)
             # Reclaim a .mcpb extension's unpacked files, but only if the recorded
             # dir really lives under EXTENSIONS_DIR (never rmtree an arbitrary path).
-            if s.get("source") == "mcpb" and s.get("dir"):
-                d = Path(s["dir"]).resolve()
-                if EXTENSIONS_DIR.resolve() in d.parents:
-                    shutil.rmtree(d, ignore_errors=True)
+            if s.get("source") == "mcpb":
+                from . import secrets
+                with contextlib.suppress(Exception):
+                    secrets.get_secret_store().delete(_mcpb_user_config_key(sid))
+                if s.get("dir"):
+                    d = Path(s["dir"]).resolve()
+                    if EXTENSIONS_DIR.resolve() in d.parents:
+                        shutil.rmtree(d, ignore_errors=True)
     _save_mcp_servers([s for s in items if s["id"] != sid])
 
 
@@ -791,6 +914,7 @@ def list_mcp_servers() -> list[dict]:
              "url": s.get("url", ""), "auth": bool(s.get("auth")),
              "auth_mode": s.get("auth_mode", ""), "authorized": _oauth_authorized(s),
              "source": s.get("source", ""), "version": s.get("version", ""),
+             "repository": s.get("repository", ""),
              "status": s.get("status", "unknown"), "detail": s.get("detail", ""),
              "tool_count": len(s.get("tools", [])),
              "tools": [t.get("name", "") for t in s.get("tools", [])],

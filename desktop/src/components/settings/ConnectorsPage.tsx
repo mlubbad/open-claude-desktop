@@ -302,6 +302,29 @@ export function ConnectorsPage({ c }: { c: ConnectorControls }) {
                 Enabled
               </label>
               <span className="dir-card-actions-right">
+                {s.source === "mcpb" && !!s.repository && (
+                  c.updates[s.id]?.latest ? (
+                    <button
+                      className="conn-authorize"
+                      title={c.updates[s.id].notes || "Download and reinstall this extension"}
+                      aria-label={`Update ${s.name}`}
+                      disabled={c.updating === s.id}
+                      onClick={() => c.onUpdate(s.id)}
+                    >
+                      {c.updating === s.id ? "Updating…" : `Update to v${c.updates[s.id].latest}`}
+                    </button>
+                  ) : (
+                    <button
+                      className="conn-authorize"
+                      title="Check the extension's GitHub releases for a newer bundle"
+                      aria-label={`Check updates for ${s.name}`}
+                      disabled={c.updating === s.id}
+                      onClick={() => c.onCheckUpdate(s.id)}
+                    >
+                      {c.updating === s.id ? "Checking…" : c.updates[s.id] ? "Up to date" : "Check for updates"}
+                    </button>
+                  )
+                )}
                 {s.status === "error" && (
                   <button
                     className="conn-authorize"

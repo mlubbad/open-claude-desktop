@@ -3,7 +3,14 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { type AddMcpBody, type McpServer, type McpbManifestInfo, mcp, type UserConfigField } from "../api/client";
+import {
+  type AddMcpBody,
+  type McpServer,
+  type McpUpdateInfo,
+  type McpbManifestInfo,
+  mcp,
+  type UserConfigField,
+} from "../api/client";
 
 // Pure toggle of an id in a string array (kept pure for testing).
 export function toggleId(ids: string[], id: string): string[] {
@@ -203,9 +210,67 @@ export function useConnectors() {
     [refresh],
   );
 
+  // Extension updates (P1-13). `updates` caches check results per server id so the
+  // card can flip between "Check for updates" → "Up to date" / "Update to vX".
+  const [updates, setUpdates] = useState<Record<string, McpUpdateInfo>>({});
+  const [updating, setUpdating] = useState<string | null>(null);
+  const checkUpdate = useCallback(async (sid: string) => {
+    setErr(null);
+    setUpdating(sid);
+    try {
+      const info = await mcp.checkUpdate(sid);
+      setUpdates((u) => ({ ...u, [sid]: info }));
+    } catch (e) {
+      setErr(String(e));
+    } finally {
+      setUpdating(null);
+    }
+  }, []);
+
+  const applyUpdate = useCallback(
+    async (sid: string): Promise<McpServer | null> => {
+      setErr(null);
+      setUpdating(sid);
+      try {
+        let s: McpServer;
+        try {
+          s = await mcp.update(sid);
+        } catch (e) {
+          // A new manifest version may REQUIRE config the old one didn't. The
+          // backend names the missing keys; prompt for them (same UX as install)
+          // and retry once. Everything else surfaces as the page error.
+          const missing = /missing required user_config: (.+)/.exec(String(e))?.[1];
+          if (!missing) throw e;
+          const values: Record<string, string> = {};
+          for (const key of missing.split(",").map((k) => k.trim()).filter(Boolean)) {
+            const v = window.prompt(`This update needs a value for "${key}"`);
+            if (v === null) return null; // user cancelled the update
+            values[key] = v;
+          }
+          s = await mcp.update(sid, values);
+        }
+        setUpdates((u) => {
+          const next = { ...u };
+          delete next[sid];
+          return next;
+        });
+        await refresh();
+        if (s.status === "connected") setEnabled((ids) => (ids.includes(s.id) ? ids : [...ids, s.id]));
+        else if (s.detail) setErr(`${s.name}: ${s.detail}`);
+        return s;
+      } catch (e) {
+        setErr(String(e));
+        return null;
+      } finally {
+        setUpdating(null);
+      }
+    },
+    [refresh],
+  );
+
   const toggle = useCallback((sid: string) => setEnabled((ids) => toggleId(ids, sid)), []);
 
   // `enabled` = the user's intent (drives the checkboxes); `active` = intent ∩ healthy
   // (fed to turns as enabled_mcp). Keeping them distinct is the whole point of F4.
-  return { servers, enabled, active, err, add, addOAuth, authorize, remove, toggle, install, refresh, retry, retrying, setToolEnabled };
+  return { servers, enabled, active, err, add, addOAuth, authorize, remove, toggle, install, refresh, retry, retrying, setToolEnabled, updates, updating, checkUpdate, applyUpdate };
 }

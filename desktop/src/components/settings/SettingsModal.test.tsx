@@ -27,6 +27,10 @@ const conn: ConnectorControls = {
   onRetry: vi.fn(),
   retrying: null,
   onToolToggle: vi.fn(),
+  updates: {},
+  updating: null,
+  onCheckUpdate: vi.fn(),
+  onUpdate: vi.fn(),
 };
 const plug: PluginControls = {
   installed: [],

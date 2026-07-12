@@ -44,6 +44,11 @@ jobs:
           pip install ./backend pyinstaller
           bash desktop/scripts/build-backend-sidecar.sh
 
+      # Ship a Node runtime next to the app so .mcpb extensions that launch `node`
+      # work without a system install (the shell passes its path as OCD_NODE).
+      - name: Fetch the bundled Node sidecar
+        run: bash desktop/scripts/fetch-node-sidecar.sh
+
       - name: Install client deps
         working-directory: desktop
         run: npm ci

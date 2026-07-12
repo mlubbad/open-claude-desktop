@@ -278,6 +278,45 @@ CODE_EXEC_SECTION = (
     "paths. If execution is unavailable or fails, say so plainly and provide the code."
 )
 
+def _knowledge_files_section(project_id: str | None, code_exec: bool) -> str | None:
+    """List the project's uploaded knowledge files in the system prompt.
+
+    Without this the model has no idea an upload exists: it won't reach for
+    `search_project_knowledge`, and with filesystem/shell MCP connectors attached it
+    goes hunting the disk for a plausible folder instead — hallucinated paths, then
+    "where did you save the file?" back at the user."""
+    if not project_id:
+        return None
+    from . import knowledge
+    try:
+        files = knowledge.list_project_files(project_id)
+    except Exception:  # noqa: BLE001 - a listing failure must never kill the turn
+        return None
+    if not files:
+        return None
+    listing = "\n".join(f"- {f['name']} ({f['meta']})" for f in files[:50])
+    more = f"\n(+{len(files) - 50} more)" if len(files) > 50 else ""
+    section = (
+        "# PROJECT FILES\n"
+        "The user uploaded these files to this project's knowledge base:\n"
+        f"{listing}{more}\n"
+        "Search their content with `search_project_knowledge`. "
+    )
+    if code_exec:
+        section += (
+            "To work on the actual file (transform a CSV, parse a document…), exact "
+            "copies are in your code-execution workspace under `knowledge/` — read "
+            "them from there (e.g. `pd.read_csv('knowledge/data.csv')`) and write "
+            "results to the working directory, never back into `knowledge/`. "
+        )
+    section += (
+        "These are the only uploaded files and they live inside the app's own "
+        "storage: never hunt for them with filesystem or shell tools, and never "
+        "guess disk paths — if a file you need isn't listed here, say so."
+    )
+    return section
+
+
 PLAN_MODE_SECTION = (
     "## Plan mode\n"
     "You are in PLAN MODE. Investigate the task using READ-ONLY tools only (searching, "
@@ -1051,6 +1090,12 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
         extra_sections.append(artifact_tools.system_prompt_section())
     if code_exec:
         extra_sections.append(CODE_EXEC_SECTION)
+    # Make uploads VISIBLE: list the project's knowledge files so the model reaches
+    # for search_project_knowledge (or the workspace mirror) instead of hunting the
+    # disk with whatever filesystem connector happens to be attached.
+    kb_files = _knowledge_files_section(active_project, code_exec)
+    if kb_files:
+        extra_sections.append(kb_files)
     # Long-horizon context management: compact older turns so a long conversation
     # never overflows the model's context window (catalog handles a provider/ prefix).
     history, _ = context.compact_for_model(list(history or []), model)

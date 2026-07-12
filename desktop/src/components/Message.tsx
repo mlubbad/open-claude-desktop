@@ -53,6 +53,13 @@ export function UserBubble({
 
   return (
     <div className="msg user">
+      {(msg.images?.length ?? 0) > 0 && (
+        <div className="user-images">
+          {msg.images!.map((src, i) => (
+            <img key={i} src={src} alt={`Attached image ${i + 1}`} className="user-image" />
+          ))}
+        </div>
+      )}
       {files.length > 0 && (
         <div className="user-files">
           {files.map((f, i) => (

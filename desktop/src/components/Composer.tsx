@@ -1,7 +1,14 @@
 import { type KeyboardEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import type { SkillSummary } from "../api/client";
-import { type Attachment, clampContent, withAttachments } from "../state/attachments";
+import {
+  admitImages,
+  type Attachment,
+  clampContent,
+  type ImageAttachment,
+  isImageFile,
+  withAttachments,
+} from "../state/attachments";
 import { applySlash, slashSuggestions } from "../state/slashCommands";
 import { Icon } from "./Icon";
 import { MicPicker, type VoiceInfo } from "./MicPicker";
@@ -90,7 +97,7 @@ export function Composer({
   voice,
 }: {
   busy: boolean;
-  onSend: (text: string) => void;
+  onSend: (text: string, images?: string[]) => void;
   onStop: () => void;
   skills?: SkillSummary[];
   draftKey?: string;
@@ -104,6 +111,9 @@ export function Composer({
   const [text, setTextState] = useState(initialText);
   const [sel, setSel] = useState(0);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [images, setImages] = useState<ImageAttachment[]>([]);
+  // Drag-and-drop: depth counter (enter/leave fire per child) drives the drop overlay.
+  const [dragDepth, setDragDepth] = useState(0);
   const [addOpen, setAddOpen] = useState(false);
   // Which Add-menu flyout is open (Add to project / Skills / Connectors / Plugins) —
   // only one at a time, hover- or click-driven, mirroring the Recents ⋮ submenu.
@@ -131,7 +141,7 @@ export function Composer({
   const [dismissed, setDismissed] = useState(false);
   const open = suggestions.length > 0 && !dismissed;
   const active = Math.min(sel, Math.max(0, suggestions.length - 1));
-  const canSend = (text.trim().length > 0 || attachments.length > 0) && !busy;
+  const canSend = (text.trim().length > 0 || attachments.length > 0 || images.length > 0) && !busy;
 
   // Wrap setText so every change is mirrored to the per-conversation draft store.
   const setText = (t: string) => {
@@ -146,6 +156,7 @@ export function Composer({
   useEffect(() => {
     setTextState(initialRef.current);
     setAttachments([]);
+    setImages([]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draftKey]);
 
@@ -189,15 +200,35 @@ export function Composer({
 
   function submit() {
     if (!canSend) return;
-    onSend(withAttachments(text, attachments));
+    onSend(withAttachments(text, attachments), images.map((i) => i.dataUrl));
     setText("");
     setAttachments([]);
+    setImages([]);
   }
 
+  // Images become data-URI vision input (thumbnail chips); everything else is read
+  // as text and inlined into the message. Used by the picker, drag-drop, and paste.
   async function addFiles(files: FileList | null) {
     if (!files) return;
-    const read = await Promise.all(
-      Array.from(files).map(
+    const all = Array.from(files);
+    const imgs = admitImages(images.length, all.filter(isImageFile));
+    const texts = all.filter((f) => !isImageFile(f));
+
+    const readImgs = await Promise.all(
+      imgs.map(
+        (f) =>
+          new Promise<ImageAttachment>((resolve) => {
+            const r = new FileReader();
+            r.onload = () => resolve({ name: f.name, dataUrl: String(r.result ?? "") });
+            r.onerror = () => resolve({ name: f.name, dataUrl: "" });
+            r.readAsDataURL(f);
+          }),
+      ),
+    );
+    setImages((a) => [...a, ...readImgs.filter((x) => x.dataUrl.startsWith("data:image/"))]);
+
+    const readTexts = await Promise.all(
+      texts.map(
         (f) =>
           new Promise<Attachment>((resolve) => {
             const r = new FileReader();
@@ -207,7 +238,7 @@ export function Composer({
           }),
       ),
     );
-    setAttachments((a) => [...a, ...read.filter((x) => x.content)]);
+    setAttachments((a) => [...a, ...readTexts.filter((x) => x.content)]);
   }
 
   function accept(skill: SkillSummary) {
@@ -246,9 +277,44 @@ export function Composer({
   }
 
   return (
-    <div className="composer">
-      {attachments.length > 0 && (
+    <div
+      className={`composer ${dragDepth > 0 ? "dragging" : ""}`}
+      onDragEnter={(e) => {
+        if (e.dataTransfer.types.includes("Files")) {
+          e.preventDefault();
+          setDragDepth((d) => d + 1);
+        }
+      }}
+      onDragOver={(e) => {
+        if (e.dataTransfer.types.includes("Files")) e.preventDefault();
+      }}
+      onDragLeave={() => setDragDepth((d) => Math.max(0, d - 1))}
+      onDrop={(e) => {
+        e.preventDefault();
+        setDragDepth(0);
+        if (!busy) void addFiles(e.dataTransfer.files);
+      }}
+    >
+      {dragDepth > 0 && (
+        <div className="composer-drop-overlay" aria-hidden="true">
+          Drop files to attach
+        </div>
+      )}
+      {(attachments.length > 0 || images.length > 0) && (
         <div className="attach-row">
+          {images.map((img, i) => (
+            <span key={`img-${i}`} className="attach-chip attach-img" title={img.name}>
+              <img src={img.dataUrl} alt={img.name} className="attach-thumb" />
+              <button
+                className="attach-del"
+                title="Remove image"
+                aria-label={`Remove image ${img.name}`}
+                onClick={() => setImages((prev) => prev.filter((_, j) => j !== i))}
+              >
+                ✕
+              </button>
+            </span>
+          ))}
           {attachments.map((a, i) => (
             <span key={i} className="attach-chip" title={a.name}>
               {a.name}
@@ -267,7 +333,7 @@ export function Composer({
         ref={fileRef}
         type="file"
         multiple
-        accept=".txt,.md,.csv,.json,.py,.ts,.tsx,.js,.jsx,.html,.css,.yaml,.yml,.sql,.sh,.log,text/*"
+        accept="image/*,.png,.jpg,.jpeg,.gif,.webp,.txt,.md,.csv,.json,.py,.ts,.tsx,.js,.jsx,.html,.css,.yaml,.yml,.sql,.sh,.log,text/*"
         style={{ display: "none" }}
         onChange={(e) => {
           void addFiles(e.target.files);
@@ -299,6 +365,17 @@ export function Composer({
           setText(e.target.value);
           setSel(0);
           setDismissed(false);
+        }}
+        onPaste={(e) => {
+          // Clipboard images (screenshots!) attach as vision input; text pastes fall
+          // through to the normal text path untouched.
+          const files = Array.from(e.clipboardData?.files ?? []).filter(isImageFile);
+          if (files.length > 0) {
+            e.preventDefault();
+            const dt = new DataTransfer();
+            for (const f of files) dt.items.add(f);
+            void addFiles(dt.files);
+          }
         }}
         onKeyDown={onKey}
         placeholder={placeholder}

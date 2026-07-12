@@ -81,13 +81,13 @@ export function useConversations(config: TurnConfig) {
   // and persist the user's message immediately so it survives anything — a crash, a
   // conversation switch, an app quit.
   const send = useCallback(
-    async (goal: string) => {
-      if (!goal.trim() || chat.busy) return;
+    async (goal: string, images?: string[]) => {
+      if ((!goal.trim() && !images?.length) || chat.busy) return;
       const pid = config.projectId ?? GENERAL_PROJECT;
       let target = current;
       if (!target) {
         try {
-          const created = await convApi.create(pid, goal);
+          const created = await convApi.create(pid, goal.trim() || "(image)");
           target = { cid: created.id, pid };
           sessions.rekey(sessions.DRAFT_KEY, created.id, pid);
           setCurrent(target);
@@ -96,7 +96,7 @@ export function useConversations(config: TurnConfig) {
           /* offline: proceed without persistence */
         }
       }
-      if (!chat.send(goal)) return;
+      if (!chat.send(goal, images)) return;
       if (target) {
         // Eager save: the store applied startTurn synchronously, so the active
         // session's messages already include this prompt.

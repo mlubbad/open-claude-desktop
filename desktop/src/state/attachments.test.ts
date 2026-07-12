@@ -1,6 +1,17 @@
 import { describe, expect, it } from "vitest";
 
-import { clampContent, fenceLang, formatAttachments, MAX_ATTACH_CHARS, parseAttachments, withAttachments } from "./attachments";
+import {
+  admitImages,
+  clampContent,
+  fenceLang,
+  formatAttachments,
+  isImageFile,
+  MAX_ATTACH_CHARS,
+  MAX_IMAGE_BYTES,
+  MAX_IMAGES,
+  parseAttachments,
+  withAttachments,
+} from "./attachments";
 
 describe("clampContent", () => {
   it("passes through short content", () => {
@@ -77,5 +88,24 @@ describe("parseAttachments", () => {
     const parsed = parseAttachments(text);
     expect(parsed.body).toBe(text);
     expect(parsed.files).toEqual([]);
+  });
+});
+
+describe("image attachments", () => {
+  it("isImageFile keys off the MIME type", () => {
+    expect(isImageFile({ type: "image/png" })).toBe(true);
+    expect(isImageFile({ type: "image/webp" })).toBe(true);
+    expect(isImageFile({ type: "text/plain" })).toBe(false);
+    expect(isImageFile({ type: "" })).toBe(false);
+  });
+
+  it("admitImages enforces the size cap and the total count", () => {
+    const small = { size: 1000 };
+    const huge = { size: MAX_IMAGE_BYTES + 1 };
+    expect(admitImages(0, [small, huge, small])).toEqual([small, small]);
+    // Already 5 attached -> only 1 slot left of MAX_IMAGES (6).
+    expect(admitImages(5, [small, small, small])).toEqual([small]);
+    // Full -> nothing admitted.
+    expect(admitImages(MAX_IMAGES, [small])).toEqual([]);
   });
 });

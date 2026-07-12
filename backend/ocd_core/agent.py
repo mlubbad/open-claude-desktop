@@ -100,6 +100,20 @@ WEB_SEARCH_TOOL = {"type": "function", "function": {
         "query": {"type": "string", "description": "The search query."}},
         "required": ["query"]}}}
 
+PROJECT_KB_TOOL = {"type": "function", "function": {
+    "name": "search_project_knowledge",
+    "description": "Search the documents uploaded to this project's knowledge base and "
+                   "return the most relevant passages, each headed by its source file "
+                   "(e.g. `[report.pdf · chunk 3]`) so you can cite it. Use whenever the "
+                   "user's question could be answered by the project's own documents — "
+                   "prefer it over web search for project-specific facts.",
+    "parameters": {"type": "object", "properties": {
+        "question": {"type": "string",
+                     "description": "What to look for, phrased as a full question."},
+        "top_k": {"type": "integer",
+                  "description": "How many passages to return (default 6)."}},
+        "required": ["question"]}}}
+
 ASK_USER_TOOL = {"type": "function", "function": {
     "name": "ask_user",
     "description": (
@@ -533,6 +547,8 @@ async def _stream_llm(llm, model, messages, tools=None, temperature=0.1,
 # Friendly tool labels (Claude-style): name -> (running gerund, done past, icon).
 TOOL_LABELS = {
     "ask_user":      ("Asking you a question", "Asked for your input", "question"),
+    "search_project_knowledge": ("Searching project knowledge",
+                                 "Searched project knowledge", "book"),
     "search_schema": ("Looking up schema", "Looked up schema", "search"),
     "run_sql":       ("Querying BigQuery", "Queried BigQuery", "database"),
     "web_search":    ("Searching the web", "Searched the web", "globe"),
@@ -586,7 +602,7 @@ def _tool_input(name: str, args: dict) -> str:
     """Compact, human-readable summary of a tool's input for the card header/body."""
     if name == "run_sql":
         return (args.get("sql", "") or "").strip()[:600]
-    if name == "search_schema":
+    if name in ("search_schema", "search_project_knowledge"):
         return (args.get("question", "") or "")[:300]
     if name == "web_search":
         return (args.get("query", "") or "")[:300]
@@ -670,6 +686,29 @@ async def _run_one_tool(name, args, tc_id, active_project, goal, top_k,
             result = await asyncio.to_thread(schema_catalog.search_schema, q, active_project, top_k)
             return {"id": tc_id, "name": name, "ok": True, "result": result,
                     "summary": f"{result.count('TABLE:')} tables · {len(result):,} chars"}
+
+        if name == "search_project_knowledge":
+            from . import knowledge
+            if not active_project:
+                return {"id": tc_id, "name": name, "ok": False,
+                        "result": "ERROR: no project is active for this conversation, so "
+                                  "there is no knowledge base to search."}
+            q = args.get("question", goal)
+            try:
+                k = max(1, min(int(args.get("top_k") or 6), 20))
+            except (TypeError, ValueError):
+                k = 6
+            result = await asyncio.to_thread(
+                knowledge.search_project_kb, active_project, q, k)
+            if not result:
+                return {"id": tc_id, "name": name, "ok": True,
+                        "result": "No matching passages — the project knowledge base is "
+                                  "empty or nothing matched. Answer from other sources "
+                                  "and say the project documents didn't cover this.",
+                        "summary": "no matches"}
+            n = result.count("\n\n---\n\n") + 1
+            return {"id": tc_id, "name": name, "ok": True, "result": result,
+                    "summary": f"{n} passage{'' if n == 1 else 's'} · {len(result):,} chars"}
 
         if name == "run_sql":
             sql = args.get("sql", "")
@@ -899,7 +938,8 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
                    text_editor: bool = False, memory: bool = False,
                    provider: str | None = None, turn_id: str | None = None,
                    permission_mode: str | None = None, artifacts: bool = False,
-                   user_profile: str = "", subagents: bool = False):
+                   user_profile: str = "", subagents: bool = False,
+                   project_memory: str = "", images: list[str] | None = None):
     """Drive one agent turn, yielding events. `history` is prior (role/content) turns.
 
     `turn_id` + `permission_mode` enable the interactive HITL gate: when set (and the
@@ -910,6 +950,9 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
     `provider` (optional) selects the model provider; otherwise it is inferred from a
     ``provider/model`` prefix on `model` or the configured default. BYOK: a missing
     key surfaces as a clean error event rather than crashing the stream.
+
+    `images` (optional) are data-URI images attached to THIS user message; they ride
+    the current turn as OpenAI-style multimodal content parts (history stays text).
     """
     cfg = EFFORT.get(effort, EFFORT["High"])
     temperature = cfg["temp"]
@@ -938,14 +981,27 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
     # Long-horizon context management: compact older turns so a long conversation
     # never overflows the model's context window (catalog handles a provider/ prefix).
     history, _ = context.compact_for_model(list(history or []), model)
+    # Attached images ride the CURRENT user message as OpenAI-style multimodal parts.
+    # Providers without vision reject the request with their own clear error, which
+    # surfaces through the normal error path — no silent drop.
+    user_content: str | list = goal
+    if images:
+        user_content = [{"type": "text", "text": goal},
+                        *({"type": "image_url", "image_url": {"url": u}}
+                          for u in images)]
     messages = [{"role": "system",
                  "content": prompts.build_system_prompt(
                      extra_sections=extra_sections or None, memory=memory,
                      user_profile=user_profile,
                      project_instructions=project_instructions,
+                     project_memory=project_memory,
                      skill_instructions=skill_instructions, research=research)},
-                *history, {"role": "user", "content": goal}]
+                *history, {"role": "user", "content": user_content}]
     tools = list(bigquery_tools.TOOL_SPECS) if bq_on else []
+    # Project knowledge is a first-class capability of every project chat — NOT gated
+    # on any connector. Uploaded documents are unreachable without this tool.
+    if active_project:
+        tools.append(PROJECT_KB_TOOL)
     if artifacts:
         tools.extend(artifact_tools.TOOL_SPECS)
     artifact_store: dict = {}

@@ -237,10 +237,11 @@ function finishTurn(key: string): void {
   onTurnEndHandler?.({ key: s.key, pid: s.pid, messages: s.state.messages });
 }
 
-function launch(key: string, goal: string, history: ReturnType<typeof buildHistory>, base: BaseTurnRequest): void {
+function launch(key: string, goal: string, history: ReturnType<typeof buildHistory>, base: BaseTurnRequest,
+                images?: string[]): void {
   const s = sessions.get(key);
   if (!s) return;
-  const req: AgentTurnRequest = { ...base, goal, history };
+  const req: AgentTurnRequest = { ...base, goal, history, ...(images?.length ? { images } : {}) };
   s.busy = true;
   touched(key);
   s.ctrl = streamImpl(
@@ -264,13 +265,13 @@ function launch(key: string, goal: string, history: ReturnType<typeof buildHisto
 }
 
 /** Send on the active session. Returns false when refused (busy / empty). */
-export function sendActive(goal: string, base: BaseTurnRequest): boolean {
+export function sendActive(goal: string, base: BaseTurnRequest, images?: string[]): boolean {
   const key = activeKey;
   const s = ensure(key, base.project_id ?? "");
-  if (s.busy || !goal.trim()) return false;
+  if (s.busy || (!goal.trim() && !images?.length)) return false;
   const history = buildHistory(s.state.messages);
-  apply(key, (st) => startTurn(st, goal));
-  launch(key, goal, history, base);
+  apply(key, (st) => startTurn(st, goal, images));
+  launch(key, goal, history, base, images);
   return true;
 }
 
@@ -281,10 +282,10 @@ export function retryActive(base: BaseTurnRequest): void {
   if (!s || s.busy) return;
   const idx = lastUserIndex(s.state.messages);
   if (idx < 0) return;
-  const goal = (s.state.messages[idx] as UserMessage).text;
+  const um = s.state.messages[idx] as UserMessage;
   const history = buildHistory(s.state.messages.slice(0, idx));
   apply(key, (st) => retryFrom(st, idx));
-  launch(key, goal, history, base);
+  launch(key, um.text, history, base, um.images);
 }
 
 /** Edit a prior user message and re-run from there (active session). */

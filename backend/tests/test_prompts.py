@@ -46,3 +46,13 @@ def test_empty_sections_are_skipped():
     sp = prompts.build_system_prompt(extra_sections=["", "   ", None])
     # Only the base remains; no stray blank sections.
     assert sp == prompts.build_system_prompt()
+
+
+def test_project_memory_section():
+    """Parity P0-4: Project.memory finally reaches the model as its own section."""
+    assert "PROJECT MEMORY" not in prompts.build_system_prompt()
+    sp = prompts.build_system_prompt(project_memory="Ship v2 by March. Ali prefers tables.")
+    assert "# PROJECT MEMORY" in sp
+    assert "Ship v2 by March." in sp
+    # Whitespace-only memory is skipped like every other optional section.
+    assert "PROJECT MEMORY" not in prompts.build_system_prompt(project_memory="   ")

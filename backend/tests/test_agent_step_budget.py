@@ -61,7 +61,7 @@ def _always_tool_calling_stream(calls_log, final_answer="SYNTHESIZED-ANSWER",
     state = {"n": 0}
 
     async def _fake_stream(llm, model, messages, tools, temperature, max_tokens,
-                           content_scope="answer", fallback_model=None):
+                           content_scope="answer", fallback_model=None, **_kw):
         state["n"] += 1
         calls_log.append({"tools": tools, "messages": [dict(m) for m in messages]})
         if tools is not None:
@@ -148,7 +148,7 @@ def test_distinct_failures_do_not_trip_the_breaker(monkeypatch):
     _spy_tools(monkeypatch, executed, ok=False, result="ERROR: nope")
 
     async def _fake_stream(llm, model, messages, tools, temperature, max_tokens,
-                           content_scope="answer", fallback_model=None):
+                           content_scope="answer", fallback_model=None, **_kw):
         state["n"] += 1
         calls_log.append({"tools": tools, "messages": [dict(m) for m in messages]})
         if tools is not None:
@@ -192,7 +192,7 @@ def test_turn_with_answer_never_finalizes(monkeypatch):
     calls_log = []
 
     async def _fake_stream(llm, model, messages, tools, temperature, max_tokens,
-                           content_scope="answer", fallback_model=None):
+                           content_scope="answer", fallback_model=None, **_kw):
         calls_log.append({"tools": tools})
         yield {"type": "delta", "scope": "answer", "text": "hi"}
         yield {"__done__": {"content": "hi", "tool_calls": [], "note": None}}
@@ -224,7 +224,7 @@ def test_hitl_decline_never_gets_breaker_advice(monkeypatch):
     monkeypatch.setattr(agent.permissions.registry, "wait", _always_decline)
 
     async def _fake_stream(llm, model, messages, tools, temperature, max_tokens,
-                           content_scope="answer", fallback_model=None):
+                           content_scope="answer", fallback_model=None, **_kw):
         state["n"] += 1
         calls_log.append({"tools": tools, "messages": [dict(m) for m in messages]})
         if tools is not None:
@@ -254,7 +254,7 @@ def test_wrap_up_warning_survives_a_blank_round_at_the_threshold(monkeypatch):
     blank_round = steps - agent.WRAP_UP_WARNING_AT  # 1-based: the round that warns
 
     async def _fake_stream(llm, model, messages, tools, temperature, max_tokens,
-                           content_scope="answer", fallback_model=None):
+                           content_scope="answer", fallback_model=None, **_kw):
         state["n"] += 1
         calls_log.append({"tools": tools, "messages": [dict(m) for m in messages]})
         if tools is None:
@@ -282,7 +282,7 @@ def test_distinct_malformed_payloads_get_distinct_breaker_counters(monkeypatch):
     _spy_tools(monkeypatch, executed, ok=False, result="ERROR: bad args")
 
     async def _fake_stream(llm, model, messages, tools, temperature, max_tokens,
-                           content_scope="answer", fallback_model=None):
+                           content_scope="answer", fallback_model=None, **_kw):
         state["n"] += 1
         calls_log.append({"tools": tools, "messages": [dict(m) for m in messages]})
         if tools is not None:
@@ -308,7 +308,7 @@ def test_partial_finalize_stream_is_kept_over_the_fallback(monkeypatch):
     _spy_tools(monkeypatch, executed)
 
     async def _fake_stream(llm, model, messages, tools, temperature, max_tokens,
-                           content_scope="answer", fallback_model=None):
+                           content_scope="answer", fallback_model=None, **_kw):
         state["n"] += 1
         calls_log.append({"tools": tools, "messages": [dict(m) for m in messages]})
         if tools is not None:

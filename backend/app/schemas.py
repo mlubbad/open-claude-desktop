@@ -49,6 +49,16 @@ class AgentTurnRequest(BaseModel):
     enabled_mcp: list[str] = []
     # data-URI images attached to THIS message (vision input). History stays text.
     images: list[str] = []
+    # Response style: "normal"|"concise"|"explanatory"|"formal", or custom
+    # instruction text (bounded). Empty/None = no style section.
+    style: str | None = None
+
+    @field_validator("style")
+    @classmethod
+    def _bound_style(cls, v: str | None) -> str | None:
+        if v and len(v) > 2000:
+            raise ValueError("style too long")
+        return v
 
     @field_validator("images")
     @classmethod
@@ -116,6 +126,7 @@ class SettingsBody(BaseModel):
     searxng_url: str | None = None
     code_execution: str | None = None   # auto | docker | local | off
     permission_mode: str | None = None  # strict | ask | auto (HITL autonomy)
+    memory_search: bool | None = None   # agent may search past chats mid-turn
     visible_models: dict | None = None  # {provider_id: [model, ...]} shown in the picker
     # Opik observability (opt-in). The API key is NEVER accepted here — it goes to the
     # keychain via /observability/key. These are non-secret config only.

@@ -43,7 +43,7 @@ def _run_turn_with_decision(monkeypatch, decision: bool, turn_id="t1"):
     state = {"n": 0}
 
     async def _fake_stream(llm, model, messages, tools, temperature, max_tokens,
-                           content_scope="answer", fallback_model=None):
+                           content_scope="answer", fallback_model=None, **_kw):
         state["n"] += 1
         if state["n"] == 1:
             yield {"__done__": {"content": "", "note": None,
@@ -108,7 +108,7 @@ def _run_turn_no_mode(monkeypatch, persisted_mode: str, turn_id="t1"):
     state = {"n": 0}
 
     async def _fake_stream(llm, model, messages, tools, temperature, max_tokens,
-                           content_scope="answer", fallback_model=None):
+                           content_scope="answer", fallback_model=None, **_kw):
         state["n"] += 1
         if state["n"] == 1:
             yield {"__done__": {"content": "", "note": None,
@@ -166,7 +166,7 @@ def test_auto_mode_never_prompts(monkeypatch):
     state = {"n": 0}
 
     async def _fake_stream(llm, model, messages, tools, temperature, max_tokens,
-                           content_scope="answer", fallback_model=None):
+                           content_scope="answer", fallback_model=None, **_kw):
         state["n"] += 1
         if state["n"] == 1:
             yield {"__done__": {"content": "", "note": None,

@@ -37,7 +37,7 @@ def test_routes_to_selected_provider_and_fallback(monkeypatch):
     captured = {}
 
     async def fake_stream(llm, model, messages, tools=None, temperature=0.1,
-                          max_tokens=4096, content_scope="answer", fallback_model=None):
+                          max_tokens=4096, content_scope="answer", fallback_model=None, **_kw):
         captured["base_url"] = str(llm.base_url)
         captured["model"] = model
         captured["fallback"] = fallback_model

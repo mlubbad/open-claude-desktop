@@ -2,6 +2,17 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
+vi.mock("../../api/client", async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  mcp: {
+    directory: vi.fn(async () => [
+      { id: "fetch", name: "Fetch", description: "Fetch web pages as markdown.",
+        transport: "stdio", command: "uvx", args: ["mcp-server-fetch"],
+        env_keys: [], runtime: "python", tags: ["web", "official"] },
+    ]),
+  },
+}));
+
 import type { McpServer } from "../../api/client";
 import { ConnectorsPage } from "./ConnectorsPage";
 import type { ConnectorControls } from "./types";
@@ -62,5 +73,21 @@ describe("ConnectorsPage error card", () => {
     });
     render(<ConnectorsPage c={c} />);
     expect(screen.queryByLabelText("Retry playwright")).toBeNull();
+  });
+});
+
+describe("connector directory (P1-3)", () => {
+  it("Browse lists catalog entries and Use PREFILLS the add form (no silent add)", async () => {
+    const c = makeControls();
+    render(<ConnectorsPage c={c} />);
+    fireEvent.click(screen.getByText("Browse"));
+    expect(await screen.findByText("Fetch")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Use" }));
+    // The add form opens on the Local tab with the entry's command/args filled in.
+    expect(screen.getByLabelText("Connector name")).toHaveValue("Fetch");
+    expect(screen.getByPlaceholderText("Command (e.g. npx, uv)")).toHaveValue("uvx");
+    expect(screen.getByLabelText("Command arguments")).toHaveValue("mcp-server-fetch");
+    // Nothing was added yet — the user must confirm.
+    expect(c.onAdd).not.toHaveBeenCalled();
   });
 });

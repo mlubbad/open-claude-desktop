@@ -36,7 +36,12 @@ def estimate_messages(messages: list[dict]) -> int:
 PRICES: dict[str, tuple[float, float]] = {
     "gpt-4o-mini": (0.15, 0.60),
     "gpt-4o": (2.50, 10.00),
+    "gpt-5-mini": (0.25, 2.00),
+    "gpt-5": (1.25, 10.00),
     "o3-mini": (1.10, 4.40),
+    "claude-opus": (5.00, 25.00),
+    "claude-sonnet": (3.00, 15.00),
+    "claude-haiku": (1.00, 5.00),
     "deepseek-reasoner": (0.55, 2.19),
     "deepseek-chat": (0.27, 1.10),
     "glm-4-plus": (0.60, 0.60),
@@ -56,13 +61,28 @@ def price_usd(model: str, input_tokens: int, output_tokens: int) -> float | None
     return None
 
 
-def build_usage(model: str, messages: list[dict], output_text: str) -> dict:
-    """A `usage` event: context fill (for the meter) + output tokens + rough cost."""
+def build_usage(model: str, messages: list[dict], output_text: str,
+                reported: dict | None = None) -> dict:
+    """A `usage` event: context fill (for the meter) + output tokens + cost.
+
+    ``reported`` (optional) carries the PROVIDER's own numbers, folded across every
+    LLM round of the turn: {"input": billed prompt tokens (sum), "output": completion
+    tokens (sum), "last_prompt": final round's prompt tokens}. When present it
+    replaces the ~4-chars/token heuristic — the meter shows the real final context
+    size and the cost reflects every round actually billed, not just the last."""
     from .llm import catalog
 
-    context_tokens = estimate_messages(messages)
-    output_tokens = estimate_text(output_text)
     limit = catalog.context_window(model)
+    if reported and (reported.get("input") or reported.get("output")):
+        context_tokens = reported.get("last_prompt") or estimate_messages(messages)
+        output_tokens = reported.get("output", 0)
+        cost = price_usd(model, reported.get("input", 0), output_tokens)
+        source = "reported"
+    else:
+        context_tokens = estimate_messages(messages)
+        output_tokens = estimate_text(output_text)
+        cost = price_usd(model, context_tokens, output_tokens)
+        source = "estimated"
     pct = min(100, round(context_tokens / limit * 100)) if limit else 0
     return {
         "type": "usage",
@@ -71,5 +91,6 @@ def build_usage(model: str, messages: list[dict], output_text: str) -> dict:
         "output_tokens": output_tokens,
         "context_limit": limit,
         "context_pct": pct,
-        "cost_usd": price_usd(model, context_tokens, output_tokens),
+        "cost_usd": cost,
+        "source": source,
     }

@@ -91,6 +91,7 @@ from . import (
     util,
 )
 from .llm import LLMConfigError, reasoning_of, resolve_turn_client
+from .llm import catalog as llm_catalog
 
 WEB_SEARCH_TOOL = {"type": "function", "function": {
     "name": "web_search",
@@ -113,6 +114,16 @@ PROJECT_KB_TOOL = {"type": "function", "function": {
         "top_k": {"type": "integer",
                   "description": "How many passages to return (default 6)."}},
         "required": ["question"]}}}
+
+PAST_CHATS_TOOL = {"type": "function", "function": {
+    "name": "search_past_chats",
+    "description": "Search the user's PAST conversations in this app by keyword and "
+                   "return the matching chats (title, project, when, snippet). Use when "
+                   "the user references earlier discussions ('as we discussed', 'the "
+                   "plan from last week') that are not in the current conversation.",
+    "parameters": {"type": "object", "properties": {
+        "query": {"type": "string", "description": "Keywords to search for."}},
+        "required": ["query"]}}}
 
 ASK_USER_TOOL = {"type": "function", "function": {
     "name": "ask_user",
@@ -420,9 +431,15 @@ class _ToolCallObj:
                              "arguments": self.function.arguments}}
 
 
-async def _stream_chunks(llm, model, messages, tools, temperature, max_tokens):
+async def _stream_chunks(llm, model, messages, tools, temperature, max_tokens,
+                         extra: dict | None = None):
     """Bridge the blocking streaming `create()` into an async chunk generator by
-    pumping chunks from a worker thread through a thread-safe queue."""
+    pumping chunks from a worker thread through a thread-safe queue.
+
+    ``extra`` carries best-effort request params (stream_options for usage reporting,
+    reasoning_effort for native thinking). Providers vary: if the request fails
+    BEFORE the first chunk with extras attached, it is retried once without them, so
+    an OpenAI-compatible endpoint that rejects unknown params never loses streaming."""
     loop = asyncio.get_running_loop()
     queue: asyncio.Queue = asyncio.Queue()
     DONE = object()
@@ -434,6 +451,16 @@ async def _stream_chunks(llm, model, messages, tools, temperature, max_tokens):
             if tools:
                 kw["tools"] = tools
                 kw["tool_choice"] = "auto"
+            got_chunk = False
+            try:
+                for chunk in llm.chat.completions.create(model=model, **kw,
+                                                         **(extra or {})):
+                    got_chunk = True
+                    loop.call_soon_threadsafe(queue.put_nowait, chunk)
+                return
+            except Exception:
+                if got_chunk or not extra:
+                    raise  # a mid-stream failure isn't the extras' fault
             for chunk in llm.chat.completions.create(model=model, **kw):
                 loop.call_soon_threadsafe(queue.put_nowait, chunk)
         except Exception as e:
@@ -454,21 +481,46 @@ async def _stream_chunks(llm, model, messages, tools, temperature, max_tokens):
         await fut
 
 
+def _usage_of(obj) -> dict | None:
+    """Provider-reported token usage from a chunk/response, or None. Best-effort:
+    OpenAI-compatible providers attach {prompt_tokens, completion_tokens}."""
+    u = getattr(obj, "usage", None)
+    if u is None:
+        return None
+    p = getattr(u, "prompt_tokens", None)
+    c = getattr(u, "completion_tokens", None)
+    if p is None and c is None:
+        return None
+    return {"prompt_tokens": int(p or 0), "completion_tokens": int(c or 0)}
+
+
 async def _stream_llm(llm, model, messages, tools=None, temperature=0.1,
-                      max_tokens=4096, content_scope="answer", fallback_model=None):
+                      max_tokens=4096, content_scope="answer", fallback_model=None,
+                      reasoning: str | None = None):
     """Stream one LLM call. Yields {"type":"delta","scope":...,"text":...} for content
     (scope=content_scope) and reasoning (scope="think"), then a terminal
-    {"__done__": {content, tool_calls, note, error?}}. Falls back to `fallback_model`
-    (the provider's default) on a model error and to a non-streamed call if streaming
-    itself is unavailable."""
+    {"__done__": {content, tool_calls, note, usage?, error?}}. Falls back to
+    `fallback_model` (the provider's default) on a model error and to a non-streamed
+    call if streaming itself is unavailable.
+
+    ``reasoning`` requests NATIVE thinking ("low"/"medium"/"high") for models that
+    support it; usage reporting is always requested. Both are best-effort — a
+    provider that rejects the params gets one clean retry without them."""
+    extra: dict = {"stream_options": {"include_usage": True}}
+    if reasoning:
+        extra["reasoning_effort"] = reasoning
     attempts = [model] if not fallback_model or model == fallback_model else [model, fallback_model]
     for ai, m in enumerate(attempts):
         content, tool_acc, started = [], {}, False
+        reported_usage: dict | None = None
         art_streams: dict = {}          # per tool-call-index artifact content readers
         streamed_artifacts: set = set()  # ids emitted live (so completion only closes them)
         try:
             async for chunk in _stream_chunks(llm, m, messages, tools, temperature,
-                                              max_tokens):
+                                              max_tokens, extra=extra):
+                u = _usage_of(chunk)
+                if u:
+                    reported_usage = u  # arrives on the final chunk
                 if not getattr(chunk, "choices", None):
                     continue
                 started = True
@@ -513,7 +565,8 @@ async def _stream_llm(llm, model, messages, tools=None, temperature=0.1,
             note = (f"Model '{model}' is unavailable — fell back to {fallback_model}."
                     if m != model else None)
             yield {"__done__": {"content": "".join(content), "tool_calls": tool_calls,
-                                "note": note, "streamed_artifacts": streamed_artifacts}}
+                                "note": note, "streamed_artifacts": streamed_artifacts,
+                                "usage": reported_usage}}
             return
         except Exception:
             if not started and ai == 0 and len(attempts) > 1:
@@ -540,7 +593,8 @@ async def _stream_llm(llm, model, messages, tools=None, temperature=0.1,
             if new_text:
                 yield {"type": "delta", "scope": content_scope, "text": new_text}
             yield {"__done__": {"content": full or emitted,
-                                "tool_calls": list(msg.tool_calls or []), "note": note}}
+                                "tool_calls": list(msg.tool_calls or []), "note": note,
+                                "usage": _usage_of(resp)}}
             return
 
 
@@ -549,6 +603,7 @@ TOOL_LABELS = {
     "ask_user":      ("Asking you a question", "Asked for your input", "question"),
     "search_project_knowledge": ("Searching project knowledge",
                                  "Searched project knowledge", "book"),
+    "search_past_chats": ("Searching past chats", "Searched past chats", "search"),
     "search_schema": ("Looking up schema", "Looked up schema", "search"),
     "run_sql":       ("Querying BigQuery", "Queried BigQuery", "database"),
     "web_search":    ("Searching the web", "Searched the web", "globe"),
@@ -604,7 +659,7 @@ def _tool_input(name: str, args: dict) -> str:
         return (args.get("sql", "") or "").strip()[:600]
     if name in ("search_schema", "search_project_knowledge"):
         return (args.get("question", "") or "")[:300]
-    if name == "web_search":
+    if name in ("web_search", "search_past_chats"):
         return (args.get("query", "") or "")[:300]
     if name == "deep_research":
         return (args.get("topic", "") or "")[:300]
@@ -709,6 +764,23 @@ async def _run_one_tool(name, args, tc_id, active_project, goal, top_k,
             n = result.count("\n\n---\n\n") + 1
             return {"id": tc_id, "name": name, "ok": True, "result": result,
                     "summary": f"{n} passage{'' if n == 1 else 's'} · {len(result):,} chars"}
+
+        if name == "search_past_chats":
+            from . import conversations
+            q = args.get("query", goal)
+            hits = await asyncio.to_thread(conversations.search_conversations, q, 8)
+            if not hits:
+                return {"id": tc_id, "name": name, "ok": True,
+                        "result": "No past conversations matched that query.",
+                        "summary": "no matches"}
+            lines = [
+                f"- \"{h.get('title') or 'Untitled'}\" "
+                f"({h.get('project_name', 'General')}, {h.get('updated_rel', '')}) — "
+                f"matched in {h.get('matched_in', 'body')}: {h.get('snippet', '')}"
+                for h in hits]
+            result = "Past conversations matching the query:\n" + "\n".join(lines)
+            return {"id": tc_id, "name": name, "ok": True, "result": result,
+                    "summary": f"{len(hits)} chat{'' if len(hits) == 1 else 's'}"}
 
         if name == "run_sql":
             sql = args.get("sql", "")
@@ -939,7 +1011,8 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
                    provider: str | None = None, turn_id: str | None = None,
                    permission_mode: str | None = None, artifacts: bool = False,
                    user_profile: str = "", subagents: bool = False,
-                   project_memory: str = "", images: list[str] | None = None):
+                   project_memory: str = "", images: list[str] | None = None,
+                   style: str = ""):
     """Drive one agent turn, yielding events. `history` is prior (role/content) turns.
 
     `turn_id` + `permission_mode` enable the interactive HITL gate: when set (and the
@@ -994,7 +1067,7 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
                      extra_sections=extra_sections or None, memory=memory,
                      user_profile=user_profile,
                      project_instructions=project_instructions,
-                     project_memory=project_memory,
+                     project_memory=project_memory, style=style,
                      skill_instructions=skill_instructions, research=research)},
                 *history, {"role": "user", "content": user_content}]
     tools = list(bigquery_tools.TOOL_SPECS) if bq_on else []
@@ -1028,6 +1101,11 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
     # no turn_id and must never stall waiting for input.
     if turn_id:
         tools.append(ASK_USER_TOOL)
+        # Memory: recall past conversations ("search and reference chats"). Local,
+        # read-only, settings-gated; interactive chats only — background runs have
+        # no business trawling the user's history.
+        if settings.get_settings().get("memory_search", True):
+            tools.append(PAST_CHATS_TOOL)
         # Connector sign-in also needs a live user (to consent in the browser). Always
         # HITL-gated (sensitive), so it can never run a host login CLI silently.
         if auth_flows.enabled():
@@ -1043,6 +1121,24 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
     except LLMConfigError as e:
         yield {"type": "error", "text": str(e)}
         return
+
+    # Native reasoning (P1-1): a model that supports provider-side thinking gets it,
+    # mapped from the effort level; the harness's plan/verify passes still apply.
+    native_reasoning = ({"Low": "low", "Medium": "medium"}.get(effort, "high")
+                        if llm_catalog.supports_reasoning(model) else None)
+
+    # Provider-reported token usage, folded across EVERY round of the turn (planning,
+    # each tool round, verify, finalize). `last_prompt` is the final context size for
+    # the meter; `input` sums what was actually billed across rounds.
+    reported = {"input": 0, "output": 0, "last_prompt": 0, "rounds": 0}
+
+    def _fold_usage(done: dict) -> None:
+        u = done.get("usage")
+        if u:
+            reported["input"] += u.get("prompt_tokens", 0)
+            reported["output"] += u.get("completion_tokens", 0)
+            reported["last_prompt"] = u.get("prompt_tokens", 0)
+            reported["rounds"] += 1
 
     if bq_on:
         try:
@@ -1065,6 +1161,7 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
             else:
                 yield ev
         yield {"type": "think_close", "elapsed": max(1, round(time.monotonic() - t0))}
+        _fold_usage(done)
         plan = (done.get("content") or "").strip()
         if plan:
             messages.append({"role": "assistant", "content": f"My plan: {plan}"})
@@ -1113,11 +1210,13 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
         yield {"type": "answer_open"}
         done = {}
         async for ev in _stream_llm(llm, model, messages, tools, temperature, 4096,
-                                    content_scope="answer", fallback_model=fallback_model):
+                                    content_scope="answer", fallback_model=fallback_model,
+                                    reasoning=native_reasoning):
             if "__done__" in ev:
                 done = ev["__done__"]
             else:
                 yield ev
+        _fold_usage(done)
         if done.get("error"):
             yield {"type": "answer_to_think", "phase": "narration", "elapsed": 0}
             yield {"type": "error", "text": done.get("note", "LLM call failed.")}
@@ -1338,6 +1437,7 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
                 done = ev["__done__"]
             else:
                 yield ev
+        _fold_usage(done)
         # Keep whatever synthesis arrived — even a partial one cut short by a stream
         # error is the model's actual answer and beats the canned fallback.
         wrap = (done.get("content") or "").strip()
@@ -1373,6 +1473,7 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
             else:
                 yield ev
         yield {"type": "think_close", "elapsed": max(1, round(time.monotonic() - t0))}
+        _fold_usage(done)
         vtext = _strip_answer_label((done.get("content") or "").strip())
         if vtext:
             final_text = vtext
@@ -1382,4 +1483,5 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
         answer_shown = True
 
     # ---- Usage / cost meter (one event at the end of a successful turn) ----
-    yield usage.build_usage(model, messages, "".join(out_parts))
+    yield usage.build_usage(model, messages, "".join(out_parts),
+                            reported=reported if reported["rounds"] else None)

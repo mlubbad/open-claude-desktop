@@ -43,6 +43,7 @@ export type IconName =
   | "search"
   | "pin-angle"
   | "eye"
+  | "eye-off"
   | "code"
   | "expand"
   | "cloud-up";
@@ -150,6 +151,12 @@ const PATHS: Record<IconName, React.ReactNode> = {
     <>
       <path d="M1.8 8s2.3-4 6.2-4 6.2 4 6.2 4-2.3 4-6.2 4-6.2-4-6.2-4z" />
       <circle cx="8" cy="8" r="1.8" />
+    </>
+  ),
+  "eye-off": (
+    <>
+      <path d="M1.8 8s2.3-4 6.2-4c1.1 0 2.1.3 3 .8M14.2 8s-2.3 4-6.2 4c-1.1 0-2.1-.3-3-.8" />
+      <path d="M2.5 13.5l11-11" />
     </>
   ),
   code: <path d="M5.5 4.5L2 8l3.5 3.5M10.5 4.5L14 8l-3.5 3.5" />,

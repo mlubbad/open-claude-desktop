@@ -160,9 +160,12 @@ class MCPRegistry:
                     streamablehttp_client(cfg["url"], headers=cfg.get("headers") or None,
                                           auth=cfg.get("auth_provider")))
             elif transport == "sse":
+                # Same OAuth 2.1 provider ride-along as the http branch — previously
+                # only Streamable-HTTP connectors could authenticate.
                 from mcp.client.sse import sse_client
                 read, write = await stack.enter_async_context(
-                    sse_client(cfg["url"], headers=cfg.get("headers") or None))
+                    sse_client(cfg["url"], headers=cfg.get("headers") or None,
+                               auth=cfg.get("auth_provider")))
             else:
                 from mcp import StdioServerParameters
                 from mcp.client.stdio import stdio_client

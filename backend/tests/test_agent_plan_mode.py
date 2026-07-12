@@ -49,7 +49,7 @@ def test_plan_mode_blocks_sensitive_tool_and_offers_exit(monkeypatch):
     _spy_tools(monkeypatch, executed)
 
     async def _fake_stream(llm, model, messages, tools, temperature, max_tokens,
-                           content_scope="answer", fallback_model=None):
+                           content_scope="answer", fallback_model=None, **_kw):
         state["n"] += 1
         tool_sets.append([t["function"]["name"] for t in (tools or [])])
         if state["n"] == 1:
@@ -83,7 +83,7 @@ def test_exit_plan_mode_approval_leaves_plan_mode(monkeypatch):
     monkeypatch.setattr(agent.permissions.registry, "wait", _always_approve)
 
     async def _fake_stream(llm, model, messages, tools, temperature, max_tokens,
-                           content_scope="answer", fallback_model=None):
+                           content_scope="answer", fallback_model=None, **_kw):
         state["n"] += 1
         n = state["n"]
         if n == 1:
@@ -120,7 +120,7 @@ def test_exit_plan_mode_decline_keeps_blocking(monkeypatch):
     monkeypatch.setattr(agent.permissions.registry, "wait", _always_decline)
 
     async def _fake_stream(llm, model, messages, tools, temperature, max_tokens,
-                           content_scope="answer", fallback_model=None):
+                           content_scope="answer", fallback_model=None, **_kw):
         state["n"] += 1
         n = state["n"]
         if n == 1:
@@ -152,7 +152,7 @@ def test_plan_tool_absent_without_plan_mode(monkeypatch):
     tool_sets, state = [], {"n": 0}
 
     async def _fake_stream(llm, model, messages, tools, temperature, max_tokens,
-                           content_scope="answer", fallback_model=None):
+                           content_scope="answer", fallback_model=None, **_kw):
         state["n"] += 1
         tool_sets.append([t["function"]["name"] for t in (tools or [])])
         yield {"type": "delta", "scope": "answer", "text": "hi"}

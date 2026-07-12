@@ -5,7 +5,7 @@ import tempfile
 from pathlib import Path
 
 from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, UploadFile
-from ocd_core import auth_flows, integrations, marketplace, skills
+from ocd_core import auth_flows, connector_directory, integrations, marketplace, skills
 from ocd_core.integrations import McpbError
 from pydantic import BaseModel
 
@@ -181,6 +181,14 @@ def test_connector(cid: str, user: str = Depends(current_user)) -> dict:
 @router.get("/mcp-servers")
 def list_mcp(user: str = Depends(current_user)) -> list[dict]:
     return integrations.list_mcp_servers()
+
+
+@router.get("/connectors/directory")
+def connectors_directory(user: str = Depends(current_user)) -> list[dict]:
+    """Curated catalog of well-known open MCP servers ("browse connectors"). Static
+    and offline; each entry prefills the add form — nothing runs without an explicit
+    user add."""
+    return connector_directory.list_directory()
 
 
 @router.post("/mcp-servers")

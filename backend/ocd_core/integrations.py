@@ -479,21 +479,32 @@ def authorize_mcp_oauth(sid: str, open_url=None) -> dict:
     opener = open_url or mcp_oauth.open_in_browser
 
     async def _run() -> tuple[list[dict], str]:
+        import contextlib as _ctx
+
         from mcp import ClientSession
-        from mcp.client.streamable_http import streamablehttp_client
 
         catcher = mcp_oauth.LoopbackAuthCatcher()
         redirect_uri = await catcher.start()
         provider = mcp_oauth.interactive_provider(
             sid, s["url"], redirect_uri, open_url=opener, callback=catcher.wait)
         try:
-            async with streamablehttp_client(s["url"], auth=provider) as (read, write, _):
-                async with ClientSession(read, write) as session:
-                    await session.initialize()  # triggers the OAuth flow on a 401
-                    resp = await session.list_tools()
-                    tools = [{"name": t.name, "description": t.description or "",
-                              "inputSchema": getattr(t, "inputSchema", None) or {}}
-                             for t in resp.tools]
+            # Transport-aware: legacy SSE connectors authorize too (P1-6), not just
+            # Streamable-HTTP.
+            async with _ctx.AsyncExitStack() as stack:
+                if (s.get("transport") or "http").lower() == "sse":
+                    from mcp.client.sse import sse_client
+                    read, write = await stack.enter_async_context(
+                        sse_client(s["url"], auth=provider))
+                else:
+                    from mcp.client.streamable_http import streamablehttp_client
+                    read, write, _ = await stack.enter_async_context(
+                        streamablehttp_client(s["url"], auth=provider))
+                session = await stack.enter_async_context(ClientSession(read, write))
+                await session.initialize()  # triggers the OAuth flow on a 401
+                resp = await session.list_tools()
+                tools = [{"name": t.name, "description": t.description or "",
+                          "inputSchema": getattr(t, "inputSchema", None) or {}}
+                         for t in resp.tools]
             return tools, ""
         finally:
             await catcher.close()

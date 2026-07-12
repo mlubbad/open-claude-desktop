@@ -15,7 +15,7 @@ import { firstUserText, fromBackend, isFirstExchange, toBackend } from "./persis
 import * as sessions from "./turnSessions";
 import { type TurnConfig, useTranscript } from "./useTranscript";
 
-export function useConversations(config: TurnConfig) {
+export function useConversations(config: TurnConfig, incognito = false) {
   const chat = useTranscript(config);
   const [list, setList] = useState<ConversationSummary[]>([]);
   const [current, setCurrent] = useState<{ cid: string; pid: string } | null>(null);
@@ -83,6 +83,13 @@ export function useConversations(config: TurnConfig) {
   const send = useCallback(
     async (goal: string, images?: string[]) => {
       if ((!goal.trim() && !images?.length) || chat.busy) return;
+      if (incognito) {
+        // Incognito (P1-5): nothing persists — no conversation row, no save, no
+        // auto-title. The session stays on the draft key, which the onTurnEnd
+        // saver already skips, so the whole chat evaporates on New chat / quit.
+        chat.send(goal, images);
+        return;
+      }
       const pid = config.projectId ?? GENERAL_PROJECT;
       let target = current;
       if (!target) {
@@ -106,7 +113,7 @@ export function useConversations(config: TurnConfig) {
           .catch(() => {});
       }
     },
-    [current, chat, refresh, config.projectId],
+    [current, chat, refresh, config.projectId, incognito],
   );
 
   const openConversation = useCallback(

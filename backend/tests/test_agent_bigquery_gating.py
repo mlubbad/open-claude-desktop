@@ -21,7 +21,7 @@ def _capture_turn(monkeypatch):
     seen = {}
 
     async def fake_stream(llm, model, messages, tools, temperature, max_tokens,
-                          content_scope="answer", fallback_model=None):
+                          content_scope="answer", fallback_model=None, **_kw):
         seen["tools"] = [t["function"]["name"] for t in (tools or [])]
         seen["system"] = messages[0]["content"]
         yield {"__done__": {"content": "done", "tool_calls": [], "note": None}}

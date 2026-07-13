@@ -192,3 +192,19 @@ ALLOW_WRITES = os.getenv("AJ360_ALLOW_WRITES", "false").strip().lower() in ("1",
 # auto = no prompts (default), ask = prompt for sensitive tools, strict = prompt for all.
 PERMISSION_MODE = os.getenv("PERMISSION_MODE", "auto").strip().lower()
 PERMISSION_TIMEOUT_SEC = int(os.getenv("PERMISSION_TIMEOUT_SEC", "300"))
+
+# --- autonomy guardrails (bound runaway / autonomous spend) ---
+# The EFFORT step cap bounds a single turn's main loop; these bound the two amplifiers
+# it does NOT: subagent fan-out, and (as a backstop) the turn's total reported tokens.
+# Without them, a delegated/scheduled run that loops or fans out indefinitely bills the
+# user's BYOK key with no ceiling.
+MAX_SUBAGENTS_PER_TURN = int(os.getenv("OCD_MAX_SUBAGENTS", "8"))
+# Once a turn's reported (input+output) tokens cross this, the loop stops opening new
+# work and lands on a final answer via the normal finalize path. Generous — a normal
+# turn is a few thousand tokens; only a genuine runaway trips it. 0 disables the backstop.
+# Reported tokens are best-effort, so this only engages for providers that report usage.
+TURN_TOKEN_BUDGET = int(os.getenv("OCD_TURN_TOKEN_BUDGET", "1000000"))
+# Don't launch a scheduled automation if its previous run is still active (a slow task on
+# a short interval would otherwise stack copies of itself). On by default.
+SCHEDULER_SKIP_OVERLAP = os.getenv("OCD_SCHEDULER_SKIP_OVERLAP", "1").strip().lower() \
+    in ("1", "true", "yes")

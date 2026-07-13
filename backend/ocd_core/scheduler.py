@@ -141,6 +141,13 @@ class SchedulerService:
                  launch: Callable[[Schedule], str] = default_launch) -> None:
         self.store = store or ScheduleStore()
         self.launch = launch
+        # schedule id -> the task id of its most recent launch, for the overlap guard.
+        self._last_task: dict[str, str] = {}
+
+    def _still_running(self, sid: str) -> bool:
+        """Whether this schedule's previous launch is still executing."""
+        tid = self._last_task.get(sid)
+        return bool(tid and cowork.manager.is_running(tid))
 
     def list(self) -> list[dict]:
         return [{**asdict(s), "cadence": describe(s)} for s in self.store.load()]
@@ -183,13 +190,22 @@ class SchedulerService:
         items = self.store.load()
         launched: list[str] = []
         for s in items:
-            if is_due(s, now):
-                try:
-                    self.launch(s)
-                except Exception:  # noqa: BLE001 - a failed launch is retried next tick
-                    continue
-                s.last_run = now.isoformat()
-                launched.append(s.id)
+            if not is_due(s, now):
+                continue
+            # Overlap guard: don't stack a second copy of an automation whose previous
+            # run is still going (a slow task on a short interval would otherwise pile up
+            # and multiply spend). last_run is left as-is so it relaunches the moment the
+            # prior run finishes, rather than skipping the whole occurrence.
+            if config.SCHEDULER_SKIP_OVERLAP and self._still_running(s.id):
+                continue
+            try:
+                tid = self.launch(s)
+            except Exception:  # noqa: BLE001 - a failed launch is retried next tick
+                continue
+            if tid:
+                self._last_task[s.id] = tid
+            s.last_run = now.isoformat()
+            launched.append(s.id)
         if launched:
             self.store.save(items)
         return launched

@@ -48,6 +48,13 @@ them (tests: `test_hardening_blockers.py`, `test_bash_jail.py`, `test_cowork.py`
   Only `approval="manual"` (live gate) passes `gated=True` for the full toolset.
 - **Bash allowlist** — `integrations._BASH_ALLOW` is read-only/non-spawning only;
   `find` is excluded (its `-exec/-delete` run arbitrary programs).
+- **Autonomy guardrails** — the EFFORT step cap bounds one turn's main loop; two more
+  bound the amplifiers it doesn't (tests: `test_autonomy_guardrails.py`, `test_scheduler.py`):
+  `config.MAX_SUBAGENTS_PER_TURN` caps subagent fan-out (each is a full nested turn);
+  `config.TURN_TOKEN_BUDGET` is a runaway cost ceiling — once a turn's reported tokens
+  cross it the loop lands on the finalize synthesis (best-effort, so a no-op for
+  providers that don't report usage); `config.SCHEDULER_SKIP_OVERLAP` stops a scheduled
+  automation from stacking a second copy while its prior run is still active.
 
 ## How uploaded files reach the model (post-incident contract)
 

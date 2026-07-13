@@ -22,4 +22,9 @@ def put_settings(body: SettingsBody, user: str = Depends(current_user)) -> dict:
         # The tracing failure latch is one-way by design; a deliberate opik config
         # change is the signal that the setup deserves a fresh attempt.
         opik_tracing.invalidate()
+    if patch.get("autonomy_paused") is True:
+        # Kill-switch flipped on: stop the automations already in flight, not just new
+        # ones. (Scheduler + the Cowork route block new launches while paused.)
+        from ocd_core import cowork
+        cowork.manager.cancel_all_running()
     return saved

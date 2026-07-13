@@ -15,7 +15,7 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
-from ocd_core import agent, cowork, opik_tracing
+from ocd_core import agent, cowork, opik_tracing, settings
 from pydantic import BaseModel
 
 from ..deps import current_user
@@ -37,6 +37,10 @@ async def start_task(body: CoworkStart, user: str = Depends(current_user)) -> di
     """Delegate a goal to a background agent task. Returns the task summary immediately."""
     if not body.goal.strip():
         raise HTTPException(status_code=400, detail="goal is required")
+    # Global kill-switch: refuse to start new unattended work while autonomy is paused.
+    if settings.get_settings().get("autonomy_paused"):
+        raise HTTPException(status_code=409,
+                            detail="autonomy is paused — new background tasks are blocked")
 
     manual = body.approval == "manual"
     turn_id = uuid.uuid4().hex if manual else None

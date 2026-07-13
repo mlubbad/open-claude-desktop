@@ -128,6 +128,11 @@ DEFAULT_SETTINGS = {"model": AGENT_MODEL,
                     # Memory: let the agent search PAST conversations mid-turn
                     # (the search_past_chats tool). Local + read-only; on by default.
                     "memory_search": True,
+                    # Global autonomy kill-switch. When True, no NEW unattended work
+                    # starts — scheduled automations don't fire and Cowork refuses new
+                    # tasks — and flipping it on cancels any Cowork runs in flight. A
+                    # panic button for a misbehaving/expensive autonomous run.
+                    "autonomy_paused": False,
                     # Which models each provider shows in the chat model picker
                     # ({provider_id: [model, ...]}). Empty/missing = the picker's
                     # default (the first few of the provider's catalog).

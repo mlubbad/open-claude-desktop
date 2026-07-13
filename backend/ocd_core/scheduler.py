@@ -187,6 +187,11 @@ class SchedulerService:
     def tick(self, now: datetime | None = None) -> list[str]:
         """Launch every due schedule; advance last_run for the ones that launched."""
         now = now or _now()
+        # Global kill-switch: while autonomy is paused, no scheduled automation fires.
+        # last_run is untouched, so every due schedule simply resumes once unpaused.
+        from . import settings
+        if settings.get_settings().get("autonomy_paused"):
+            return []
         items = self.store.load()
         launched: list[str] = []
         for s in items:

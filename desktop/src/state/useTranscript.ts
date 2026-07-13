@@ -44,7 +44,18 @@ export function useTranscript(config: TurnConfig) {
     (goal: string, images?: string[]) => store.sendActive(goal, baseRequest(config), images),
     [config],
   );
-  const retryLast = useCallback(() => store.retryActive(baseRequest(config)), [config]);
+  // Regenerate the last answer. An optional override swaps the model/provider for just
+  // this run (used by "regenerate with a different model") — everything else about the
+  // turn (options, project, style) is unchanged.
+  const retryLast = useCallback(
+    (override?: { model: string; provider?: string | null }) =>
+      store.retryActive(
+        override
+          ? { ...baseRequest(config), model: override.model, provider: override.provider ?? null }
+          : baseRequest(config),
+      ),
+    [config],
+  );
   const editAndResend = useCallback(
     (index: number, text: string) => store.editActive(index, text, baseRequest(config)),
     [config],

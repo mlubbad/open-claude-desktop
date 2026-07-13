@@ -11,6 +11,7 @@ import {
   parseCsv,
   previewMarkdown,
   printableHtml,
+  printInSandbox,
   typeTag,
 } from "../state/artifactExport";
 import { projects as projectApi } from "../api/client";
@@ -131,13 +132,9 @@ export function ArtifactPanel({
   }
 
   function printPdf() {
-    const html = printableHtml(doc.title, shownContent, previewable ? srcDoc : undefined);
-    const w = window.open("", "_blank");
-    if (!w) return;
-    w.document.write(html);
-    w.document.close();
-    // Give the document (and any scripts, e.g. mermaid) a beat to render.
-    setTimeout(() => w.print(), 400);
+    // Sandboxed-iframe print (see printInSandbox): no privileged top-level window, so a
+    // model-authored HTML artifact can't reach the opener or Tauri bridge off a Print.
+    printInSandbox(printableHtml(doc.title, shownContent, previewable ? srcDoc : undefined));
   }
 
   const tag = typeTag(doc.kind, doc.language);

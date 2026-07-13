@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import time
 import uuid
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, field
@@ -37,6 +38,8 @@ from . import config, jsonstore
 # without limit; the head is kept (the goal + early plan) plus the recent tail.
 _MAX_STORED_EVENTS = 4000
 _STORE_PATH = Path(config.REPO_ROOT) / "cowork_tasks.json"
+# Min seconds between incremental transcript flushes of a running task (see _run).
+_FLUSH_INTERVAL_SEC = 3.0
 
 
 def _now_iso() -> str:
@@ -176,12 +179,21 @@ class CoworkManager:
 
     # -- lifecycle ---------------------------------------------------------- #
     async def _run(self, task: Task, gen_factory: Callable[[], AsyncIterator[dict]]) -> None:
+        last_flush = time.monotonic()
         try:
             async for ev in gen_factory():
                 task.events.append(ev)
                 task.updated_at = _now_iso()
                 if ev.get("type") == "error":
                     task.error = ev.get("text")
+                # Incremental durability: a long task only saved at the end would lose
+                # its whole transcript if the process died mid-run (only the empty shell
+                # from start() survived). Flush on a time throttle so a crash costs at
+                # most the last few seconds of events, without an I/O write per token.
+                now = time.monotonic()
+                if now - last_flush >= _FLUSH_INTERVAL_SEC:
+                    self._save()
+                    last_flush = now
             task.status = "error" if task.error else "done"
         except asyncio.CancelledError:
             task.status = "cancelled"

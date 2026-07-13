@@ -164,20 +164,63 @@ _ADDED_COLUMNS = {
 }
 
 
+def _sqlite_file_path():
+    """On-disk path of the active SQLite DB, or None for in-memory / non-SQLite."""
+    from pathlib import Path
+    eng = get_engine()
+    if not str(eng.url).startswith("sqlite"):
+        return None
+    db = eng.url.database
+    if not db or db == ":memory:":
+        return None
+    return Path(db)
+
+
+def backup_sqlite_before_migration():
+    """Snapshot the SQLite DB before a schema change, so a botched ALTER is recoverable.
+
+    Uses ``VACUUM INTO`` for a consistent copy that INCLUDES any WAL content (a plain
+    file copy can miss it). Best-effort: a backup failure must never block startup.
+    Returns the backup path if one was written, else None.
+    """
+    p = _sqlite_file_path()
+    if not (p and p.exists() and p.stat().st_size > 0):
+        return None
+    bak = p.with_name(p.name + ".pre-migration.bak")
+    try:
+        if bak.exists():
+            bak.unlink()
+        target = bak.as_posix().replace("'", "''")  # VACUUM INTO takes no bind params
+        with get_engine().connect() as conn:
+            conn.exec_driver_sql(f"VACUUM INTO '{target}'")
+        return bak
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning("pre-migration DB backup skipped: %s", e)
+        return None
+
+
 def ensure_columns() -> None:
     from sqlalchemy import inspect, text
     eng = get_engine()
     try:
         insp = inspect(eng)
         tables = set(insp.get_table_names())
+        # Collect what's missing FIRST so we only back up + ALTER when a migration is
+        # actually needed (this runs on every startup; a no-op must stay cheap).
+        pending = []  # (table, name, ddl)
+        for table, cols in _ADDED_COLUMNS.items():
+            if table not in tables:
+                continue
+            existing = {c["name"] for c in insp.get_columns(table)}
+            pending += [(table, name, ddl) for name, ddl in cols.items()
+                        if name not in existing]
+        if not pending:
+            return
+        backup_sqlite_before_migration()  # existing data at risk → snapshot it first
         with eng.begin() as conn:
-            for table, cols in _ADDED_COLUMNS.items():
-                if table not in tables:
-                    continue
-                existing = {c["name"] for c in insp.get_columns(table)}
-                for name, ddl in cols.items():
-                    if name not in existing:
-                        conn.execute(text(f'ALTER TABLE "{table}" ADD COLUMN {name} {ddl}'))
+            for table, name, ddl in pending:
+                conn.execute(text(f'ALTER TABLE "{table}" ADD COLUMN {name} {ddl}'))
     except Exception as e:  # never let a best-effort migration break startup
         import logging
         logging.getLogger(__name__).warning("ensure_columns skipped: %s", e)

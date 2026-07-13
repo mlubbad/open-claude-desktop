@@ -64,6 +64,71 @@ def test_list_conversations_summary_has_no_transcript(db):
     assert summaries and "messages" not in summaries[0] and "transcript" not in summaries[0]
 
 
+# ---- branching --------------------------------------------------------------------
+
+def _seed(msgs):
+    conv = cv.create_conversation("p1", msgs[0]["content"])
+    cv.save_conversation("p1", conv["id"], msgs)
+    return conv["id"]
+
+
+def test_branch_copies_history_up_to_the_fork_and_links_parent(db):
+    msgs = [{"role": "user", "content": "q1", "kind": "user"},
+            {"role": "assistant", "content": "a1", "kind": "blocks"},
+            {"role": "user", "content": "q2", "kind": "user"},
+            {"role": "assistant", "content": "a2", "kind": "blocks"}]
+    src = _seed(msgs)
+    branch = cv.branch_conversation("p1", src, at_index=1)  # fork right after a1
+    assert branch is not None
+    assert branch["id"] != src
+    assert branch["parent_id"] == src and branch["fork_index"] == 1
+    assert [m["content"] for m in branch["messages"]] == ["q1", "a1"]  # 0..1 inclusive
+    # Editing the branch must not touch the parent (deep copy).
+    cv.save_conversation("p1", branch["id"],
+                         branch["messages"] + [{"role": "user", "content": "q2-alt", "kind": "user"}])
+    assert [m["content"] for m in cv.get_conversation("p1", src)["messages"]] == \
+        ["q1", "a1", "q2", "a2"]
+
+
+def test_branch_out_of_range_or_missing_returns_none(db):
+    src = _seed([{"role": "user", "content": "only", "kind": "user"}])
+    assert cv.branch_conversation("p1", src, at_index=5) is None      # index past the end
+    assert cv.branch_conversation("p1", src, at_index=-1) is None     # negative
+    assert cv.branch_conversation("p1", "nope", at_index=0) is None   # no such conv
+    assert cv.branch_conversation("other", src, at_index=0) is None   # wrong project
+
+
+def test_branch_family_returns_the_whole_tree(db):
+    msgs = [{"role": "user", "content": f"m{i}", "kind": "user"} for i in range(4)]
+    root = _seed(msgs)
+    b1 = cv.branch_conversation("p1", root, at_index=1)["id"]
+    b2 = cv.branch_conversation("p1", root, at_index=2)["id"]      # sibling of b1
+    gb = cv.branch_conversation("p1", b1, at_index=0)["id"]        # grandchild via b1
+
+    fam = cv.branch_family("p1", b1)
+    assert fam["root"] == root and fam["current"] == b1
+    ids = {n["id"] for n in fam["nodes"]}
+    assert ids == {root, b1, b2, gb}                               # full family from any node
+    # Same tree is returned no matter which member you ask from.
+    assert {n["id"] for n in cv.branch_family("p1", gb)["nodes"]} == ids
+
+
+def test_branch_routes(db):
+    from app.main import app
+    from fastapi.testclient import TestClient
+    c = TestClient(app)
+    src = _seed([{"role": "user", "content": "a", "kind": "user"},
+                 {"role": "assistant", "content": "b", "kind": "blocks"}])
+    r = c.post(f"/projects/p1/conversations/{src}/branch", json={"at_index": 0})
+    assert r.status_code == 200
+    branch = r.json()
+    assert branch["parent_id"] == src and len(branch["messages"]) == 1
+    fam = c.get(f"/projects/p1/conversations/{src}/branches").json()
+    assert {n["id"] for n in fam["nodes"]} == {src, branch["id"]}
+    # A bad index 404s rather than 500s.
+    assert c.post(f"/projects/p1/conversations/{src}/branch", json={"at_index": 99}).status_code == 404
+
+
 def test_conversation_persists_to_db(db):
     conv = cv.create_conversation("p1", "hello world")
     from ocd_core.db.engine import session

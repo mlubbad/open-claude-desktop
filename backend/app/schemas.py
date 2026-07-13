@@ -116,6 +116,10 @@ class MoveBody(BaseModel):
     dst_project_id: str
 
 
+class BranchBody(BaseModel):
+    at_index: int  # message index to fork the conversation at (0-based, inclusive)
+
+
 class SettingsBody(BaseModel):
     model: str | None = None
     provider: str | None = None

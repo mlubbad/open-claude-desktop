@@ -20,6 +20,7 @@ import type { VoiceInfo } from "./components/MicPicker";
 import { Icon } from "./components/Icon";
 import { InfoPanel } from "./components/InfoPanel";
 import { BackendBanner } from "./components/BackendBanner";
+import { BranchBar } from "./components/BranchBar";
 import { AssistantBubble, UserBubble } from "./components/Message";
 import { ProjectPanel } from "./components/ProjectPanel";
 import { SettingsModal, type SettingsPage } from "./components/SettingsModal";
@@ -36,6 +37,7 @@ import { findArtifact, listArtifacts } from "./state/transcript";
 import { useCode } from "./state/useCode";
 import { useCowork } from "./state/useCowork";
 import { useConnectors } from "./state/useConnectors";
+import { useBranchFamily } from "./state/useBranchFamily";
 import { useConversations } from "./state/useConversations";
 import { useKeyboard } from "./state/useKeyboard";
 import { useMcpPrompts } from "./state/useMcpPrompts";
@@ -149,7 +151,16 @@ export default function App() {
     rename,
     togglePin,
     move,
+    branchAt,
   } = useConversations(config, incognito);
+
+  // The branch family (tree) of the open conversation, powering the transcript's branch
+  // switcher. Incognito chats never persist, so they can't branch — skip the fetch.
+  const family = useBranchFamily(current, !incognito);
+  // Branching forks the persisted transcript at a visible message index; that index maps
+  // 1:1 to the stored one only when nothing is streaming, so offer it just when idle on a
+  // real (saved, non-incognito) conversation.
+  const canBranch = !!current && !incognito && !busy;
 
   // Sync the composer's live settings when the open conversation changes: load that
   // conversation's saved settings, or fall back to the workspace defaults for a new
@@ -668,9 +679,20 @@ export default function App() {
           </main>
         ) : (
         <main className="transcript" ref={scroll.ref}>
+          {family && family.nodes.length > 1 && (
+            <BranchBar family={family} current={current?.cid ?? null} onSwitch={openFromRecents} />
+          )}
           {state.messages.map((m, i) =>
             m.role === "user" ? (
-              <UserBubble key={`${current?.cid ?? "new"}-${i}`} msg={m} onEdit={busy ? undefined : (text) => editAndResend(i, text)} />
+              <UserBubble
+                key={`${current?.cid ?? "new"}-${i}`}
+                msg={m}
+                onEdit={busy ? undefined : (text) => editAndResend(i, text)}
+                // Branching only makes sense on a saved conversation, and the visible
+                // index maps 1:1 to the persisted transcript only when nothing is
+                // streaming — so offer it just when idle on a real (non-incognito) chat.
+                onBranch={canBranch ? () => void branchAt(i) : undefined}
+              />
             ) : (
               // Keyed per conversation so per-message local state (feedback votes,
               // edit drafts) never leaks across chat switches.
@@ -683,6 +705,7 @@ export default function App() {
                 onOpenArtifact={openArtifact}
                 onAnswerQuestion={answerQuestion}
                 onFeedback={() => setFeedbackFor(current?.cid ?? "new")}
+                onBranch={canBranch ? () => void branchAt(i) : undefined}
               />
             ),
           )}

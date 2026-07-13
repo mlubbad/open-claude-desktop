@@ -22,9 +22,11 @@ import {
 function UserBubbleImpl({
   msg,
   onEdit,
+  onBranch,
 }: {
   msg: UserMessage;
   onEdit?: (text: string) => void;
+  onBranch?: () => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(msg.text);
@@ -68,11 +70,21 @@ function UserBubbleImpl({
         </div>
       )}
       {body && <div className="bubble">{body}</div>}
-      {onEdit && (
-        <button className="msg-action user-edit" title="Edit message" aria-label="Edit message"
-                onClick={() => { setDraft(msg.text); setEditing(true); }}>
-          <Icon name="pencil" size={13} />
-        </button>
+      {(onEdit || onBranch) && (
+        <div className="user-actions">
+          {onEdit && (
+            <button className="msg-action user-edit" title="Edit message" aria-label="Edit message"
+                    onClick={() => { setDraft(msg.text); setEditing(true); }}>
+              <Icon name="pencil" size={13} />
+            </button>
+          )}
+          {onBranch && (
+            <button className="msg-action user-branch" title="Branch from here"
+                    aria-label="Branch conversation from this message" onClick={onBranch}>
+              <Icon name="branch" size={13} />
+            </button>
+          )}
+        </div>
       )}
     </div>
   );
@@ -85,7 +97,7 @@ function UserBubbleImpl({
 // and its captured index is stable for an existing message.
 export const UserBubble = memo(
   UserBubbleImpl,
-  (a, b) => a.msg === b.msg && !!a.onEdit === !!b.onEdit,
+  (a, b) => a.msg === b.msg && !!a.onEdit === !!b.onEdit && !!a.onBranch === !!b.onBranch,
 );
 
 // A pasted/attached file on a user turn: name + type badge, expandable to inspect
@@ -118,6 +130,7 @@ function AssistantBubbleImpl({
   onOpenArtifact,
   onAnswerQuestion,
   onFeedback,
+  onBranch,
 }: {
   msg: AssistantMessage;
   isLast: boolean;
@@ -126,6 +139,7 @@ function AssistantBubbleImpl({
   onOpenArtifact?: (id: string) => void;
   onAnswerQuestion?: (id: string, text: string) => void;
   onFeedback?: () => void;
+  onBranch?: () => void;
 }) {
   const answer = answerText(msg);
   const streaming = msg.blocks.some((b) => (b.kind === "answer" || b.kind === "thinking") && b.streaming);
@@ -168,6 +182,12 @@ function AssistantBubbleImpl({
             <button className="msg-action" onClick={onRetry} disabled={busy}
                     title="Retry" aria-label="Regenerate response">
               <Icon name="retry" size={14} />
+            </button>
+          )}
+          {onBranch && (
+            <button className="msg-action" onClick={onBranch}
+                    title="Branch from here" aria-label="Branch conversation from this message">
+              <Icon name="branch" size={14} />
             </button>
           )}
         </div>

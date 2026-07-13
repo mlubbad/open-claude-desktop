@@ -130,3 +130,17 @@ def stamp(obj) -> None:
         # so a future many-users-per-workspace model can diverge without a schema change.
         if getattr(obj, "owner_id", None) is None:
             obj.owner_id = ws
+
+
+def namespace() -> str | None:
+    """A stable per-workspace namespace for keying tenant-scoped stores that live OUTSIDE
+    the SQL row model — keychain secrets, the settings file, vector collections.
+
+    Returns the workspace id for a non-local workspace under enforcement, else None. None
+    means "use the historical, unscoped name": the local-first desktop (flag off) and the
+    implicit `local` workspace both keep their pre-tenancy keys/files/collections, exactly
+    like NULL-workspace SQL rows belong to `local`. So enabling tenancy never strands the
+    single-user data already on disk, and two real workspaces can't read each other's."""
+    if enforcing() and current_workspace() != LOCAL_WORKSPACE:
+        return current_workspace()
+    return None

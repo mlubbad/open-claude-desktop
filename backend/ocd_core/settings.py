@@ -39,11 +39,26 @@ def _clamp_enums(s: dict) -> dict:
     return s
 
 
+def _settings_path():
+    """The settings file for the current workspace. Local-first / flag-off and the `local`
+    workspace use the historical ``settings.json`` (byte-for-byte); a non-local tenant gets
+    a sibling ``settings.<workspace>.json`` so tenants can't read each other's model/keys/
+    automation config. Mirrors the NULL-row-belongs-to-`local` rule of SQL tenancy."""
+    base = config.SETTINGS_FILE
+    from . import tenancy
+    ns = tenancy.namespace()
+    if not ns:
+        return base
+    safe = "".join(c if (c.isalnum() or c in "-_") else "_" for c in ns)
+    return base.with_name(f"{base.stem}.{safe}{base.suffix}")
+
+
 def get_settings() -> dict:
     s = dict(config.DEFAULT_SETTINGS)
+    path = _settings_path()
     try:
-        if config.SETTINGS_FILE.exists():
-            data = json.loads(config.SETTINGS_FILE.read_text(encoding="utf-8"))
+        if path.exists():
+            data = json.loads(path.read_text(encoding="utf-8"))
             if isinstance(data, dict):
                 # Backward-compat: older files stored "reasoning_level".
                 if "effort" not in data and "reasoning_level" in data:
@@ -66,5 +81,5 @@ def save_settings(values: dict) -> dict:
     # settings.json to invalid JSON, which get_settings() would silently reset to
     # defaults — wiping the user's model/provider/keys/automation config.
     with contextlib.suppress(Exception):
-        jsonstore.save_json(config.SETTINGS_FILE, s)
+        jsonstore.save_json(_settings_path(), s)
     return s

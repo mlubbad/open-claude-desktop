@@ -14,7 +14,9 @@ def test_collect_shape_and_profile_redaction(db):
     assert snap["app"]["name"] == config.APP_NAME
     assert snap["app"]["backend_version"] == config.BACKEND_VERSION
     assert snap["platform"]["python"] and "system" in snap["platform"]
-    assert snap["database"]["scheme"] == "sqlite"           # scheme only, never the full URL
+    assert snap["database"]["configured_scheme"] == "sqlite"   # scheme only, never the full URL
+    assert snap["database"]["active_scheme"] == "sqlite"
+    assert snap["database"]["fell_back"] is False
     assert snap["database"]["reachable"] is True
     assert set(snap["counts"]) == {"projects", "conversations", "schedules", "cowork_tasks"}
     # The profile is reduced to a presence flag; its contents never ship.
@@ -29,7 +31,7 @@ def test_collect_never_carries_a_full_database_url(db, monkeypatch):
     engine.reset_engine()
     from ocd_core import diagnostics
     snap = diagnostics.collect()
-    assert snap["database"]["scheme"] == "postgresql"
+    assert snap["database"]["configured_scheme"] == "postgresql"
     assert "pw@db.internal" not in json.dumps(snap)
     engine.reset_engine()
 

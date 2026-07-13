@@ -130,7 +130,8 @@ def delete_project(project_id: str) -> bool:
         import shutil
         shutil.rmtree(proj_dir, ignore_errors=True)
     try:
-        _get_chroma().delete_collection(f"kb_project_{project_id}")
+        from .chroma import project_kb_collection_name
+        _get_chroma().delete_collection(project_kb_collection_name(project_id))
     except Exception:
         pass
     return True

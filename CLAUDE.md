@@ -121,9 +121,17 @@ belong to the implicit `local` workspace, so a single-user DB that later enables
 keeps working with zero data migration. The `owner_id`/`workspace_id` columns + their
 idempotent auto-migration were laid down earlier as the "Phase 1b multi-user seams".
 Cross-workspace mutations raise `tenancy.WorkspaceForbidden` → 404 (never leak that a row
-exists in another workspace). NOT yet scoped (later slices): tenant-scoped secrets, vector
-namespaces, per-workspace settings, and background Cowork/scheduler runs (they execute
-outside a request, so the ContextVar defaults to `local`). Tests: `test_tenancy.py`.
+exists in another workspace). The stores that live OUTSIDE the SQL rows are scoped by
+`tenancy.namespace()` (the workspace id for a non-local tenant, else None → the historical
+unscoped name, so `local` and flag-off keep their pre-tenancy data): keychain **secrets**
+(`get_secret_store()` returns a per-workspace-scoped view when enforcing), the **settings**
+file (`settings.<workspace>.json` beside the base `settings.json`), and **vector**
+collections (`chroma.project_kb_collection_name` — a hashed, ≤63-char, charset-safe
+workspace prefix; project KB is already isolated by the globally-unique slug, this is
+defense-in-depth). NOT yet scoped (later slices): background Cowork/scheduler runs execute
+outside a request, so the ContextVar (and every store keyed off it) defaults to `local` —
+until that slice lands, unattended runs under enforcement operate in the `local` namespace.
+Tests: `test_tenancy.py`, `test_tenancy_stores.py`.
 
 ## Working conventions
 

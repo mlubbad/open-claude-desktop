@@ -139,6 +139,34 @@ class EncryptedFileStore(SecretStore):
                 self._save(data)
 
 
+class _WorkspaceScopedStore(SecretStore):
+    """Transparently namespaces keys by the current workspace so two tenants can't read
+    each other's secrets (provider API keys, connector auth, OAuth tokens).
+
+    A thin delegating wrapper — the backend (keyring / encrypted file) is unchanged. The
+    namespace is read at each call (not construction), so one process-wide backend serves
+    every workspace and a held reference re-scopes correctly per request. `local` and the
+    flag-off desktop map to `namespace() is None` → keys pass through UNPREFIXED, so
+    pre-tenancy secrets keep resolving under their historical names."""
+
+    def __init__(self, inner: SecretStore) -> None:
+        self._inner = inner
+
+    def _k(self, key: str) -> str:
+        from . import tenancy
+        ns = tenancy.namespace()
+        return f"ws::{ns}::{key}" if ns else key
+
+    def set(self, key: str, value: str) -> None:
+        self._inner.set(self._k(key), value)
+
+    def get(self, key: str) -> str | None:
+        return self._inner.get(self._k(key))
+
+    def delete(self, key: str) -> None:
+        self._inner.delete(self._k(key))
+
+
 def _keyring_usable() -> bool:
     """True iff a real, writable keyring backend is available."""
     try:
@@ -158,8 +186,8 @@ _store: SecretStore | None = None
 _store_lock = threading.Lock()
 
 
-def get_secret_store() -> SecretStore:
-    """Return the process-wide secret store, choosing the best backend once.
+def _backend_store() -> SecretStore:
+    """Return the process-wide secret backend, choosing the best one once.
 
     Override with ``OCD_SECRET_BACKEND=keyring|file|memory``.
     """
@@ -182,6 +210,15 @@ def get_secret_store() -> SecretStore:
             except Exception:
                 _store = MemoryStore()
         return _store
+
+
+def get_secret_store() -> SecretStore:
+    """The secret store callers use. Under multi-tenancy it's a per-workspace-scoped view
+    of the backend; locally (flag off) it's the raw backend, byte-for-byte as before — so
+    existing single-user secrets and the backend-selection contract are untouched."""
+    raw = _backend_store()
+    from . import tenancy
+    return _WorkspaceScopedStore(raw) if tenancy.enforcing() else raw
 
 
 def reset_store() -> None:

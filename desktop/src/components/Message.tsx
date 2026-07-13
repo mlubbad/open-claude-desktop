@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { memo, type ReactNode, useEffect, useRef, useState } from "react";
 import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -19,7 +19,7 @@ import {
   type UserMessage,
 } from "../state/transcript";
 
-export function UserBubble({
+function UserBubbleImpl({
   msg,
   onEdit,
 }: {
@@ -78,6 +78,16 @@ export function UserBubble({
   );
 }
 
+// Memoized so a streaming turn (which re-renders the whole transcript on every token)
+// doesn't re-render every prior user bubble. The parent's onEdit is a fresh closure each
+// render, so we compare only the data: the message identity and whether editing is
+// offered. A retained onEdit closure stays correct — bubbles are keyed per conversation
+// and its captured index is stable for an existing message.
+export const UserBubble = memo(
+  UserBubbleImpl,
+  (a, b) => a.msg === b.msg && !!a.onEdit === !!b.onEdit,
+);
+
 // A pasted/attached file on a user turn: name + type badge, expandable to inspect
 // the content that was sent.
 function FileChip({ file }: { file: Attachment }) {
@@ -100,7 +110,7 @@ function FileChip({ file }: { file: Attachment }) {
   );
 }
 
-export function AssistantBubble({
+function AssistantBubbleImpl({
   msg,
   isLast,
   busy,
@@ -165,6 +175,16 @@ export function AssistantBubble({
     </div>
   );
 }
+
+// Memoized on the data (message identity, isLast, busy). This is the big win: during
+// streaming only the LAST message's `msg` changes reference, so earlier assistant
+// bubbles — each an expensive Markdown re-parse — skip re-rendering entirely. The
+// action callbacks are hook-stable or per-conversation-scoped, so ignoring their
+// identity in the comparison is safe.
+export const AssistantBubble = memo(
+  AssistantBubbleImpl,
+  (a, b) => a.msg === b.msg && a.isLast === b.isLast && a.busy === b.busy,
+);
 
 function CopyButton({ getText }: { getText: () => string }) {
   const [copied, setCopied] = useState(false);

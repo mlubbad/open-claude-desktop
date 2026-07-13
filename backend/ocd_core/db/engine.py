@@ -16,6 +16,7 @@ import os
 from collections.abc import Iterator
 from contextlib import contextmanager
 
+from sqlalchemy import event
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine
 
@@ -37,12 +38,44 @@ def database_url() -> str:
     return os.getenv("DATABASE_URL", DEFAULT_DATABASE_URL)
 
 
+# SQLite defaults are hostile to a concurrent desktop app: the rollback journal
+# takes a database-wide write lock and a second writer fails INSTANTLY with
+# "database is locked" instead of waiting. The scheduler ticker, a live chat turn,
+# and a Cowork task all write through the same file, so that race is routine.
+# These pragmas fix it per connection:
+#   journal_mode=WAL   — readers don't block the writer and vice-versa (file DBs).
+#   busy_timeout=5000  — a blocked writer waits up to 5s for the lock instead of
+#                        erroring immediately.
+#   synchronous=NORMAL — safe with WAL, far fewer fsyncs (snappier writes).
+#   foreign_keys=ON    — enforce any FK constraints (no-op for today's soft refs,
+#                        correct the day a real FK is added).
+_SQLITE_BUSY_TIMEOUT_MS = int(os.getenv("OCD_SQLITE_BUSY_TIMEOUT_MS", "5000"))
+
+
+def _apply_sqlite_pragmas(dbapi_conn, _record, *, wal: bool) -> None:
+    cur = dbapi_conn.cursor()
+    try:
+        if wal:  # WAL needs a real file; it's meaningless for :memory:
+            cur.execute("PRAGMA journal_mode=WAL")
+            cur.execute("PRAGMA synchronous=NORMAL")
+        cur.execute(f"PRAGMA busy_timeout={_SQLITE_BUSY_TIMEOUT_MS}")
+        cur.execute("PRAGMA foreign_keys=ON")
+    finally:
+        cur.close()
+
+
 def _build_engine(url: str):
     if url.startswith("sqlite"):
         kw = {"connect_args": {"check_same_thread": False}}
-        if ":memory:" in url or url == "sqlite://":
+        in_memory = ":memory:" in url or url == "sqlite://"
+        if in_memory:
             kw["poolclass"] = StaticPool
-        return create_engine(url, **kw)
+        eng = create_engine(url, **kw)
+        # Run the pragmas on every new pooled connection (not just once): a file DB
+        # opens many connections over its life and each needs them set.
+        event.listen(eng, "connect",
+                     lambda c, r: _apply_sqlite_pragmas(c, r, wal=not in_memory))
+        return eng
     return create_engine(url, pool_pre_ping=True)
 
 

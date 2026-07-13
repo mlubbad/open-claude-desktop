@@ -28,11 +28,22 @@ def _to_dict(c: Conversation) -> dict:
             "pinned": c.pinned, "messages": list(c.transcript)}
 
 
+def _summary_fields(cid: str, title: str, updated_at, pinned, project_id: str) -> dict:
+    """The 'Recents' summary shape from raw columns (no transcript needed)."""
+    ts = updated_at.isoformat()
+    return {"id": cid, "title": title, "updated_at": ts,
+            "updated_rel": util.relative_time(ts), "pinned": bool(pinned),
+            "href": f"/project/{project_id}/c/{cid}"}
+
+
 def _summary(c: Conversation, project_id: str) -> dict:
-    ts = c.updated_at.isoformat()
-    return {"id": c.id, "title": c.title, "updated_at": ts,
-            "updated_rel": util.relative_time(ts), "pinned": bool(c.pinned),
-            "href": f"/project/{project_id}/c/{c.id}"}
+    return _summary_fields(c.id, c.title, c.updated_at, c.pinned, project_id)
+
+
+# Summary columns only — deliberately EXCLUDES the transcript JSON blob so a
+# listing never drags every conversation's full message history off disk.
+_SUMMARY_COLS = (Conversation.id, Conversation.title, Conversation.updated_at,
+                 Conversation.pinned, Conversation.project_id)
 
 
 def create_conversation(project_id: str, first_message: str) -> dict:
@@ -107,10 +118,15 @@ def delete_conversation(project_id: str, conv_id: str):
 
 
 def list_conversations(project_id: str) -> list[dict]:
-    """Conversation summaries for the workspace 'Recents' list, newest first."""
+    """Conversation summaries for the workspace 'Recents' list, newest first.
+
+    Column-projected: only the summary columns are read, never the transcript
+    blob (which can be up to CONV_MAX_MESSAGES messages per row)."""
     with session() as s:
-        rows = s.exec(select(Conversation).where(Conversation.project_id == project_id)).all()
-        out = [_summary(c, project_id) for c in rows]
+        rows = s.exec(select(*_SUMMARY_COLS)
+                      .where(Conversation.project_id == project_id)).all()
+    out = [_summary_fields(cid, title, updated_at, pinned, project_id)
+           for (cid, title, updated_at, pinned, _pid) in rows]
     out.sort(key=lambda x: (x["pinned"], x["updated_at"]), reverse=True)
     return out
 
@@ -120,14 +136,25 @@ def list_all_conversations(limit: int = 200) -> list[dict]:
 
     Feeds the global sidebar 'Recents' and the Chats dashboard. Each item adds
     project_id / project_name to the per-project summary shape.
+
+    ONE column-projected query over every conversation plus one projects lookup —
+    not a per-project query loop (the old N+1) and not a transcript load per row.
+    Conversations whose project no longer exists are skipped, matching the prior
+    project-by-project behaviour.
     """
     from .projects import list_projects
-    spaces = [(p["id"], p.get("name", "Untitled")) for p in list_projects()]
-    spaces.append((config.GENERAL_ID, config.GENERAL_NAME))  # include non-project chats
+    names = {p["id"]: p.get("name", "Untitled") for p in list_projects()}
+    names[config.GENERAL_ID] = config.GENERAL_NAME  # non-project chats
+    with session() as s:
+        rows = s.exec(select(*_SUMMARY_COLS)).all()
     out = []
-    for pid, pname in spaces:
-        for c in list_conversations(pid):
-            out.append({**c, "project_id": pid, "project_name": pname})
+    for (cid, title, updated_at, pinned, pid) in rows:
+        if pid not in names:
+            continue  # orphaned (project deleted) — not shown, as before
+        item = _summary_fields(cid, title, updated_at, pinned, pid)
+        item["project_id"] = pid
+        item["project_name"] = names[pid]
+        out.append(item)
     out.sort(key=lambda x: (x["pinned"], x["updated_at"]), reverse=True)
     return out[:limit]
 

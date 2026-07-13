@@ -7,9 +7,10 @@ SETTINGS_FILE / DEFAULT_SETTINGS / EFFORT_LEVELS.
 """
 from __future__ import annotations
 
+import contextlib
 import json
 
-from . import config
+from . import config, jsonstore
 
 # Enumerated settings and their allowed values. A value outside its enum — a corrupt
 # file, a stale client, a hand-edit — must never persist or propagate: it silently
@@ -61,9 +62,9 @@ def save_settings(values: dict) -> dict:
         values["profile"] = profile.sanitize(values.get("profile"))
     s.update({k: v for k, v in values.items() if k in config.DEFAULT_SETTINGS})
     _clamp_enums(s)  # never persist an out-of-enum value from a stale/buggy client
-    try:
-        config.SETTINGS_FILE.write_text(json.dumps(s, ensure_ascii=False, indent=2),
-                                        encoding="utf-8")
-    except Exception:
-        pass
+    # Atomic write (temp file + os.replace): a crash mid-write can never truncate
+    # settings.json to invalid JSON, which get_settings() would silently reset to
+    # defaults — wiping the user's model/provider/keys/automation config.
+    with contextlib.suppress(Exception):
+        jsonstore.save_json(config.SETTINGS_FILE, s)
     return s

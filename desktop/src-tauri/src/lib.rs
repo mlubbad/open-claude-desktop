@@ -5,12 +5,25 @@
 // desktop/README.md.
 
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
 
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Emitter, Manager, WebviewWindow,
 };
+use tauri_plugin_shell::process::CommandChild;
+
+// Handle to the spawned backend sidecar so we can terminate it on quit instead of
+// orphaning it (an orphan holds the port and breaks the next launch).
+#[derive(Default)]
+struct Backend(Mutex<Option<CommandChild>>);
+
+fn kill_backend(app: &tauri::AppHandle) {
+    if let Some(child) = app.state::<Backend>().0.lock().ok().and_then(|mut g| g.take()) {
+        let _ = child.kill();
+    }
+}
 
 // Shell behavior the frontend drives at runtime (Settings → Desktop app). Close-to-
 // tray defaults ON so a plain window-close never kills a running background task;
@@ -67,13 +80,24 @@ fn bundled_node_path() -> Option<std::path::PathBuf> {
 
 // Spawn the bundled backend (PyInstaller) as a sidecar and pipe its output to the log.
 // A no-op in dev, where the sidecar binary isn't bundled and the backend runs separately.
-fn spawn_backend(app: &tauri::AppHandle) {
+//
+// Hands the sidecar three things beyond stdio: a STABLE per-user data dir
+// (AJ360_DATA_DIR) so a frozen build doesn't write into its ephemeral temp-extraction
+// dir and lose everything on restart; the per-launch API token (OCD_API_TOKEN) that
+// gates the loopback API against drive-by web requests; and the bundled Node path.
+fn spawn_backend(app: &tauri::AppHandle, token: &str, data_dir: Option<std::path::PathBuf>) {
     use tauri_plugin_shell::process::CommandEvent;
     use tauri_plugin_shell::ShellExt;
 
     let cmd = match app.shell().sidecar("ocd-backend") {
         Ok(c) => {
-            let c = c.env("OCD_PORT", "8000").env("OCD_HOST", "127.0.0.1");
+            let mut c = c
+                .env("OCD_PORT", "8000")
+                .env("OCD_HOST", "127.0.0.1")
+                .env("OCD_API_TOKEN", token.to_string());
+            if let Some(dir) = data_dir {
+                c = c.env("AJ360_DATA_DIR", dir.to_string_lossy().to_string());
+            }
             match bundled_node_path() {
                 Some(node) => c.env("OCD_NODE", node.to_string_lossy().to_string()),
                 None => c,
@@ -82,7 +106,11 @@ fn spawn_backend(app: &tauri::AppHandle) {
         Err(_) => return, // not bundled (dev) — the dev backend runs on its own
     };
     match cmd.spawn() {
-        Ok((mut rx, _child)) => {
+        Ok((mut rx, child)) => {
+            // Keep the child so we can kill it on quit (see kill_backend).
+            if let Ok(mut guard) = app.state::<Backend>().0.lock() {
+                *guard = Some(child);
+            }
             tauri::async_runtime::spawn(async move {
                 while let Some(event) = rx.recv().await {
                     match event {
@@ -166,6 +194,7 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(ShellPrefs::default())
+        .manage(Backend::default())
         .invoke_handler(tauri::generate_handler![set_close_to_tray])
         // Close-to-tray: closing the main window hides it (the tray keeps the app —
         // and any running Cowork/scheduled work — alive). Quit lives in the tray
@@ -181,7 +210,32 @@ pub fn run() {
         })
         .setup(|app| {
             let handle = app.handle().clone();
-            spawn_backend(&handle);
+
+            // Per-launch loopback API token (S / B3b). Minted here, handed to the
+            // sidecar as OCD_API_TOKEN, and injected into the webview as
+            // window.__OCD_API_TOKEN__ so the frontend can echo it back as X-OCD-Token.
+            // A drive-by web page can reach 127.0.0.1:8000 but can't read this value,
+            // so its requests 401. 64 hex chars (two v4 UUIDs) of entropy.
+            let token = format!(
+                "{}{}",
+                uuid::Uuid::new_v4().simple(),
+                uuid::Uuid::new_v4().simple()
+            );
+
+            // Stable per-user data dir (B1) so a frozen build persists across restarts
+            // instead of writing into its ephemeral PyInstaller extraction dir. In dev
+            // (no bundle) this resolves too, but spawn_backend is a no-op there and the
+            // dev backend picks its own root, so it's harmless.
+            let data_dir = app.path().app_data_dir().ok();
+
+            spawn_backend(&handle, &token, data_dir);
+
+            // Hand the token to the webview before it can issue API calls. The frontend
+            // reads window.__OCD_API_TOKEN__ (desktop/src/api/client.ts) on first use.
+            if let Some(w) = main_window(&handle) {
+                let _ = w.eval(&format!("window.__OCD_API_TOKEN__={};", serde_json::to_string(&token).unwrap_or_else(|_| "\"\"".into())));
+            }
+
             build_tray(&handle)?;
             Ok(())
         })
@@ -193,6 +247,11 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Reopen { .. } = _event {
                 show_and_focus(_app);
+            }
+            // On real quit, reap the backend sidecar so it doesn't outlive the shell
+            // (an orphan keeps port 8000 and breaks the next launch).
+            if let tauri::RunEvent::Exit = _event {
+                kill_backend(_app);
             }
         });
 }

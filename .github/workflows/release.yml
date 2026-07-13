@@ -63,6 +63,11 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # Bake the loopback backend base into the bundle so the packaged webview
+          # calls the sidecar on 127.0.0.1:8000 (a relative "/api" has no server to
+          # hit — there's no dev proxy in a native shell). The runtime tauriApiBase()
+          # fallback in client.ts resolves the same target; this makes it explicit.
+          VITE_API_BASE: http://127.0.0.1:8000
         with:
           projectPath: desktop
           tagName: ${{ github.ref_name }}

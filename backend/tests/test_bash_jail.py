@@ -36,3 +36,13 @@ def test_run_bash_still_allows_safe_relative():
     # echo of a plain literal is inside the jail and must still work.
     out = I.run_bash("echo hello")
     assert "hello" in out
+
+
+def test_find_not_allowlisted():
+    # C3 hardening: `find -exec/-delete` runs arbitrary non-allowlisted programs,
+    # so `find` must not be in the bash allowlist at all.
+    assert "find" not in I._BASH_ALLOW
+    out = I.run_bash("find . -name '*.py'")
+    assert "not allowlisted" in out.lower()
+    # The allowlist message enumerates the permitted commands; grep/ls remain.
+    assert "grep" in out and "ls" in out

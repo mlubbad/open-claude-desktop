@@ -1369,7 +1369,11 @@ MEMORY_ROOT = config.REPO_ROOT / "agent_memory"
 _FETCH_CACHE: dict = {}
 # C3: 'python' intentionally NOT allowlisted — `python -c "..."` is arbitrary code
 # execution that bypasses the run_python container sandbox.
-_BASH_ALLOW = {"ls", "cat", "echo", "pwd", "grep", "find", "wc", "head", "tail",
+# Read-only, non-spawning utilities only. `find` is deliberately EXCLUDED: its
+# -exec/-execdir/-ok/-delete/-fprintf primaries run arbitrary non-allowlisted
+# programs (the command after -exec is just an argument), which turns the allowlist
+# + path-jail into no containment at all. Use grep/ls for discovery instead.
+_BASH_ALLOW = {"ls", "cat", "echo", "pwd", "grep", "wc", "head", "tail",
                "type", "dir", "date", "whoami", "sort", "uniq", "cut"}
 
 

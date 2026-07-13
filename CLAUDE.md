@@ -24,6 +24,31 @@ no proprietary Anthropic code, assets, branding, or verbatim system prompts.
 - Secrets: OS keychain via `ocd_core.secrets` (service "open-claude-desktop"),
   never plaintext files. Tests force a MemoryStore (autouse conftest fixture).
 
+## Desktop security / durability posture (2026-07 hardening)
+
+The packaged app is a local-first BYOK desktop, but its backend is a real HTTP
+server on loopback. Five contracts keep that safe and durable — do not regress
+them (tests: `test_hardening_blockers.py`, `test_bash_jail.py`, `test_cowork.py`):
+
+- **Stable data root** — `config._default_data_root()`: `AJ360_DATA_DIR` (the shell
+  sets it to a per-user dir) → a frozen build's per-OS user-data dir → dev repo root.
+  A frozen build must NEVER derive its root from `__file__` (that's the ephemeral
+  PyInstaller `_MEIPASS`, wiped every restart).
+- **Loopback API token** — the shell mints a per-launch token, passes it to the
+  sidecar as `OCD_API_TOKEN`, and injects it into the webview as
+  `window.__OCD_API_TOKEN__` (client sends it as `X-OCD-Token`). `app.main`'s
+  middleware rejects any request lacking it *when the env is set* (health probes
+  exempt). Unset (dev/web) → no enforcement. This closes drive-by RCE: a web page
+  can reach the port but can't read the token.
+- **Host allowlist** — `TrustedHostMiddleware` (env `OCD_ALLOWED_HOSTS`, defaults to
+  loopback names + `testserver`) defeats DNS rebinding.
+- **Unattended tool posture** — `agent.background_tool_flags(gated)`. Cowork/scheduler
+  runs are `permission_mode="auto"` with the HITL gate OFF, so they get `gated=False`
+  → NO code_execution/bash/text_editor (else injected content = unsupervised RCE).
+  Only `approval="manual"` (live gate) passes `gated=True` for the full toolset.
+- **Bash allowlist** — `integrations._BASH_ALLOW` is read-only/non-spawning only;
+  `find` is excluded (its `-exec/-delete` run arbitrary programs).
+
 ## How uploaded files reach the model (post-incident contract)
 
 There are TWO attachment paths — don't conflate them:
@@ -57,10 +82,13 @@ workspace mirror. Tests: `backend/tests/test_knowledge_visibility.py`.
 ## Working conventions
 
 - Verify before pushing: backend `pytest` + `ruff check .` (CI uses latest ruff),
-  desktop `npm run typecheck && npm run test && npm run build`, and `cargo check`
-  in `desktop/src-tauri` when the shell changed (CI does NOT compile Rust).
+  desktop `npm run typecheck && npm run test && npm run build`, and `cargo check
+  --locked` in `desktop/src-tauri` when the shell changed (CI now runs this too —
+  the `shell` job).
 - `desktop/src-tauri/binaries/` needs both sidecars staged for `cargo check`
   (stub ok for `ocd-backend`; `desktop/scripts/fetch-node-sidecar.sh` for node).
+  The CI `shell` job stubs BOTH sidecars + a placeholder `desktop/dist` so
+  tauri-build's externalBin / frontendDist existence checks pass.
 - Never commit `backend/settings.json` changes (`git checkout` it before staging).
-- Delivery: PR per feature batch; 5 CI checks (backend/frontend/desktop/lint/
+- Delivery: PR per feature batch; 6 CI checks (backend/frontend/desktop/shell/lint/
   secrets); the user merges. After merge, reset the working branch onto main.

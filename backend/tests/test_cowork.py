@@ -229,9 +229,12 @@ def test_derive_progress_and_files():
     assert files == {"out.csv", "chart.png", "Report"}
 
 
-def test_scheduled_launch_has_tool_parity(monkeypatch, tmp_path):
-    """A scheduled automation launches with the code/file tools enabled so it can
-    actually produce artifacts (P1-8), at permission_mode=auto."""
+def test_scheduled_launch_withholds_destructive_tools(monkeypatch, tmp_path):
+    """A scheduled automation is UNATTENDED: it runs at permission_mode=auto with the
+    HITL gate off, so it must NOT get the destructive local tools (code_execution /
+    bash / text_editor) — otherwise prompt-injected web/RAG/MCP content becomes
+    unsupervised code execution (B4). The read/browse/orchestrate set stays on so
+    automations still function."""
     from ocd_core import scheduler
     monkeypatch.setattr(cowork, "_STORE_PATH", tmp_path / "s.json")
     monkeypatch.setattr(scheduler, "cowork", cowork)
@@ -251,4 +254,9 @@ def test_scheduled_launch_has_tool_parity(monkeypatch, tmp_path):
 
     asyncio.run(go())
     assert captured["permission_mode"] == "auto"
-    assert captured["code_exec"] and captured["bash"] and captured["text_editor"]
+    # Destructive local tools withheld from the unattended run...
+    assert captured["code_exec"] is False
+    assert captured["bash"] is False
+    assert captured["text_editor"] is False
+    # ...but read/browse/orchestrate stay available.
+    assert captured["web_search"] and captured["web_fetch"] and captured["subagents"]

@@ -54,6 +54,36 @@ jobs:
           npm run test
           npm run build
 
+  shell:
+    # Compile-check the Tauri desktop shell (Rust). The shell was previously
+    # uncovered by CI, so a broken lib.rs (e.g. the sidecar spawn / API-token
+    # wiring) was only caught by a local `cargo check`. This is NOT a full
+    # `tauri build`: `cargo check` validates the Rust + tauri.conf without
+    # freezing the backend, so it stays fast. Stub sidecars and a placeholder
+    # dist satisfy tauri-build's externalBin / frontendDist existence checks.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Linux WebView deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libsoup-3.0-dev \
+            build-essential curl wget file libxdo-dev libssl-dev \
+            libayatana-appindicator3-dev librsvg2-dev
+      - name: Stage stub sidecars + frontend dist
+        run: |
+          triple=x86_64-unknown-linux-gnu
+          printf '#!/bin/sh\n' > desktop/src-tauri/binaries/ocd-backend-$triple
+          printf '#!/bin/sh\n' > desktop/src-tauri/binaries/ocd-node-$triple
+          chmod +x desktop/src-tauri/binaries/ocd-backend-$triple \
+                   desktop/src-tauri/binaries/ocd-node-$triple
+          mkdir -p desktop/dist
+          echo '<!doctype html><title>stub</title>' > desktop/dist/index.html
+      - name: cargo check
+        working-directory: desktop/src-tauri
+        run: cargo check --locked
+
   lint:
     runs-on: ubuntu-latest
     # Blocking: the repo is ruff-clean (lint debt burned down 2026-07-03).

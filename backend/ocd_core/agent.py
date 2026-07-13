@@ -165,9 +165,13 @@ WEB_FETCH_TOOL = {"type": "function", "function": {
         "required": ["url"]}}}
 
 CODE_EXECUTION_TOOL = {"type": "function", "function": {
+    # Do NOT claim network isolation here: only the Docker engine runs with
+    # --network none. The local fallback (used when Docker is absent) is
+    # resource-limited but NOT network- or filesystem-isolated, so a false
+    # "no network" guarantee would mislead both the model and the user.
     "name": "code_execution",
-    "description": "Run a short Python 3 snippet in a sandbox (no network, 30s limit) and "
-                   "return stdout/stderr. Use for ad-hoc computation, data shaping, and "
+    "description": "Run a short Python 3 snippet in a restricted workspace and return "
+                   "stdout/stderr. Use for ad-hoc computation, data shaping, and "
                    "verifying numbers. Use print(...) to produce output.",
     "parameters": {"type": "object", "properties": {
         "code": {"type": "string", "description": "Python source to execute."}},
@@ -175,8 +179,8 @@ CODE_EXECUTION_TOOL = {"type": "function", "function": {
 
 BASH_TOOL = {"type": "function", "function": {
     "name": "bash",
-    "description": "Run ONE allowlisted shell command (ls, cat, grep, find, head, tail, "
-                   "wc, echo, pwd, python, sort, uniq, cut …) in a confined sandbox "
+    "description": "Run ONE allowlisted shell command (ls, cat, grep, head, tail, "
+                   "wc, echo, pwd, sort, uniq, cut …) in a confined workspace "
                    "directory. No pipes, redirects, or command chaining.",
     "parameters": {"type": "object", "properties": {
         "command": {"type": "string", "description": "The shell command to run."},
@@ -342,6 +346,22 @@ EFFORT = {
     "Extra":  {"steps": 24, "plan": True,  "verify": False, "temp": 0.25},
     "Max":    {"steps": 32, "plan": True,  "verify": True,  "temp": 0.3},
 }
+
+
+def background_tool_flags(gated: bool) -> dict:
+    """Tool posture for an UNATTENDED (Cowork/scheduled) run.
+
+    The HITL approval gate only engages on interactive turns; a background run with
+    the gate off would execute the destructive local tools (code_execution, bash,
+    text_editor) with no confirmation, so any prompt-injected web/RAG/MCP content
+    becomes unsupervised code execution. When the run is not gated we therefore
+    withhold those tools and keep only the read/browse/orchestrate set. A caller that
+    genuinely needs to build in the background must opt into the live HITL gate
+    (approval="manual"), which sets ``gated=True`` and restores the full toolset.
+    Propagates to subagents, which inherit the parent's code/file flags."""
+    return {"web_search": True, "web_fetch": True, "artifacts": True,
+            "memory": True, "subagents": True,
+            "code_exec": gated, "bash": gated, "text_editor": gated}
 
 # When this many tool rounds remain, tell the model — so it converges on an answer
 # instead of being cut off mid-gathering. Without the warning the model has no idea a

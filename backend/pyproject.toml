@@ -12,6 +12,9 @@ dependencies = [
   # Zhipu/GLM, DeepSeek, Qwen, OpenRouter, Ollama, vLLM, …). This replaces the
   # hard-coded zhipuai SDK and removes its pyjwt<2.9 conflict with mcp.
   "openai",
+  # The one exception: Claude goes through the NATIVE Messages API adapter
+  # (ocd_core.llm.anthropic_native) for prompt caching + extended thinking.
+  "anthropic",
   "google-cloud-bigquery",
   "google-auth",
   "chromadb",

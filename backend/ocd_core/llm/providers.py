@@ -34,6 +34,16 @@ _BUILTINS: tuple[Provider, ...] = (
     Provider("openai", "OpenAI", None, "OPENAI_API_KEY", "gpt-4o-mini",
              ("gpt-4o", "gpt-4o-mini", "o3-mini"),
              docs="https://platform.openai.com/docs"),
+    # The one non-OpenAI-compatible backend: Claude models through the NATIVE
+    # Messages API (llm.anthropic_native), which unlocks prompt caching and
+    # provider-side extended thinking. A starter list — any Messages-API model id
+    # the endpoint accepts can be typed in.
+    Provider("anthropic", "Anthropic", "https://api.anthropic.com",
+             "ANTHROPIC_API_KEY", "claude-sonnet-5",
+             ("claude-fable-5", "claude-opus-4-8", "claude-sonnet-5",
+              "claude-opus-4-7", "claude-opus-4-6", "claude-sonnet-4-6",
+              "claude-haiku-4-5", "claude-opus-4-5", "claude-sonnet-4-5"),
+             docs="https://platform.claude.com/docs"),
     Provider("zhipu", "Zhipu GLM", "https://open.bigmodel.cn/api/paas/v4",
              "ZHIPU_API_KEY", "glm-4.6",
              # Newest first: GLM-5 reasoning flagships, then the GLM-4.5/4.6
@@ -79,9 +89,9 @@ _BUILTINS: tuple[Provider, ...] = (
               "open-mixtral-8x22b", "codestral-latest"),
              docs="https://docs.mistral.ai"),
     Provider("ollama", "Ollama (local)", "http://localhost:11434/v1", "OLLAMA_API_KEY",
-             "llama3.1",
-             ("llama3.1", "llama3.2", "qwen2.5", "mistral", "gemma2",
-              "phi3", "deepseek-r1"),
+             "fast-mistral",
+             ("fast-mistral", "llama3", "llama3.1", "llama3.2", "qwen2.5",
+              "mistral", "gemma2", "phi3", "deepseek-r1"),
              requires_key=False, is_local=True,
              docs="https://github.com/ollama/ollama/blob/main/docs/openai.md"),
     Provider("vllm", "vLLM (local)", "http://localhost:8000/v1", "VLLM_API_KEY",

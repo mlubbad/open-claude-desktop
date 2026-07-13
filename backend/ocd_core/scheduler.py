@@ -16,7 +16,7 @@ from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from . import agent, config, cowork, opik_tracing
+from . import agent, config, cowork, jsonstore, opik_tracing
 
 
 def _now() -> datetime:
@@ -103,19 +103,23 @@ class ScheduleStore:
         return out
 
     def save(self, schedules: list[Schedule]) -> None:
+        # Atomic write (temp + os.replace): a crash mid-write must not truncate
+        # schedules.json — load() fails soft to [], which would silently erase
+        # every automation the user configured.
         with contextlib.suppress(OSError):
-            self.path.write_text(
-                json.dumps([asdict(s) for s in schedules], indent=2, ensure_ascii=False),
-                encoding="utf-8")
+            jsonstore.save_json(self.path, [asdict(s) for s in schedules])
 
 
 def default_launch(s: Schedule) -> str:
     """Launch a scheduled goal as an autonomous Cowork task (returns the task id).
 
     Scheduled runs are unattended by definition — no one is watching to answer a
-    prompt — so they always run with the full autonomous toolset (incl. the code/file
-    tools, so an automation can actually produce artifacts) at permission_mode=auto."""
+    prompt — so they run at permission_mode=auto WITHOUT the destructive local tools
+    (code_execution/bash/text_editor). With the HITL gate off, those would let any
+    prompt-injected page/doc/MCP output run code on the user's machine unsupervised;
+    the read/browse/orchestrate set stays available so automations can still work."""
     model = s.model or config.AGENT_MODEL
+    tools = agent.background_tool_flags(gated=False)
 
     def gen_factory():
         # Opik tap (opt-in): scheduled runs were the one turn source left invisible
@@ -124,8 +128,7 @@ def default_launch(s: Schedule) -> str:
             agent.run_turn(
                 s.goal, [], s.project_id, model,
                 effort=s.effort, provider=s.provider, permission_mode="auto",
-                web_search=True, web_fetch=True, artifacts=True, memory=True,
-                subagents=True, code_exec=True, bash=True, text_editor=True),
+                **tools),
             goal=s.goal, model=model, provider=s.provider, effort=s.effort,
             tags=["scheduled"])
     return cowork.manager.start(

@@ -45,7 +45,7 @@ def test_routes_to_selected_provider_and_fallback(monkeypatch):
 
     monkeypatch.setattr(agent, "_stream_llm", fake_stream)
     # ollama needs no key; the 'provider/model' prefix selects it.
-    _drive(agent.run_turn("hi", [], None, "ollama/llama3.1", effort="Low"))
+    _drive(agent.run_turn("hi", [], None, "ollama/fast-mistral", effort="Low"))
     assert "localhost:11434" in captured["base_url"]
-    assert captured["model"] == "llama3.1"
+    assert captured["model"] == "fast-mistral"
     assert captured["fallback"] is None  # ollama default == requested model

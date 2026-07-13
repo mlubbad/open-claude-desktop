@@ -116,10 +116,10 @@ def test_reasoning_of_normalizes_shapes():
 
 
 def test_resolve_turn_client_explicit_provider():
-    client, model, fallback = llm.resolve_turn_client("llama3.1", provider="ollama")
+    client, model, fallback = llm.resolve_turn_client("fast-mistral", provider="ollama")
     assert "localhost:11434" in str(client.base_url)
-    assert model == "llama3.1"
-    # ollama's default_model is llama3.1 (== requested) -> no self-fallback
+    assert model == "fast-mistral"
+    # ollama's default_model is fast-mistral (== requested) -> no self-fallback
     assert fallback is None
 
 

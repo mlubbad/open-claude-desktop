@@ -41,18 +41,21 @@ async def start_task(body: CoworkStart, user: str = Depends(current_user)) -> di
     manual = body.approval == "manual"
     turn_id = uuid.uuid4().hex if manual else None
 
+    # 'manual' wires a live HITL gate (ask + turn_id) and gets the FULL toolset,
+    # including the destructive code/file tools. 'skip' runs unattended with the gate
+    # off, so it is restricted to read/browse/orchestrate tools — a background job
+    # cannot silently run code/bash/text_editor off injected content. To build in the
+    # background, choose 'manual'.
+    tools = agent.background_tool_flags(gated=manual)
+
     def gen_factory():
-        # Full autonomous toolset incl. the code/file tools so delegated work can
-        # actually build in its workspace. 'manual' wires a live HITL gate (ask +
-        # turn_id); 'skip' runs unattended (auto). The Opik tap (opt-in) mirrors the
-        # run into a trace without touching the stream.
+        # The Opik tap (opt-in) mirrors the run into a trace without touching the stream.
         return opik_tracing.traced(
             agent.run_turn(
                 body.goal, [], body.project_id, body.model,
                 effort=body.effort, provider=body.provider,
                 permission_mode=("ask" if manual else "auto"), turn_id=turn_id,
-                web_search=True, web_fetch=True, artifacts=True, memory=True,
-                subagents=True, code_exec=True, bash=True, text_editor=True,
+                **tools,
             ),
             goal=body.goal, model=body.model, provider=body.provider,
             effort=body.effort, turn_id=turn_id, tags=["cowork"],

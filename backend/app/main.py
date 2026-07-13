@@ -22,8 +22,10 @@ import asyncio  # noqa: E402
 import contextlib  # noqa: E402
 from contextlib import asynccontextmanager  # noqa: E402
 
-from fastapi import FastAPI  # noqa: E402
+from fastapi import FastAPI, Request  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
+from fastapi.middleware.trustedhost import TrustedHostMiddleware  # noqa: E402
+from fastapi.responses import JSONResponse  # noqa: E402
 from ocd_core import netguard, scheduler  # noqa: E402
 from ocd_core.db import engine as db_engine  # noqa: E402
 
@@ -83,6 +85,40 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="ocd backend", version="0.4.0", lifespan=lifespan)
+
+# Health probes are always reachable (no token, any host) so the shell's readiness
+# gate and monitors work before/around auth.
+_UNAUTH_PATHS = frozenset({"/healthz", "/readyz"})
+
+
+# S: per-launch shared-secret token. The desktop shell mints a random token, passes
+# it to this sidecar as OCD_API_TOKEN, and hands it to the webview (which sends it as
+# X-OCD-Token). When the env is set, every request without the matching token is
+# rejected — this is what closes the drive-by-RCE hole: a web page can reach the
+# loopback port but cannot read the token, so its requests 401. Unset (dev / plain
+# web) → no enforcement, behavior unchanged.
+_API_TOKEN = os.environ.get("OCD_API_TOKEN", "").strip()
+
+
+@app.middleware("http")
+async def _require_local_token(request: Request, call_next):
+    if _API_TOKEN and request.method != "OPTIONS" and request.url.path not in _UNAUTH_PATHS:
+        import hmac
+        sent = request.headers.get("x-ocd-token", "")
+        if not hmac.compare_digest(sent, _API_TOKEN):
+            return JSONResponse({"detail": "missing or invalid local API token"},
+                                status_code=401)
+    return await call_next(request)
+
+
+# Host allowlist: reject requests whose Host header isn't in the set (defeats DNS
+# rebinding, which otherwise makes an attacker domain resolve to 127.0.0.1 and appear
+# same-origin). Defaults to the loopback names the desktop app uses; a non-loopback /
+# hosted deploy sets OCD_ALLOWED_HOSTS (comma list; "*" disables the check).
+_allowed_hosts = [h.strip() for h in os.environ.get(
+    "OCD_ALLOWED_HOSTS", "localhost,127.0.0.1,[::1],testserver").split(",") if h.strip()]
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=_allowed_hosts)
+
 _origins = os.environ.get("OCD_CORS_ORIGINS",
                           "http://localhost:3000,http://localhost:5173").split(",")
 app.add_middleware(

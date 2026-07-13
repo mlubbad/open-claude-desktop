@@ -2,15 +2,41 @@
 pre-refactor app.py + aj360_app/core.py constants)."""
 import hashlib
 import os
+import sys
 from pathlib import Path
 
 # Product name, surfaced in user-facing messages (e.g. marketplace hints).
 APP_NAME = "Open Claude Desktop"
 
-# --- paths (data dir override) ---
-# Match the pre-refactor core.py exactly: the AJ360_DATA_DIR override is taken
-# verbatim (no .resolve()); only the default branch resolves __file__.
-REPO_ROOT = Path(os.getenv("AJ360_DATA_DIR", str(Path(__file__).resolve().parents[2])))
+
+# --- paths (data dir) ---
+def _default_data_root() -> Path:
+    """Where all user data lives (DB, projects, chroma, settings, cowork/schedules).
+
+    Precedence:
+      1. AJ360_DATA_DIR — set by the desktop shell to a stable per-user directory.
+      2. Frozen build (PyInstaller) — a per-OS user-data dir. `__file__` here resolves
+         INSIDE the ephemeral _MEIPASS extraction dir, so deriving the root from it
+         would scatter data into OS temp and lose everything on every restart.
+      3. Source/dev — the repo root two levels up from this package (stable).
+    """
+    env = os.getenv("AJ360_DATA_DIR")
+    if env:
+        return Path(env)  # verbatim (no .resolve()), matching the historical override
+    if getattr(sys, "frozen", False):
+        home = Path.home()
+        if sys.platform == "win32":
+            base = Path(os.getenv("APPDATA") or home / "AppData" / "Roaming")
+        elif sys.platform == "darwin":
+            base = home / "Library" / "Application Support"
+        else:
+            base = Path(os.getenv("XDG_DATA_HOME") or home / ".local" / "share")
+        return base / "OpenClaudeDesktop"
+    return Path(__file__).resolve().parents[2]
+
+
+REPO_ROOT = _default_data_root()
+REPO_ROOT.mkdir(parents=True, exist_ok=True)
 PROJECTS_DIR = Path(os.getenv("PROJECTS_DIR", str(REPO_ROOT / "projects")))
 KNOWLEDGE_DIR = Path(os.getenv("KNOWLEDGE_DIR", str(REPO_ROOT / "knowledge")))
 CHROMA_PATH = os.getenv("CHROMA_PATH", str(REPO_ROOT / "chroma_db"))

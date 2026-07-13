@@ -5,9 +5,27 @@ import { fetchEventSource } from "@microsoft/fetch-event-source";
 
 import type { AgentEvent } from "./events";
 
-// In web dev, Vite proxies "/api" -> backend. In the packaged app, VITE_API_BASE
-// points at the bundled backend.
-const BASE = (import.meta.env?.VITE_API_BASE as string | undefined) ?? "/api";
+// API base resolution, in precedence order:
+//   1. VITE_API_BASE — an explicit build-time override.
+//   2. Running inside the Tauri shell → the bundled backend on loopback. (A packaged
+//      static build has no Vite dev-proxy, so "/api" is unreachable there — this is
+//      what makes the shipped app able to reach its own sidecar.)
+//   3. Web dev → "/api", which the Vite dev server proxies to the backend.
+function tauriApiBase(): string | null {
+  if (typeof window === "undefined") return null;
+  const w = window as unknown as { __TAURI__?: unknown; __TAURI_INTERNALS__?: unknown };
+  return w.__TAURI__ || "__TAURI_INTERNALS__" in w ? "http://127.0.0.1:8000" : null;
+}
+const BASE = (import.meta.env?.VITE_API_BASE as string | undefined) ?? tauriApiBase() ?? "/api";
+
+// The per-launch local API token the shell injects into the webview (window
+// .__OCD_API_TOKEN__). Sent as X-OCD-Token so the loopback backend can tell the app
+// apart from a web page probing the port. Absent in dev → no header, no enforcement.
+function localApiToken(): string | null {
+  if (typeof window === "undefined") return null;
+  const t = (window as unknown as { __OCD_API_TOKEN__?: unknown }).__OCD_API_TOKEN__;
+  return typeof t === "string" && t ? t : null;
+}
 
 let token: string | null = null;
 export function setToken(t: string | null): void {
@@ -17,6 +35,8 @@ export function setToken(t: string | null): void {
 function authHeaders(extra?: Record<string, string>): Record<string, string> {
   const h: Record<string, string> = { ...(extra ?? {}) };
   if (token) h["Authorization"] = `Bearer ${token}`;
+  const lt = localApiToken();
+  if (lt) h["X-OCD-Token"] = lt;
   return h;
 }
 

@@ -32,7 +32,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
-from . import config, jsonstore
+from . import config, jsonstore, tenancy
 
 # Bound a single task's stored transcript so one runaway task can't grow the store
 # without limit; the head is kept (the goal + early plan) plus the recent tail.
@@ -98,6 +98,10 @@ class Task:
     approval: str = "skip"   # skip (auto) | manual (HITL gate live)
     turn_id: str | None = None
     project_id: str | None = None
+    # The workspace that owns this run, captured at start() when multi-tenancy is enforced
+    # (else None). Persisted so the owning tenant is re-bound for the whole background run,
+    # even for a scheduler-launched task whose ambient context would otherwise be `local`.
+    workspace: str | None = None
     model: str = ""
     provider: str | None = None
     effort: str = "High"
@@ -136,6 +140,8 @@ class Task:
         return {"id": self.id, "goal": self.goal, "title": self.title,
                 "status": self.status, "approval": self.approval,
                 "turn_id": self.turn_id, "project_id": self.project_id,
+                # Only emitted for a non-local tenant, so a local task's JSON is unchanged.
+                **({"workspace": self.workspace} if self.workspace else {}),
                 "model": self.model, "provider": self.provider, "effort": self.effort,
                 "created_at": self.created_at, "updated_at": self.updated_at,
                 "error": self.error, "events": evs}
@@ -150,7 +156,7 @@ class Task:
         return cls(
             id=d["id"], goal=d.get("goal", ""), title=d.get("title") or title_of(d.get("goal", "")),
             status=status, approval=d.get("approval", "skip"), turn_id=d.get("turn_id"),
-            project_id=d.get("project_id"), model=d.get("model", ""),
+            project_id=d.get("project_id"), workspace=d.get("workspace"), model=d.get("model", ""),
             provider=d.get("provider"), effort=d.get("effort", "High"),
             created_at=d.get("created_at", _now_iso()), updated_at=d.get("updated_at", _now_iso()),
             events=list(d.get("events") or []), error=d.get("error"))
@@ -180,21 +186,28 @@ class CoworkManager:
     # -- lifecycle ---------------------------------------------------------- #
     async def _run(self, task: Task, gen_factory: Callable[[], AsyncIterator[dict]]) -> None:
         last_flush = time.monotonic()
+        # Re-bind the owning workspace for the whole run so every scoped call inside the
+        # agent turn (projects/conversations/secrets/settings/vectors) sees the right
+        # tenant. A request-launched task inherits the workspace via context copy anyway;
+        # this makes it explicit AND fixes scheduler-launched tasks, whose ambient context
+        # is `local`. No-op locally (workspace is None → nullcontext).
+        ws_ctx = tenancy.use_workspace(task.workspace) if task.workspace else contextlib.nullcontext()
         try:
-            async for ev in gen_factory():
-                task.events.append(ev)
-                task.updated_at = _now_iso()
-                if ev.get("type") == "error":
-                    task.error = ev.get("text")
-                # Incremental durability: a long task only saved at the end would lose
-                # its whole transcript if the process died mid-run (only the empty shell
-                # from start() survived). Flush on a time throttle so a crash costs at
-                # most the last few seconds of events, without an I/O write per token.
-                now = time.monotonic()
-                if now - last_flush >= _FLUSH_INTERVAL_SEC:
-                    self._save()
-                    last_flush = now
-            task.status = "error" if task.error else "done"
+            with ws_ctx:
+                async for ev in gen_factory():
+                    task.events.append(ev)
+                    task.updated_at = _now_iso()
+                    if ev.get("type") == "error":
+                        task.error = ev.get("text")
+                    # Incremental durability: a long task only saved at the end would lose
+                    # its whole transcript if the process died mid-run (only the empty shell
+                    # from start() survived). Flush on a time throttle so a crash costs at
+                    # most the last few seconds of events, without an I/O write per token.
+                    now = time.monotonic()
+                    if now - last_flush >= _FLUSH_INTERVAL_SEC:
+                        self._save()
+                        last_flush = now
+                task.status = "error" if task.error else "done"
         except asyncio.CancelledError:
             task.status = "cancelled"
             raise
@@ -212,6 +225,8 @@ class CoworkManager:
         """Register a task and launch it on the running event loop."""
         task = Task(id=uuid.uuid4().hex[:12], goal=goal, title=title_of(goal),
                     approval=approval, turn_id=turn_id, project_id=project_id,
+                    # Capture the ambient (non-local) workspace so the run is re-bound to it.
+                    workspace=tenancy.namespace(),
                     model=model, provider=provider, effort=effort)
         self._tasks[task.id] = task
         self._save()  # record it exists before the first event lands

@@ -16,7 +16,7 @@ from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from . import agent, config, cowork, jsonstore, opik_tracing
+from . import agent, config, cowork, jsonstore, opik_tracing, tenancy
 
 
 def _now() -> datetime:
@@ -37,6 +37,10 @@ class Schedule:
     effort: str = "High"
     project_id: str | None = None
     title: str = ""
+    # The workspace that owns this automation, stamped at add() when multi-tenancy is
+    # enforced (else None → the `local` namespace). The launcher re-binds it so a run
+    # fired by the shared ticker executes as the owning tenant, not as `local`.
+    workspace: str | None = None
 
 
 def _parse(ts: str | None) -> datetime | None:
@@ -131,9 +135,14 @@ def default_launch(s: Schedule) -> str:
                 **tools),
             goal=s.goal, model=model, provider=s.provider, effort=s.effort,
             tags=["scheduled"])
-    return cowork.manager.start(
-        s.goal, gen_factory, approval="skip", project_id=s.project_id,
-        model=model, provider=s.provider, effort=s.effort).id
+    # Bind the automation's workspace for the launch: tick() runs in the shared ticker's
+    # context (`local`), so without this a wsA automation would start (and run) as `local`.
+    # start() captures the ambient workspace onto the Task, which _run then re-binds.
+    ws_ctx = tenancy.use_workspace(s.workspace) if s.workspace else contextlib.nullcontext()
+    with ws_ctx:
+        return cowork.manager.start(
+            s.goal, gen_factory, approval="skip", project_id=s.project_id,
+            model=model, provider=s.provider, effort=s.effort).id
 
 
 class SchedulerService:
@@ -159,6 +168,9 @@ class SchedulerService:
         s = Schedule(id=uuid.uuid4().hex[:12], goal=goal, kind=kind,
                      every_seconds=every_seconds, at=at, model=model, provider=provider,
                      effort=effort, project_id=project_id, title=cowork.title_of(goal),
+                     # Stamp the owning workspace (non-local tenant, else None) so the
+                     # launcher can re-bind it when the shared ticker fires this schedule.
+                     workspace=tenancy.namespace(),
                      # Stamp last_run at creation so a new schedule waits for its next
                      # occurrence instead of firing the instant it's added.
                      last_run=_now().isoformat())

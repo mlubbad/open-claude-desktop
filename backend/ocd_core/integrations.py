@@ -201,7 +201,13 @@ def _safe_outbound_get(url: str, headers: dict, auth_header: str = "",
             r = client.get(cur, headers=hdrs)
             if r.status_code in (301, 302, 303, 307, 308) and r.headers.get("location"):
                 nxt = urljoin(cur, r.headers["location"])
-                if auth_header and urlparse(nxt).hostname != (p.hostname or ""):
+                np = urlparse(nxt)
+                # Compare the full ORIGIN (scheme + host + port), not just the hostname:
+                # an https→http downgrade or a port change to the same host is still
+                # cross-origin and must NOT keep carrying the user's API key.
+                cur_origin = (p.scheme, p.hostname, p.port)
+                nxt_origin = (np.scheme, np.hostname, np.port)
+                if auth_header and nxt_origin != cur_origin:
                     hdrs.pop(auth_header, None)  # never leak the key cross-origin
                 cur = nxt
                 continue
@@ -1464,11 +1470,21 @@ def _blocked_host(host: str) -> bool:
     return False
 
 
+# Cap the bytes web_fetch will buffer from a single response. Prevents a huge (or
+# endless, chunked) body from exhausting memory before the 24k-char text truncation.
+_WEB_FETCH_MAX_BYTES = int(os.getenv("OCD_WEB_FETCH_MAX_BYTES", str(5 * 1024 * 1024)))
+
+
 def web_fetch(url: str) -> tuple[str, list[dict]]:
     """Fetch one URL → (cleaned text for the model, source card list). http/https
-    only, private/internal hosts blocked, HTML/text/JSON only."""
+    only, private/internal hosts blocked, HTML/text/JSON only.
+
+    Redirects are followed MANUALLY so every hop is re-validated against _blocked_host
+    BEFORE connecting (httpx's follow_redirects would reach an internal host first — a
+    DNS-rebind / redirect-to-internal SSRF), and the body is streamed under a byte cap
+    instead of being fully buffered."""
     import time as _t
-    from urllib.parse import urlparse
+    from urllib.parse import urljoin, urlparse
     url = (url or "").strip()
     if not url:
         return "web_fetch_tool_error: invalid_input", []
@@ -1484,22 +1500,41 @@ def web_fetch(url: str) -> tuple[str, list[dict]]:
         return cached[1], cached[2]
     try:
         import httpx
-        r = httpx.get(url, headers={"User-Agent": _UA}, timeout=15,
-                      follow_redirects=True)
+        body = b""
+        ctype = ""
+        with httpx.Client(timeout=15, follow_redirects=False) as client:
+            cur = url
+            for _ in range(5):
+                pp = urlparse(cur)
+                if pp.scheme not in ("http", "https") or not pp.netloc:
+                    return "web_fetch_tool_error: invalid_input", []
+                if _blocked_host(pp.hostname or ""):
+                    return ("web_fetch_tool_error: url_not_allowed "
+                            "(private/internal host blocked)", [])
+                with client.stream("GET", cur, headers={"User-Agent": _UA}) as r:
+                    loc = r.headers.get("location")
+                    if r.status_code in (301, 302, 303, 307, 308) and loc:
+                        cur = urljoin(cur, loc)  # re-validated at the top of the next loop
+                        continue
+                    ctype = (r.headers.get("content-type") or "").lower()
+                    if not any(c in ctype for c in ("text/html", "text/plain", "application/json",
+                                                    "application/xml", "text/xml")):
+                        return f"web_fetch_tool_error: unsupported_content_type ({ctype or 'unknown'})", []
+                    for chunk in r.iter_bytes():
+                        body += chunk
+                        if len(body) >= _WEB_FETCH_MAX_BYTES:
+                            break
+                    break
+            else:
+                return "web_fetch_tool_error: too_many_redirects", []
     except Exception as e:
         return f"web_fetch_tool_error: url_not_accessible ({str(e)[:120]})", []
-    final = urlparse(str(r.url)).hostname or ""
-    if final and final != (p.hostname or "") and _blocked_host(final):
-        return "web_fetch_tool_error: url_not_allowed (redirected to blocked host)", []
-    ctype = (r.headers.get("content-type") or "").lower()
-    if not any(c in ctype for c in ("text/html", "text/plain", "application/json",
-                                    "application/xml", "text/xml")):
-        return f"web_fetch_tool_error: unsupported_content_type ({ctype or 'unknown'})", []
+    html = body.decode("utf-8", "replace")
     title = ""
-    m = re.search(r"<title[^>]*>(.*?)</title>", r.text, re.IGNORECASE | re.DOTALL)
+    m = re.search(r"<title[^>]*>(.*?)</title>", html, re.IGNORECASE | re.DOTALL)
     if m:
         title = re.sub(r"\s+", " ", m.group(1)).strip()[:200]
-    text = _html_to_text(r.text)[:24000]
+    text = _html_to_text(html)[:24000]
     out = f"Fetched {url}\nTitle: {title}\nRetrieved: {_iso_now()}\n\n{text}"
     dom = _domain(url)
     src = [{"title": title or dom, "url": url, "snippet": text[:200].strip(),

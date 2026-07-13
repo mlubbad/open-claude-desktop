@@ -142,3 +142,22 @@ export function printableHtml(title: string, content: string, renderedSrcDoc?: s
     `</head><body><h1>${escapeHtml(title)}</h1><pre>${escapeHtml(content)}</pre></body></html>`
   );
 }
+
+// Print a full HTML document via a hidden, SANDBOXED, opaque-origin iframe that auto-
+// prints from inside itself — never a privileged top-level window.open + document.write.
+// `allow-scripts` lets model HTML render (e.g. mermaid) and `allow-modals` lets it open
+// the print dialog, but WITHOUT `allow-same-origin` the frame can't reach the parent
+// window, its opener, or the Tauri bridge — so a prompt-injected artifact can't escalate
+// off a Print click. The auto-print runs inside the frame because the parent can't call
+// print() on a no-same-origin child.
+export function printInSandbox(html: string): void {
+  const withPrint =
+    `${html}<script>addEventListener("load",function(){` +
+    `setTimeout(function(){try{focus();print();}catch(e){}},350)});</script>`;
+  const frame = document.createElement("iframe");
+  frame.setAttribute("sandbox", "allow-scripts allow-modals");
+  frame.style.cssText = "position:fixed;right:0;bottom:0;width:1px;height:1px;opacity:0;border:0;";
+  frame.srcdoc = withPrint;
+  document.body.appendChild(frame);
+  window.setTimeout(() => frame.remove(), 60000);
+}

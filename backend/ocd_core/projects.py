@@ -10,7 +10,7 @@ import uuid
 
 from sqlmodel import select
 
-from . import config, util
+from . import config, tenancy, util
 from .chroma import _get_chroma
 from .db.engine import session
 from .db.models import Project, utcnow
@@ -33,14 +33,16 @@ def _meta(p: Project) -> dict:
 def get_project_allowlist(project_id: str) -> list:
     with session() as s:
         p = s.get(Project, project_id)
-        return list(p.allowlist) if p and p.allowlist else []
+        if not (p and tenancy.owns(p.workspace_id)):
+            return []
+        return list(p.allowlist) if p.allowlist else []
 
 
 def save_project_allowlist(project_id: str, tables: list) -> bool:
     """Persist the dataset/table allowlist on the Project row."""
     with session() as s:
         p = s.get(Project, project_id)
-        if p is None:
+        if p is None or not tenancy.owns(p.workspace_id):
             return False
         p.allowlist = list(tables)
         p.updated_at = utcnow()
@@ -49,12 +51,16 @@ def save_project_allowlist(project_id: str, tables: list) -> bool:
 
 
 def list_projects(include_archived: bool = False) -> list[dict]:
-    """All projects (newest-updated first). Archived projects are excluded unless asked."""
+    """All projects (newest-updated first). Archived projects are excluded unless asked.
+    Scoped to the current workspace when multi-tenancy is enforced."""
     with session() as s:
         q = select(Project)
         if not include_archived:
             # getattr default keeps this working before the column-ensure migration runs.
             q = q.where((Project.archived == False) | (Project.archived == None))  # noqa: E711,E712
+        clause = tenancy.scope_clause(Project.workspace_id)
+        if clause is not None:
+            q = q.where(clause)
         rows = s.exec(q).all()
     rows.sort(key=lambda p: p.updated_at, reverse=True)
     return [_meta(p) for p in rows]
@@ -63,7 +69,7 @@ def list_projects(include_archived: bool = False) -> list[dict]:
 def get_project(project_id: str) -> dict | None:
     with session() as s:
         p = s.get(Project, project_id)
-        return _meta(p) if p else None
+        return _meta(p) if p and tenancy.owns(p.workspace_id) else None
 
 
 def create_project(name: str, description: str = "") -> dict:
@@ -81,6 +87,7 @@ def create_project(name: str, description: str = "") -> dict:
         now = utcnow()
         p = Project(id=project_id, name=name, description=desc, instructions=instructions,
                     memory="", allowlist=[], created_at=now, updated_at=now)
+        tenancy.stamp(p)  # tag with the current workspace when multi-tenancy is enforced
         s.add(p)
         meta = _meta(p)
     (config.PROJECTS_DIR / project_id / "knowledge").mkdir(parents=True, exist_ok=True)
@@ -94,7 +101,7 @@ def update_project(project_id: str, *, name: str | None = None,
     Only provided fields change. Returns the updated metadata, or None if not found."""
     with session() as s:
         p = s.get(Project, project_id)
-        if p is None:
+        if p is None or not tenancy.owns(p.workspace_id):
             return None
         if name is not None and name.strip():
             p.name = name.strip()
@@ -112,7 +119,7 @@ def update_project(project_id: str, *, name: str | None = None,
 def delete_project(project_id: str) -> bool:
     with session() as s:
         p = s.get(Project, project_id)
-        if p is None:
+        if p is None or not tenancy.owns(p.workspace_id):
             return False
         s.delete(p)
         from .db.models import Conversation
@@ -132,13 +139,13 @@ def delete_project(project_id: str) -> bool:
 def get_project_instructions(project_id: str) -> str:
     with session() as s:
         p = s.get(Project, project_id)
-        return p.instructions if p else ""
+        return p.instructions if p and tenancy.owns(p.workspace_id) else ""
 
 
 def save_project_instructions(project_id: str, content: str):
     with session() as s:
         p = s.get(Project, project_id)
-        if p:
+        if p and tenancy.owns(p.workspace_id):
             p.instructions = content
             p.updated_at = utcnow()
             s.add(p)
@@ -148,7 +155,7 @@ def get_project_memory(project_id: str) -> tuple[str, str]:
     """Returns (memory_text, last_updated_relative). Timestamp from updated_at."""
     with session() as s:
         p = s.get(Project, project_id)
-        if not p:
+        if not (p and tenancy.owns(p.workspace_id)):
             return "", ""
         return p.memory, (util.relative_time(p.updated_at.isoformat()) if p.memory else "")
 
@@ -156,7 +163,7 @@ def get_project_memory(project_id: str) -> tuple[str, str]:
 def save_project_memory(project_id: str, content: str):
     with session() as s:
         p = s.get(Project, project_id)
-        if p:
+        if p and tenancy.owns(p.workspace_id):
             p.memory = content
             p.updated_at = utcnow()
             s.add(p)

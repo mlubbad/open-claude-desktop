@@ -105,6 +105,26 @@ P0-1 ungated tool. The still-valid parts (prompt file listing, no-path-guessing
 guidance) were ported to the current architecture and extended with the exec
 workspace mirror. Tests: `backend/tests/test_knowledge_visibility.py`.
 
+## Workspace tenancy (hosted-SaaS seam)
+
+`ocd_core.tenancy` is the multi-tenant keystone, OFF by default (`OCD_MULTI_TENANT`
+unset) so the packaged desktop is byte-for-byte unchanged: `enforcing()` is False and
+every scoping primitive is a no-op — no row filtering, new rows keep the historical NULL
+`workspace_id`. Flip it on for a hosted deploy and project/conversation reads, writes,
+lists, and deletes are scoped to the request's workspace. The workspace is resolved by
+`app.deps.scope_workspace` — a GLOBAL dependency that MUST stay an async generator so the
+ContextVar it sets propagates into the threadpool that runs the sync route handlers — and
+carried in a `ContextVar` so domain functions never take a workspace argument (no
+cross-cutting signature retrofit). `scope_clause`/`owns`/`require_owned`/`stamp` are the
+four primitives the domain modules call. Legacy pre-tenancy rows (`workspace_id IS NULL`)
+belong to the implicit `local` workspace, so a single-user DB that later enables tenancy
+keeps working with zero data migration. The `owner_id`/`workspace_id` columns + their
+idempotent auto-migration were laid down earlier as the "Phase 1b multi-user seams".
+Cross-workspace mutations raise `tenancy.WorkspaceForbidden` → 404 (never leak that a row
+exists in another workspace). NOT yet scoped (later slices): tenant-scoped secrets, vector
+namespaces, per-workspace settings, and background Cowork/scheduler runs (they execute
+outside a request, so the ContextVar defaults to `local`). Tests: `test_tenancy.py`.
+
 ## Working conventions
 
 - Verify before pushing: backend `pytest` + `ruff check .` (CI uses latest ruff),

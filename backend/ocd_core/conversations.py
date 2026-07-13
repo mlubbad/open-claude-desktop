@@ -11,7 +11,7 @@ import uuid
 
 from sqlmodel import select
 
-from . import config, util
+from . import config, tenancy, util
 from .db.engine import session
 from .db.models import Conversation, utcnow
 
@@ -62,6 +62,7 @@ def create_conversation(project_id: str, first_message: str) -> dict:
                      title=_conv_title_from(first_message), pinned=False,
                      transcript=[{"role": "user", "content": first_message, "kind": "user"}],
                      created_at=now, updated_at=now)
+    tenancy.stamp(c)  # tag with the current workspace when multi-tenancy is enforced
     with session() as s:
         s.add(c)
         return _to_dict(c)
@@ -70,7 +71,9 @@ def create_conversation(project_id: str, first_message: str) -> dict:
 def get_conversation(project_id: str, conv_id: str) -> dict | None:
     with session() as s:
         c = s.get(Conversation, conv_id)
-        return _to_dict(c) if c and c.project_id == project_id else None
+        if c and c.project_id == project_id and tenancy.owns(c.workspace_id):
+            return _to_dict(c)
+        return None
 
 
 def save_conversation(project_id: str, conv_id: str, messages: list[dict],
@@ -86,7 +89,11 @@ def save_conversation(project_id: str, conv_id: str, messages: list[dict],
             c = Conversation(id=conv_id, project_id=project_id,
                              title=title or "Conversation", pinned=False,
                              transcript=[], version=1, created_at=now, updated_at=now)
+            tenancy.stamp(c)  # new row → tag with the current workspace when enforcing
         else:
+            # Upsert can't degrade to a not-found create (the id already exists), so a
+            # cross-workspace hit is denied outright rather than silently overwritten.
+            tenancy.require_owned(c.workspace_id)
             if expected_version is not None and (c.version or 1) != expected_version:
                 raise ConversationConflict(c.version or 1)
             c.version = (c.version or 1) + 1
@@ -101,7 +108,7 @@ def save_conversation(project_id: str, conv_id: str, messages: list[dict],
 def set_conversation_title(project_id: str, conv_id: str, title: str):
     with session() as s:
         c = s.get(Conversation, conv_id)
-        if c and c.project_id == project_id:
+        if c and c.project_id == project_id and tenancy.owns(c.workspace_id):
             c.title = title
             c.updated_at = utcnow()
             s.add(c)
@@ -110,7 +117,7 @@ def set_conversation_title(project_id: str, conv_id: str, title: str):
 def set_conversation_pinned(project_id: str, conv_id: str, pinned: bool):
     with session() as s:
         c = s.get(Conversation, conv_id)
-        if c and c.project_id == project_id:
+        if c and c.project_id == project_id and tenancy.owns(c.workspace_id):
             c.pinned = bool(pinned)
             s.add(c)
 
@@ -121,7 +128,7 @@ def move_conversation(src_pid: str, conv_id: str, dst_pid: str) -> bool:
         return True
     with session() as s:
         c = s.get(Conversation, conv_id)
-        if not c or c.project_id != src_pid:
+        if not c or c.project_id != src_pid or not tenancy.owns(c.workspace_id):
             return False
         c.project_id = dst_pid
         s.add(c)
@@ -131,7 +138,7 @@ def move_conversation(src_pid: str, conv_id: str, dst_pid: str) -> bool:
 def delete_conversation(project_id: str, conv_id: str):
     with session() as s:
         c = s.get(Conversation, conv_id)
-        if c and c.project_id == project_id:
+        if c and c.project_id == project_id and tenancy.owns(c.workspace_id):
             s.delete(c)
 
 
@@ -150,7 +157,7 @@ def branch_conversation(project_id: str, conv_id: str, at_index: int) -> dict | 
     The branch keeps messages [0 .. at_index] and starts life editable from there."""
     with session() as s:
         src = s.get(Conversation, conv_id)
-        if src is None or src.project_id != project_id:
+        if src is None or src.project_id != project_id or not tenancy.owns(src.workspace_id):
             return None
         msgs = list(src.transcript)
         if not (0 <= at_index < len(msgs)):
@@ -164,6 +171,7 @@ def branch_conversation(project_id: str, conv_id: str, at_index: int) -> dict | 
             transcript=copy.deepcopy(msgs[: at_index + 1]),
             parent_id=conv_id, fork_index=at_index,
             created_at=now, updated_at=now)
+        tenancy.stamp(branch)  # the fork inherits the current workspace
         s.add(branch)
         return _to_dict(branch)
 
@@ -174,7 +182,7 @@ def branch_family(project_id: str, conv_id: str) -> dict:
     updated_at}]} — enough for the UI to draw the tree and highlight the current one."""
     with session() as s:
         cur = s.get(Conversation, conv_id)
-        if cur is None or cur.project_id != project_id:
+        if cur is None or cur.project_id != project_id or not tenancy.owns(cur.workspace_id):
             return {"root": None, "current": conv_id, "nodes": []}
         # Walk parent links up to the root (guard against a cycle with a seen-set).
         root = cur
@@ -212,9 +220,12 @@ def list_conversations(project_id: str) -> list[dict]:
 
     Column-projected: only the summary columns are read, never the transcript
     blob (which can be up to CONV_MAX_MESSAGES messages per row)."""
+    q = select(*_SUMMARY_COLS).where(Conversation.project_id == project_id)
+    clause = tenancy.scope_clause(Conversation.workspace_id)
+    if clause is not None:
+        q = q.where(clause)
     with session() as s:
-        rows = s.exec(select(*_SUMMARY_COLS)
-                      .where(Conversation.project_id == project_id)).all()
+        rows = s.exec(q).all()
     out = [_summary_fields(cid, title, updated_at, pinned, project_id)
            for (cid, title, updated_at, pinned, _pid) in rows]
     out.sort(key=lambda x: (x["pinned"], x["updated_at"]), reverse=True)
@@ -235,8 +246,12 @@ def list_all_conversations(limit: int = 200) -> list[dict]:
     from .projects import list_projects
     names = {p["id"]: p.get("name", "Untitled") for p in list_projects()}
     names[config.GENERAL_ID] = config.GENERAL_NAME  # non-project chats
+    q = select(*_SUMMARY_COLS)
+    clause = tenancy.scope_clause(Conversation.workspace_id)
+    if clause is not None:
+        q = q.where(clause)
     with session() as s:
-        rows = s.exec(select(*_SUMMARY_COLS)).all()
+        rows = s.exec(q).all()
     out = []
     for (cid, title, updated_at, pinned, pid) in rows:
         if pid not in names:
@@ -254,8 +269,12 @@ def count_all_conversations() -> int:
     materializes rows or transcripts (the old `len(list_all_conversations(100000))`
     loaded up to 100k projected rows just to count them)."""
     from sqlalchemy import func
+    q = select(func.count()).select_from(Conversation)
+    clause = tenancy.scope_clause(Conversation.workspace_id)
+    if clause is not None:
+        q = q.where(clause)
     with session() as s:
-        return int(s.exec(select(func.count()).select_from(Conversation)).one())
+        return int(s.exec(q).one())
 
 
 # --------------------------------------------------------------------------- #
@@ -329,8 +348,12 @@ def search_conversations(query: str, limit: int = 50) -> list[dict]:
     names = {p["id"]: p.get("name", "Untitled") for p in list_projects()}
     names[config.GENERAL_ID] = config.GENERAL_NAME
     out: list[dict] = []
+    stmt = select(Conversation)
+    clause = tenancy.scope_clause(Conversation.workspace_id)
+    if clause is not None:
+        stmt = stmt.where(clause)
     with session() as s:
-        rows = s.exec(select(Conversation)).all()
+        rows = s.exec(stmt).all()
         rows = sorted(rows, key=lambda c: (c.pinned, c.updated_at), reverse=True)
         for c in rows:
             hit = _match_conversation(c, ql, len(q))

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
-from fastapi import Depends, HTTPException, status
+from collections.abc import AsyncIterator
+
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from ocd_core import auth
+from ocd_core import auth, tenancy
 
 _bearer = HTTPBearer(auto_error=False)
 
@@ -16,3 +18,19 @@ def current_user(creds: HTTPAuthorizationCredentials | None = Depends(_bearer)) 
     if not user:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid or missing token")
     return user
+
+
+async def scope_workspace(request: Request) -> AsyncIterator[None]:
+    """Bind the request's workspace into a ContextVar for the duration of the call so the
+    domain layer (projects/conversations) can scope rows without a workspace argument.
+
+    Registered as a GLOBAL dependency (see app.main). It MUST be an async generator: an
+    async dependency runs in the request coroutine's context, so the ContextVar it sets is
+    copied into the threadpool that executes sync route handlers — a sync generator
+    dependency would run in a worker thread and the set would not propagate. A no-op
+    locally (resolves to the ``local`` workspace)."""
+    token = tenancy.set_current_workspace(tenancy.resolve_workspace(request.headers))
+    try:
+        yield
+    finally:
+        tenancy.reset_current_workspace(token)

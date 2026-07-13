@@ -9,6 +9,7 @@ original.
 """
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from . import config, util
@@ -75,6 +76,39 @@ class ExtractionError(Exception):
 _MAX_EXTRACT_CHARS = 2_000_000
 _PDF_MAX_PAGES = 300
 
+# Hard cap on a single uploaded file (bytes) — a multi-GB upload must never be slurped
+# whole into memory. Overridable via env.
+MAX_UPLOAD_BYTES = int(os.getenv("OCD_MAX_UPLOAD_BYTES", str(25 * 1024 * 1024)))
+# Cap on the DECOMPRESSED bytes read from any single ZIP member (docx/pptx/xlsx are
+# zips): a small "zip bomb" member can otherwise expand to gigabytes.
+_MAX_ZIP_MEMBER_BYTES = int(os.getenv("OCD_MAX_ZIP_MEMBER_BYTES", str(50 * 1024 * 1024)))
+
+
+class UploadTooLarge(Exception):
+    """An uploaded file exceeds MAX_UPLOAD_BYTES."""
+
+
+def read_upload(file_obj, limit: int | None = None) -> bytes:
+    """Read an upload's bytes under a hard cap: read limit+1 and reject on overflow, so a
+    huge upload can't exhaust memory before we ever touch it."""
+    limit = MAX_UPLOAD_BYTES if limit is None else limit
+    data = file_obj.read(limit + 1)
+    if len(data) > limit:
+        raise UploadTooLarge(f"file exceeds the {limit // (1024 * 1024)} MB upload limit")
+    return data
+
+
+def _read_zip_member(z, name: str) -> bytes:
+    """Read a ZIP member's DECOMPRESSED bytes under a cap. zipfile decompresses
+    incrementally, so reading limit+1 never expands the whole member into memory — the
+    zip-bomb guard for Office (docx/pptx/xlsx) extraction."""
+    with z.open(name) as fh:
+        data = fh.read(_MAX_ZIP_MEMBER_BYTES + 1)
+    if len(data) > _MAX_ZIP_MEMBER_BYTES:
+        raise ExtractionError(
+            f"'{name}' expands beyond the {_MAX_ZIP_MEMBER_BYTES // (1024 * 1024)} MB limit")
+    return data
+
 _W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 _A = "{http://schemas.openxmlformats.org/drawingml/2006/main}"
 _S = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
@@ -90,7 +124,7 @@ def _docx_text(path: Path) -> str:
     import xml.etree.ElementTree as ET
     import zipfile
     with zipfile.ZipFile(path) as z:
-        root = ET.fromstring(z.read("word/document.xml"))
+        root = ET.fromstring(_read_zip_member(z, "word/document.xml"))
     paras = []
     for p in root.iter(f"{_W}p"):
         runs = "".join(t.text or "" for t in p.iter(f"{_W}t"))
@@ -108,7 +142,7 @@ def _pptx_text(path: Path) -> str:
         slides = sorted((n for n in z.namelist()
                          if re.fullmatch(r"ppt/slides/slide\d+\.xml", n)), key=_num_key)
         for i, name in enumerate(slides, 1):
-            root = ET.fromstring(z.read(name))
+            root = ET.fromstring(_read_zip_member(z, name))
             texts = [t.text or "" for t in root.iter(f"{_A}t") if (t.text or "").strip()]
             if texts:
                 out.append(f"[slide {i}]\n" + "\n".join(texts))
@@ -122,14 +156,14 @@ def _xlsx_text(path: Path) -> str:
     with zipfile.ZipFile(path) as z:
         shared: list[str] = []
         if "xl/sharedStrings.xml" in z.namelist():
-            sroot = ET.fromstring(z.read("xl/sharedStrings.xml"))
+            sroot = ET.fromstring(_read_zip_member(z, "xl/sharedStrings.xml"))
             shared = ["".join(t.text or "" for t in si.iter(f"{_S}t"))
                       for si in sroot.iter(f"{_S}si")]
         sheets = sorted((n for n in z.namelist()
                          if re.fullmatch(r"xl/worksheets/sheet\d+\.xml", n)), key=_num_key)
         out = []
         for name in sheets:
-            root = ET.fromstring(z.read(name))
+            root = ET.fromstring(_read_zip_member(z, name))
             rows = []
             for row in root.iter(f"{_S}row"):
                 cells = []

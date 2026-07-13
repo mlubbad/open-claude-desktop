@@ -10,7 +10,11 @@ router = APIRouter()
 
 @router.post("/projects/{pid}/files")
 def upload(pid: str, file: UploadFile = File(...), user: str = Depends(current_user)) -> dict:
-    path = knowledge.save_uploaded_file(pid, file.filename, file.file.read())
+    try:
+        raw = knowledge.read_upload(file.file)   # bounded read — reject a huge upload
+    except knowledge.UploadTooLarge as e:
+        raise HTTPException(413, str(e)) from e
+    path = knowledge.save_uploaded_file(pid, file.filename, raw)
     try:
         chunks = knowledge.ingest_file_to_kb(pid, path)
     except knowledge.ExtractionError as e:

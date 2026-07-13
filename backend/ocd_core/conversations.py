@@ -16,6 +16,14 @@ from .db.engine import session
 from .db.models import Conversation, utcnow
 
 
+class ConversationConflict(Exception):
+    """A save was attempted against a stale version — another writer got there first.
+    Carries the CURRENT server version so the caller can refetch and reconcile."""
+    def __init__(self, current_version: int):
+        self.current_version = current_version
+        super().__init__(f"stale write (current version is {current_version})")
+
+
 def _conv_title_from(text: str) -> str:
     t = " ".join((text or "").split())
     return (t[:48] + "…") if len(t) > 48 else (t or "New conversation")
@@ -26,7 +34,8 @@ def _to_dict(c: Conversation) -> dict:
             "created_at": c.created_at.isoformat(),
             "updated_at": c.updated_at.isoformat(),
             "pinned": c.pinned, "messages": list(c.transcript),
-            "parent_id": c.parent_id, "fork_index": c.fork_index}
+            "parent_id": c.parent_id, "fork_index": c.fork_index,
+            "version": c.version}
 
 
 def _summary_fields(cid: str, title: str, updated_at, pinned, project_id: str) -> dict:
@@ -65,14 +74,22 @@ def get_conversation(project_id: str, conv_id: str) -> dict | None:
 
 
 def save_conversation(project_id: str, conv_id: str, messages: list[dict],
-                      title: str | None = None) -> dict:
+                      title: str | None = None, expected_version: int | None = None) -> dict:
+    """Persist a conversation's transcript. When `expected_version` is given, the save is
+    rejected with ConversationConflict if the stored row has already moved past it —
+    another window/client wrote in between — so a stale client can't silently overwrite a
+    newer transcript. On success the row's version is bumped and returned."""
     with session() as s:
         c = s.get(Conversation, conv_id)
         if c is None or c.project_id != project_id:
             now = utcnow()
             c = Conversation(id=conv_id, project_id=project_id,
                              title=title or "Conversation", pinned=False,
-                             transcript=[], created_at=now, updated_at=now)
+                             transcript=[], version=1, created_at=now, updated_at=now)
+        else:
+            if expected_version is not None and (c.version or 1) != expected_version:
+                raise ConversationConflict(c.version or 1)
+            c.version = (c.version or 1) + 1
         c.transcript = list(messages)[-config.CONV_MAX_MESSAGES:]
         if title:
             c.title = title

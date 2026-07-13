@@ -322,6 +322,7 @@ export interface ConversationDetail extends ConversationSummary {
   messages: StoredMsg[];
   parent_id?: string | null; // set when this conversation is a branch of another
   fork_index?: number | null; // the message index it was forked at
+  version?: number; // optimistic-concurrency version, bumped on every save
 }
 
 // One node in a branch family (the tree of conversations linked by parent_id).
@@ -352,8 +353,8 @@ export const conversations = {
   create: (pid: string, firstMessage: string) =>
     api.post<ConversationDetail>(`/projects/${pid}/conversations`, { first_message: firstMessage }),
   get: (pid: string, cid: string) => api.get<ConversationDetail>(`/projects/${pid}/conversations/${cid}`),
-  save: (pid: string, cid: string, messages: StoredMsg[], title?: string) =>
-    api.put<ConversationDetail>(`/projects/${pid}/conversations/${cid}`, { messages, title }),
+  save: (pid: string, cid: string, messages: StoredMsg[], title?: string, version?: number) =>
+    api.put<ConversationDetail>(`/projects/${pid}/conversations/${cid}`, { messages, title, version }),
   rename: (pid: string, cid: string, title: string) =>
     api.patch<{ ok: boolean }>(`/projects/${pid}/conversations/${cid}`, { title }),
   generateTitle: (firstMessage: string) =>

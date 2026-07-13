@@ -116,6 +116,9 @@ class ConversationCreate(BaseModel):
 class ConversationSave(BaseModel):
     messages: list[Message]
     title: str | None = None
+    # Optimistic concurrency: the version the client last saw. When present, the save is
+    # rejected (409) if the stored row has moved past it. Omit to force last-write-wins.
+    version: int | None = None
 
 
 class ConversationPatch(BaseModel):

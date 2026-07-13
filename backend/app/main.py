@@ -26,7 +26,7 @@ from fastapi import FastAPI, Request  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from fastapi.middleware.trustedhost import TrustedHostMiddleware  # noqa: E402
 from fastapi.responses import JSONResponse  # noqa: E402
-from ocd_core import netguard, scheduler  # noqa: E402
+from ocd_core import config, netguard, scheduler  # noqa: E402
 from ocd_core.db import engine as db_engine  # noqa: E402
 
 from .routes import (  # noqa: E402
@@ -84,7 +84,7 @@ async def lifespan(_: FastAPI):
             await cowork.manager.aclose()
 
 
-app = FastAPI(title="ocd backend", version="0.4.0", lifespan=lifespan)
+app = FastAPI(title="ocd backend", version=config.BACKEND_VERSION, lifespan=lifespan)
 
 # Health probes are always reachable (no token, any host) so the shell's readiness
 # gate and monitors work before/around auth.

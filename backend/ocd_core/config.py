@@ -7,6 +7,8 @@ from pathlib import Path
 
 # Product name, surfaced in user-facing messages (e.g. marketplace hints).
 APP_NAME = "Open Claude Desktop"
+# Backend API version (FastAPI app version + the diagnostics snapshot).
+BACKEND_VERSION = "0.4.0"
 
 
 # --- paths (data dir) ---

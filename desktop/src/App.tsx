@@ -19,6 +19,7 @@ import { type AddMenuInfo, Composer, type ModelControlInfo } from "./components/
 import type { VoiceInfo } from "./components/MicPicker";
 import { Icon } from "./components/Icon";
 import { InfoPanel } from "./components/InfoPanel";
+import { BackendBanner } from "./components/BackendBanner";
 import { AssistantBubble, UserBubble } from "./components/Message";
 import { ProjectPanel } from "./components/ProjectPanel";
 import { SettingsModal, type SettingsPage } from "./components/SettingsModal";
@@ -444,6 +445,7 @@ export default function App() {
 
   return (
     <div className="app-shell">
+      <BackendBanner />
       <Sidebar
         view={view}
         onView={goView}

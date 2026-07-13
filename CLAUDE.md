@@ -40,6 +40,12 @@ them (tests: `test_hardening_blockers.py`, `test_bash_jail.py`, `test_cowork.py`
   middleware rejects any request lacking it *when the env is set* (health probes
   exempt). Unset (dev/web) → no enforcement. This closes drive-by RCE: a web page
   can reach the port but can't read the token.
+- **Sidecar resilience** (`lib.rs`) — if the backend sidecar dies on its own the shell
+  auto-restarts it, reusing the SAME token+data dir from `Backend.cfg` (a new token would
+  no longer match the one already in the webview). Bounded: ≤5 restarts/60s, then it gives
+  up (a boot-time crash mustn't respawn forever); `shutting_down` stops restarts during
+  quit. The webview shows a "backend unreachable" banner (`useBackendHealth` polls
+  `/healthz`, desktop-shell only) while it's down.
 - **Host allowlist** — `TrustedHostMiddleware` (env `OCD_ALLOWED_HOSTS`, defaults to
   loopback names + `testserver`) defeats DNS rebinding.
 - **Unattended tool posture** — `agent.background_tool_flags(gated)`. Cowork/scheduler

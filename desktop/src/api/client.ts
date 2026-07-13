@@ -18,6 +18,13 @@ function tauriApiBase(): string | null {
 }
 const BASE = (import.meta.env?.VITE_API_BASE as string | undefined) ?? tauriApiBase() ?? "/api";
 
+// Whether we're running inside the Tauri desktop shell (which owns the backend sidecar's
+// lifecycle). The backend-health banner only applies here — on the web the backend runs
+// separately and isn't ours to watch/restart.
+export function isTauriShell(): boolean {
+  return tauriApiBase() !== null;
+}
+
 // The per-launch local API token the shell injects into the webview (window
 // .__OCD_API_TOKEN__). Sent as X-OCD-Token so the loopback backend can tell the app
 // apart from a web page probing the port. Absent in dev → no header, no enforcement.
@@ -74,6 +81,22 @@ export const api = {
   patch: <T>(p: string, body?: unknown) => request<T>("PATCH", p, body),
   del: <T>(p: string) => request<T>("DELETE", p),
 };
+
+// Liveness probe for the backend sidecar. Hits /healthz (exempt from the token gate),
+// with a short timeout, and returns a boolean instead of throwing so a polling caller
+// stays trivial. Used by the "backend unreachable" banner while the shell auto-restarts.
+export async function checkBackendHealth(timeoutMs = 4000): Promise<boolean> {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const resp = await fetch(BASE + "/healthz", { signal: ctrl.signal });
+    return resp.ok;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(t);
+  }
+}
 
 export interface ProviderInfo {
   id: string;

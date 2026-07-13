@@ -4,8 +4,10 @@
 // Building requires the Tauri prerequisites (Rust + platform WebView libs); see
 // desktop/README.md.
 
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 use tauri::{
     menu::{Menu, MenuItem},
@@ -14,13 +16,30 @@ use tauri::{
 };
 use tauri_plugin_shell::process::CommandChild;
 
-// Handle to the spawned backend sidecar so we can terminate it on quit instead of
-// orphaning it (an orphan holds the port and breaks the next launch).
+// What the sidecar needs to (re)start. Captured once and reused on every auto-restart so
+// the API token keeps matching the one already injected into the webview.
+struct BackendCfg {
+    token: String,
+    data_dir: Option<PathBuf>,
+}
+
+// State for the spawned backend sidecar: the live child (so we can terminate it on quit
+// instead of orphaning it — an orphan holds the port and breaks the next launch), plus
+// the plumbing for auto-restart (config to respawn with, a shutdown flag so we don't
+// respawn a sidecar we killed on purpose, and a crash budget so a sidecar that dies on
+// boot doesn't respawn forever).
 #[derive(Default)]
-struct Backend(Mutex<Option<CommandChild>>);
+struct Backend {
+    child: Mutex<Option<CommandChild>>,
+    shutting_down: AtomicBool,
+    restarts: Mutex<(u32, Option<Instant>)>, // (count in window, window start)
+    cfg: Mutex<Option<BackendCfg>>,
+}
 
 fn kill_backend(app: &tauri::AppHandle) {
-    if let Some(child) = app.state::<Backend>().0.lock().ok().and_then(|mut g| g.take()) {
+    let st = app.state::<Backend>();
+    st.shutting_down.store(true, Ordering::SeqCst); // stop the auto-restart loop
+    if let Some(child) = st.child.lock().ok().and_then(|mut g| g.take()) {
         let _ = child.kill();
     }
 }
@@ -85,16 +104,35 @@ fn bundled_node_path() -> Option<std::path::PathBuf> {
 // (AJ360_DATA_DIR) so a frozen build doesn't write into its ephemeral temp-extraction
 // dir and lose everything on restart; the per-launch API token (OCD_API_TOKEN) that
 // gates the loopback API against drive-by web requests; and the bundled Node path.
-fn spawn_backend(app: &tauri::AppHandle, token: &str, data_dir: Option<std::path::PathBuf>) {
+fn spawn_backend(app: &tauri::AppHandle, token: &str, data_dir: Option<PathBuf>) {
+    // Record the launch config so an auto-restart reuses the SAME token (the webview's
+    // injected window.__OCD_API_TOKEN__ must keep matching) and data dir.
+    if let Ok(mut cfg) = app.state::<Backend>().cfg.lock() {
+        *cfg = Some(BackendCfg { token: token.to_string(), data_dir });
+    }
+    do_spawn_backend(app);
+}
+
+// Actually launch the sidecar from the recorded config, wiring its output to the log and
+// its termination to the auto-restart path. A no-op in dev (no bundled sidecar / no cfg).
+fn do_spawn_backend(app: &tauri::AppHandle) {
     use tauri_plugin_shell::process::CommandEvent;
     use tauri_plugin_shell::ShellExt;
+
+    let (token, data_dir) = match app.state::<Backend>().cfg.lock() {
+        Ok(g) => match &*g {
+            Some(c) => (c.token.clone(), c.data_dir.clone()),
+            None => return,
+        },
+        Err(_) => return,
+    };
 
     let cmd = match app.shell().sidecar("ocd-backend") {
         Ok(c) => {
             let mut c = c
                 .env("OCD_PORT", "8000")
                 .env("OCD_HOST", "127.0.0.1")
-                .env("OCD_API_TOKEN", token.to_string());
+                .env("OCD_API_TOKEN", token);
             if let Some(dir) = data_dir {
                 c = c.env("AJ360_DATA_DIR", dir.to_string_lossy().to_string());
             }
@@ -108,9 +146,10 @@ fn spawn_backend(app: &tauri::AppHandle, token: &str, data_dir: Option<std::path
     match cmd.spawn() {
         Ok((mut rx, child)) => {
             // Keep the child so we can kill it on quit (see kill_backend).
-            if let Ok(mut guard) = app.state::<Backend>().0.lock() {
+            if let Ok(mut guard) = app.state::<Backend>().child.lock() {
                 *guard = Some(child);
             }
+            let app = app.clone();
             tauri::async_runtime::spawn(async move {
                 while let Some(event) = rx.recv().await {
                     match event {
@@ -121,6 +160,7 @@ fn spawn_backend(app: &tauri::AppHandle, token: &str, data_dir: Option<std::path
                         }
                         CommandEvent::Terminated(payload) => {
                             eprintln!("[backend] exited: {:?}", payload.code);
+                            maybe_restart_backend(&app);
                         }
                         _ => {}
                     }
@@ -128,6 +168,44 @@ fn spawn_backend(app: &tauri::AppHandle, token: &str, data_dir: Option<std::path
             });
         }
         Err(e) => eprintln!("backend sidecar failed to start: {e}"),
+    }
+}
+
+// Respawn a sidecar that died on its own — unless we're quitting (we killed it), or it
+// has already crashed too many times in a short window (a boot-time crash must not
+// respawn forever; give up and leave the frontend's "backend unreachable" banner up).
+fn maybe_restart_backend(app: &tauri::AppHandle) {
+    let st = app.state::<Backend>();
+    if st.shutting_down.load(Ordering::SeqCst) {
+        return;
+    }
+    const MAX_RESTARTS: u32 = 5;
+    let allowed = match st.restarts.lock() {
+        Ok(mut g) => {
+            let now = Instant::now();
+            let fresh = g
+                .1
+                .map(|start| now.duration_since(start) < Duration::from_secs(60))
+                .unwrap_or(false);
+            if fresh {
+                if g.0 >= MAX_RESTARTS {
+                    false
+                } else {
+                    g.0 += 1;
+                    true
+                }
+            } else {
+                *g = (1, Some(now));
+                true
+            }
+        }
+        Err(_) => false,
+    };
+    if allowed {
+        eprintln!("[backend] sidecar died — restarting");
+        do_spawn_backend(app);
+    } else {
+        eprintln!("[backend] sidecar crashed repeatedly — not restarting");
     }
 }
 

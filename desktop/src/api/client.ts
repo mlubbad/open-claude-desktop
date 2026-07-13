@@ -171,6 +171,13 @@ export const settings = {
   },
 };
 
+// A redacted operational snapshot for "Export diagnostics" / bug reports (no secrets;
+// the personal profile is reduced to a presence flag by the backend).
+export const diagnostics = {
+  get: (): Promise<Record<string, unknown>> =>
+    api.get<Record<string, unknown>>("/diagnostics"),
+};
+
 // Opik observability status (the API key itself is never returned — only has_key).
 export interface ObservabilityStatus {
   enabled: boolean;

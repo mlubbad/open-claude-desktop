@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+
+from ..deps import current_user
 
 router = APIRouter()
 
@@ -8,6 +10,14 @@ router = APIRouter()
 @router.get("/healthz")
 def healthz() -> dict:
     return {"status": "ok"}
+
+
+@router.get("/diagnostics")
+def diagnostics(user: str = Depends(current_user)) -> dict:
+    """A redacted operational snapshot for 'Export diagnostics' / bug reports. Gated
+    (unlike /healthz): it exposes settings + data counts, though never any secret."""
+    from ocd_core import diagnostics as diag
+    return diag.collect()
 
 
 @router.get("/readyz")

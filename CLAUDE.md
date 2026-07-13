@@ -140,8 +140,10 @@ PyJWT/network — only the CONFIGURED alg is accepted, defeating alg=none/confus
 `resolve_workspace` treats that identity's workspace as AUTHORITATIVE — a client's
 `X-OCD-Workspace` header is only a fallback when there is no valid token, so a caller can't
 escape their tenant. NOT yet built (later slices): pluggable object storage for uploads and
-a durable job queue for multi-node scale. Tests: `test_tenancy.py`,
-`test_tenancy_stores.py`, `test_tenancy_background.py`, `test_auth_identity.py`.
+a durable job queue for multi-node scale. Operator guide (enabling it, the auth env,
+per-workspace behavior, single-node caveats): `docs/hosted-deployment.md`. Tests:
+`test_tenancy.py`, `test_tenancy_stores.py`, `test_tenancy_background.py`,
+`test_auth_identity.py`.
 
 ## Working conventions
 

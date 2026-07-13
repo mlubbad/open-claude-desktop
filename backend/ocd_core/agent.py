@@ -1075,13 +1075,22 @@ def _project_context(active_project: str | None,
     pass them (F-19). Background/scheduled entry points supply neither, so without this
     an unattended run in a project would ignore that project's rules ("never touch
     production files") and saved context. Explicitly-passed values — including "" — are
-    respected, so interactive and subagent callers are unaffected."""
+    respected, so interactive and subagent callers are unaffected. A broken/absent
+    project store (e.g. schema not yet created) degrades to empty context rather than
+    crashing the turn — the same result as passing ""."""
     from . import projects
-    if instructions is None:
-        instructions = projects.get_project_instructions(active_project) if active_project else ""
-    if memory is None:
-        memory = projects.get_project_memory(active_project)[0] if active_project else ""
-    return instructions, memory
+    if active_project:
+        if instructions is None:
+            try:
+                instructions = projects.get_project_instructions(active_project)
+            except Exception:
+                instructions = ""
+        if memory is None:
+            try:
+                memory = projects.get_project_memory(active_project)[0]
+            except Exception:
+                memory = ""
+    return instructions or "", memory or ""
 
 
 async def run_turn(goal: str, history: list[dict], active_project: str | None,

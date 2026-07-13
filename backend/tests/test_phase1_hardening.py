@@ -72,6 +72,22 @@ def test_project_context_hydrates_when_not_passed(db):
     assert agent._project_context(None, None, None) == ("", "")
 
 
+def test_project_context_degrades_when_store_unavailable(monkeypatch):
+    # Reproduces the case where run_turn is driven with a project_id but the project
+    # store can't be read (schema not created / DB down): hydration must degrade to
+    # empty context instead of crashing the turn.
+    from ocd_core import projects
+
+    def boom(*_a, **_k):
+        raise RuntimeError("no such table: project")
+
+    monkeypatch.setattr(projects, "get_project_instructions", boom)
+    monkeypatch.setattr(projects, "get_project_memory", boom)
+    assert agent._project_context("proj-1", None, None) == ("", "")
+    # An explicitly-passed value is still honored even when the store would error.
+    assert agent._project_context("proj-1", "keep", None) == ("keep", "")
+
+
 # ---- F-01 (CORS half): packaged Tauri origins are allowed by default ---------------
 def test_default_cors_allows_packaged_tauri_origins():
     from app.main import app

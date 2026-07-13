@@ -40,6 +40,10 @@ class Conversation(SQLModel, table=True):
     # including that message). Both NULL for a normal (root) conversation.
     parent_id: str | None = Field(default=None, index=True)
     fork_index: int | None = None
+    # Optimistic-concurrency version: bumped on every save. A client that saves with a
+    # stale expected_version (another window/client wrote in between) is rejected rather
+    # than silently clobbering the newer transcript.
+    version: int = Field(default=1)
     owner_id: str | None = Field(default=None, index=True)
     workspace_id: str | None = Field(default=None, index=True)
     created_at: datetime = Field(default_factory=utcnow)

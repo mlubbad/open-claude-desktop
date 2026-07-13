@@ -1,3 +1,4 @@
+import pytest
 from ocd_core import conversations as cv
 
 
@@ -137,3 +138,45 @@ def test_conversation_persists_to_db(db):
         row = s.get(Conversation, conv["id"])
         assert row is not None and row.project_id == "p1"
         assert row.transcript[0]["content"] == "hello world"
+
+
+# ---- optimistic concurrency (F-16) ------------------------------------------------
+
+def test_save_bumps_version_and_rejects_a_stale_write(db):
+    conv = cv.create_conversation("p1", "hi")
+    v0 = cv.get_conversation("p1", conv["id"])["version"]
+    # A matching expected_version saves and bumps the version.
+    saved = cv.save_conversation("p1", conv["id"],
+                                 [{"role": "user", "content": "a", "kind": "user"}],
+                                 expected_version=v0)
+    assert saved["version"] == v0 + 1
+    # A now-stale expected_version is rejected rather than clobbering the newer transcript.
+    with pytest.raises(cv.ConversationConflict) as ei:
+        cv.save_conversation("p1", conv["id"],
+                             [{"role": "user", "content": "stale", "kind": "user"}],
+                             expected_version=v0)
+    assert ei.value.current_version == v0 + 1
+    # The transcript is unchanged by the rejected write.
+    assert [m["content"] for m in cv.get_conversation("p1", conv["id"])["messages"]] == ["a"]
+
+
+def test_save_without_expected_version_is_last_write_wins(db):
+    conv = cv.create_conversation("p1", "hi")
+    # No expected_version → never conflicts (back-compat with clients that don't send it).
+    cv.save_conversation("p1", conv["id"], [{"role": "user", "content": "x", "kind": "user"}])
+    got = cv.save_conversation("p1", conv["id"], [{"role": "user", "content": "y", "kind": "user"}])
+    assert got["messages"][-1]["content"] == "y" and got["version"] >= 2
+
+
+def test_save_route_409s_on_version_conflict(db):
+    from app.main import app
+    from fastapi.testclient import TestClient
+    c = TestClient(app)
+    conv = cv.create_conversation("p1", "hi")
+    v = cv.get_conversation("p1", conv["id"])["version"]
+    ok = c.put(f"/projects/p1/conversations/{conv['id']}",
+               json={"messages": [{"role": "user", "content": "a", "kind": "user"}], "version": v})
+    assert ok.status_code == 200 and ok.json()["version"] == v + 1
+    conflict = c.put(f"/projects/p1/conversations/{conv['id']}",
+                     json={"messages": [{"role": "user", "content": "b", "kind": "user"}], "version": v})
+    assert conflict.status_code == 409

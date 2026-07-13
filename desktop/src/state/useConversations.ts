@@ -10,7 +10,13 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { type ConversationSummary, conversations as convApi, GENERAL_PROJECT } from "../api/client";
+import {
+  ApiError,
+  type ConversationSummary,
+  conversations as convApi,
+  GENERAL_PROJECT,
+  type StoredMsg,
+} from "../api/client";
 import { firstUserText, fromBackend, isFirstExchange, toBackend } from "./persist";
 import * as sessions from "./turnSessions";
 import { type TurnConfig, useTranscript } from "./useTranscript";
@@ -26,6 +32,30 @@ export function useConversations(config: TurnConfig, incognito = false) {
   // Conversations the user has renamed by hand — an in-flight auto-title must not
   // overwrite a deliberate title.
   const renamedManually = useRef<Set<string>>(new Set());
+  // Last-known optimistic-concurrency version per conversation, so a save can detect that
+  // another window/client wrote in between (F-16) instead of silently clobbering it.
+  const versions = useRef<Record<string, number>>({});
+
+  // Persist a transcript with optimistic concurrency: send the version we last saw, and
+  // on a 409 (someone else saved first) resync to the server's version and retry once so
+  // THIS window's transcript still lands rather than getting permanently stuck. Falls
+  // back to plain last-write-wins if the version isn't known yet.
+  const saveConv = useCallback(async (pid: string, cid: string, messages: StoredMsg[]) => {
+    try {
+      const saved = await convApi.save(pid, cid, messages, undefined, versions.current[cid]);
+      if (typeof saved.version === "number") versions.current[cid] = saved.version;
+      return saved;
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 409) {
+        const fresh = await convApi.get(pid, cid);
+        if (typeof fresh.version === "number") versions.current[cid] = fresh.version;
+        const saved = await convApi.save(pid, cid, messages, undefined, versions.current[cid]);
+        if (typeof saved.version === "number") versions.current[cid] = saved.version;
+        return saved;
+      }
+      throw e;
+    }
+  }, []);
 
   const refresh = useCallback(async () => {
     try {
@@ -51,8 +81,7 @@ export function useConversations(config: TurnConfig, incognito = false) {
         sessions.disposeIfDetached(key);
         return;
       }
-      const save = convApi
-        .save(pid, key, toBackend(messages))
+      const save = saveConv(pid, key, toBackend(messages))
         .then(() => refresh())
         .catch(() => {});
 
@@ -75,7 +104,7 @@ export function useConversations(config: TurnConfig, incognito = false) {
       void save.finally(() => sessions.disposeIfDetached(key));
     });
     return () => sessions.onTurnEnd(null);
-  }, [refresh]);
+  }, [refresh, saveConv]);
 
   // Ensure a conversation row exists (created lazily on the first message), stream,
   // and persist the user's message immediately so it survives anything — a crash, a
@@ -107,13 +136,12 @@ export function useConversations(config: TurnConfig, incognito = false) {
       if (target) {
         // Eager save: the store applied startTurn synchronously, so the active
         // session's messages already include this prompt.
-        convApi
-          .save(target.pid, target.cid, toBackend(sessions.activeMessages()))
+        saveConv(target.pid, target.cid, toBackend(sessions.activeMessages()))
           .then(() => refresh())
           .catch(() => {});
       }
     },
-    [current, chat, refresh, config.projectId, incognito],
+    [current, chat, refresh, config.projectId, incognito, saveConv],
   );
 
   const openConversation = useCallback(
@@ -129,6 +157,7 @@ export function useConversations(config: TurnConfig, incognito = false) {
       }
       try {
         const detail = await convApi.get(pid, cid);
+        if (typeof detail.version === "number") versions.current[cid] = detail.version;
         sessions.loadInto(cid, pid, fromBackend(detail.messages));
         setCurrent({ cid, pid });
         setHistErr(null);

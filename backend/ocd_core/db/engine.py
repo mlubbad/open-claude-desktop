@@ -172,6 +172,7 @@ _ADDED_COLUMNS = {
         "pinned": "BOOLEAN DEFAULT 0",
         "parent_id": "VARCHAR",
         "fork_index": "INTEGER",
+        "version": "INTEGER DEFAULT 1",
         "owner_id": "VARCHAR",
         "workspace_id": "VARCHAR",
     },

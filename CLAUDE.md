@@ -55,6 +55,11 @@ them (tests: `test_hardening_blockers.py`, `test_bash_jail.py`, `test_cowork.py`
   cross it the loop lands on the finalize synthesis (best-effort, so a no-op for
   providers that don't report usage); `config.SCHEDULER_SKIP_OVERLAP` stops a scheduled
   automation from stacking a second copy while its prior run is still active.
+- **Crash/migration durability** (tests: `test_durability.py`): a running Cowork task
+  flushes its transcript incrementally (`cowork._FLUSH_INTERVAL_SEC` throttle), not only
+  at the end, so a crash mid-run keeps the work so far. A SQLite schema change snapshots
+  the DB first via `engine.backup_sqlite_before_migration()` (`VACUUM INTO` → a
+  consistent copy incl. WAL) — and only when a migration actually runs.
 
 ## How uploaded files reach the model (post-incident contract)
 

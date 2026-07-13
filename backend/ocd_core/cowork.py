@@ -214,6 +214,11 @@ class CoworkManager:
         t = self._tasks.get(task_id)
         return t.detail() if t else None
 
+    def is_running(self, task_id: str) -> bool:
+        """Whether a task is currently executing (used by the scheduler overlap guard)."""
+        t = self._tasks.get(task_id)
+        return bool(t and t.status == "running")
+
     def cancel(self, task_id: str) -> bool:
         t = self._tasks.get(task_id)
         if not t or t.status != "running" or t.handle is None:

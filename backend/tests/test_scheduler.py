@@ -127,3 +127,38 @@ def test_tick_does_not_advance_when_launch_fails(tmp_path):
     assert svc.tick(now=NOON) == []          # launch failed → not counted
     # last_run unchanged, so it's still due (will retry next tick).
     assert scheduler.is_due(svc.store.load()[0], NOON) is True
+
+
+def test_tick_skips_when_previous_run_still_active(tmp_path, monkeypatch):
+    """Overlap guard: a schedule whose prior launch is still running must NOT stack a
+    second copy; once the prior finishes, the next tick launches again."""
+    from ocd_core import cowork
+    launched: list[str] = []
+    svc = _svc(tmp_path, launched)            # launch returns the task id "task1"
+    svc.store.save([Schedule(id="s1", goal="g", kind="interval", every_seconds=600,
+                             last_run=_iso(NOON - timedelta(minutes=20)))])
+    assert svc.tick(now=NOON) == ["s1"]       # first launch
+    assert launched == ["s1"]
+
+    later = NOON + timedelta(minutes=20)      # due again by interval
+    monkeypatch.setattr(cowork.manager, "is_running", lambda tid: tid == "task1")
+    assert svc.tick(now=later) == []          # prior still running → skipped
+    assert launched == ["s1"]                 # no second launch
+
+    monkeypatch.setattr(cowork.manager, "is_running", lambda tid: False)
+    assert svc.tick(now=later) == ["s1"]      # prior finished → relaunches
+    assert launched == ["s1", "s1"]
+
+
+def test_tick_overlap_guard_can_be_disabled(tmp_path, monkeypatch):
+    """OCD_SCHEDULER_SKIP_OVERLAP off → a due schedule fires even if the prior is live."""
+    from ocd_core import config, cowork
+    monkeypatch.setattr(config, "SCHEDULER_SKIP_OVERLAP", False)
+    launched: list[str] = []
+    svc = _svc(tmp_path, launched)
+    svc.store.save([Schedule(id="s1", goal="g", kind="interval", every_seconds=600,
+                             last_run=_iso(NOON - timedelta(minutes=20)))])
+    assert svc.tick(now=NOON) == ["s1"]
+    monkeypatch.setattr(cowork.manager, "is_running", lambda tid: True)  # prior "live"
+    assert svc.tick(now=NOON + timedelta(minutes=20)) == ["s1"]          # fires anyway
+    assert launched == ["s1", "s1"]

@@ -1236,7 +1236,19 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
     # no further nesting (subagents=False). Only its final answer flows back to the parent.
     # Subagent turns are deliberately NOT Opik-traced individually: the parent turn's
     # spawn_subagent tool span already covers them in the trace tree.
+    subagent_calls = 0
+
     async def _run_subagent(sub_prompt: str, description: str) -> dict:
+        # Fan-out cap: each subagent is a full nested turn, so unbounded delegation is
+        # the main way an autonomous run multiplies spend. Past the cap, tell the model
+        # to finish the work itself instead of spawning more.
+        nonlocal subagent_calls
+        subagent_calls += 1
+        if config.MAX_SUBAGENTS_PER_TURN and subagent_calls > config.MAX_SUBAGENTS_PER_TURN:
+            return {"ok": False,
+                    "result": (f"ERROR: the subagent limit ({config.MAX_SUBAGENTS_PER_TURN}) "
+                               "for this turn has been reached. Do the remaining work "
+                               "yourself instead of delegating it.")}
         fold = events.AnswerAccumulator()
         tools_used: list[str] = []
         err: str | None = None
@@ -1487,6 +1499,14 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
             warned = True
             messages.append({"role": "user",
                              "content": _WRAP_UP_NOTE.format(n=steps - step_i - 1)})
+        # Runaway backstop (cost ceiling): once the turn's reported tokens cross the
+        # budget, stop opening new work. Breaking here — after a full round — lands on
+        # the same finalize synthesis as step-cap exhaustion, so the turn still ends with
+        # the model's answer, not a hard cut. reported tokens are best-effort, so this is
+        # a no-op for providers that don't report usage (the step cap still bounds them).
+        if config.TURN_TOKEN_BUDGET and \
+                reported["input"] + reported["output"] >= config.TURN_TOKEN_BUDGET:
+            break
 
     if final_text is None:
         # Budget exhausted mid-work. Don't throw the gathered material away: make one

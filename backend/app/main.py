@@ -22,13 +22,14 @@ import asyncio  # noqa: E402
 import contextlib  # noqa: E402
 from contextlib import asynccontextmanager  # noqa: E402
 
-from fastapi import FastAPI, Request  # noqa: E402
+from fastapi import Depends, FastAPI, Request  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from fastapi.middleware.trustedhost import TrustedHostMiddleware  # noqa: E402
 from fastapi.responses import JSONResponse  # noqa: E402
-from ocd_core import config, netguard, scheduler  # noqa: E402
+from ocd_core import config, netguard, scheduler, tenancy  # noqa: E402
 from ocd_core.db import engine as db_engine  # noqa: E402
 
+from .deps import scope_workspace  # noqa: E402
 from .routes import (  # noqa: E402
     agent,
     auth,
@@ -84,7 +85,16 @@ async def lifespan(_: FastAPI):
             await cowork.manager.aclose()
 
 
-app = FastAPI(title="ocd backend", version=config.BACKEND_VERSION, lifespan=lifespan)
+app = FastAPI(title="ocd backend", version=config.BACKEND_VERSION, lifespan=lifespan,
+              # Scope every request to its workspace (no-op unless OCD_MULTI_TENANT is on).
+              dependencies=[Depends(scope_workspace)])
+
+
+@app.exception_handler(tenancy.WorkspaceForbidden)
+async def _workspace_forbidden(_: Request, __: tenancy.WorkspaceForbidden) -> JSONResponse:
+    # A mutation aimed at another workspace's row. Report 404, never 403 — don't leak that
+    # the row exists in a workspace the caller can't see.
+    return JSONResponse({"detail": "not found"}, status_code=404)
 
 # Health probes are always reachable (no token, any host) so the shell's readiness
 # gate and monitors work before/around auth.

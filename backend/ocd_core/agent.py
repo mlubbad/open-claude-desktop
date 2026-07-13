@@ -965,12 +965,10 @@ async def _run_one_tool(name, args, tc_id, active_project, goal, top_k,
 
         if name in ("text_editor", "memory"):
             from . import integrations
-            sub = active_project or "general"
+            root = _tool_root(name, active_project)
             if name == "text_editor":
-                root = integrations.SANDBOX_ROOT / sub
                 result = await asyncio.to_thread(integrations.text_editor, args, root)
             else:
-                root = integrations.MEMORY_ROOT / sub
                 result = await asyncio.to_thread(integrations.memory_tool, args, root)
             ok = not (result.startswith("Error") or "does not exist" in result)
             out = {"id": tc_id, "name": name, "ok": ok, "result": result,
@@ -1059,8 +1057,35 @@ def _completion_events(out: dict, streamed_artifacts: set | None = None):
     return evs
 
 
+def _tool_root(kind: str, active_project: str | None):
+    """The filesystem root for the text_editor / memory tools, jailed to a SANITIZED
+    project slug (F-06). The raw active_project must never reach the Path join: an id like
+    "C:/" or "../../x" would otherwise re-anchor the base and let the containment check
+    pass against an attacker-chosen root. safe_project() is the same sanitizer the
+    code-execution workspace already uses."""
+    from . import integrations
+    proj = integrations.safe_project(active_project)
+    base = integrations.SANDBOX_ROOT if kind == "text_editor" else integrations.MEMORY_ROOT
+    return base / proj
+
+
+def _project_context(active_project: str | None,
+                     instructions: str | None, memory: str | None) -> tuple[str, str]:
+    """Fill project instructions + memory from the active project when a caller didn't
+    pass them (F-19). Background/scheduled entry points supply neither, so without this
+    an unattended run in a project would ignore that project's rules ("never touch
+    production files") and saved context. Explicitly-passed values — including "" — are
+    respected, so interactive and subagent callers are unaffected."""
+    from . import projects
+    if instructions is None:
+        instructions = projects.get_project_instructions(active_project) if active_project else ""
+    if memory is None:
+        memory = projects.get_project_memory(active_project)[0] if active_project else ""
+    return instructions, memory
+
+
 async def run_turn(goal: str, history: list[dict], active_project: str | None,
-                   model: str, project_instructions: str = "",
+                   model: str, project_instructions: str | None = None,
                    top_k: int = 6,
                    web_search: bool = False, skill_instructions: str = "",
                    research: bool = False, extra_tools: list | None = None,
@@ -1070,7 +1095,7 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
                    provider: str | None = None, turn_id: str | None = None,
                    permission_mode: str | None = None, artifacts: bool = False,
                    user_profile: str = "", subagents: bool = False,
-                   project_memory: str = "", images: list[str] | None = None,
+                   project_memory: str | None = None, images: list[str] | None = None,
                    style: str = ""):
     """Drive one agent turn, yielding events. `history` is prior (role/content) turns.
 
@@ -1085,7 +1110,12 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
 
     `images` (optional) are data-URI images attached to THIS user message; they ride
     the current turn as OpenAI-style multimodal content parts (history stays text).
+
+    `project_instructions`/`project_memory` default to None → hydrated from the active
+    project so background/scheduled runs honor project rules (F-19); pass "" to opt out.
     """
+    project_instructions, project_memory = _project_context(
+        active_project, project_instructions, project_memory)
     cfg = EFFORT.get(effort, EFFORT["High"])
     temperature = cfg["temp"]
     steps = max(cfg["steps"], 24 if research else 0)

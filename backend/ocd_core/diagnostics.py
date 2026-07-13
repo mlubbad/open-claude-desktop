@@ -23,7 +23,7 @@ def _counts() -> dict:
         out["projects"] = len(projects.list_projects(include_archived=True))
     with contextlib.suppress(Exception):
         from . import conversations
-        out["conversations"] = len(conversations.list_all_conversations(limit=100000))
+        out["conversations"] = conversations.count_all_conversations()
     with contextlib.suppress(Exception):
         from . import scheduler
         out["schedules"] = len(scheduler.service.list())
@@ -41,7 +41,6 @@ def collect() -> dict:
     # support, so report only whether one is set — never its contents.
     s["profile"] = {"present": bool(s.get("profile"))}
 
-    url = engine.database_url()
     reachable = False
     with contextlib.suppress(Exception):
         engine.get_engine().connect().close()
@@ -55,9 +54,17 @@ def collect() -> dict:
             "frozen": bool(getattr(sys, "frozen", False)),  # packaged (PyInstaller) vs dev
         },
         "data_root": str(config.REPO_ROOT),
-        # Only the scheme — a full DATABASE_URL can carry a host/user (and, misconfigured,
-        # a password). Scheme + reachability is what a support triage actually needs.
-        "database": {"scheme": url.split(":", 1)[0], "reachable": reachable},
+        # Only schemes — a full DATABASE_URL can carry a host/user (and, misconfigured, a
+        # password). "configured" is what DATABASE_URL asks for; "active" is what the
+        # engine actually uses (they differ after a fallback), and "fell_back" flags that
+        # split-brain so support isn't misled by "postgresql + reachable" while really on
+        # the SQLite fallback.
+        "database": {
+            "configured_scheme": engine.database_url().split(":", 1)[0],
+            "active_scheme": engine.active_database_url().split(":", 1)[0],
+            "fell_back": engine.fell_back(),
+            "reachable": reachable,
+        },
         "settings": s,
         "counts": _counts(),
     }

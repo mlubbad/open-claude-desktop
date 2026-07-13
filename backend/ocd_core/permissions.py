@@ -42,10 +42,22 @@ def is_sensitive(name: str) -> bool:
     return True
 
 
-def requires_approval(name: str, mode: str | None) -> bool:
+def _is_memory_mutation(name: str, args: dict | None) -> bool:
+    """The memory tool is read-only 'safe' for `view`, but its create/str_replace/insert/
+    delete/rename commands mutate the persistent per-project store — gate those so
+    injected content can't silently poison or wipe memory without approval."""
+    if name != "memory":
+        return False
+    cmd = ""
+    if isinstance(args, dict):
+        cmd = str(args.get("command", "")).strip().lower()
+    return cmd not in ("", "view")
+
+
+def requires_approval(name: str, mode: str | None, args: dict | None = None) -> bool:
     m = (mode or "auto").strip().lower()
     if m == "ask":
-        return is_sensitive(name)
+        return is_sensitive(name) or _is_memory_mutation(name, args)
     if m == "auto":
         return False
     # "strict" — and any UNRECOGNIZED mode — fails closed: prompt for every tool. A

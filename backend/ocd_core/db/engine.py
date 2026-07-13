@@ -94,6 +94,18 @@ def get_engine():
     return _engine
 
 
+def fell_back() -> bool:
+    """True when the configured (non-SQLite) database was unreachable and we're serving
+    the local SQLite fallback instead — a degraded state monitors should surface."""
+    return _fallback_url is not None
+
+
+def active_database_url() -> str:
+    """The URL the engine is ACTUALLY using (the fallback if one is active), as opposed
+    to database_url() which returns the CONFIGURED URL."""
+    return _fallback_url or database_url()
+
+
 def ensure_reachable() -> str | None:
     """Probe the configured database once; if it's a non-SQLite URL that can't be
     reached, fall back to the local SQLite default so persistence never hard-fails.
@@ -182,24 +194,26 @@ def backup_sqlite_before_migration():
     """Snapshot the SQLite DB before a schema change, so a botched ALTER is recoverable.
 
     Uses ``VACUUM INTO`` for a consistent copy that INCLUDES any WAL content (a plain
-    file copy can miss it). Best-effort: a backup failure must never block startup.
-    Returns the backup path if one was written, else None.
+    file copy can miss it). Writes to a temp file and atomically swaps it over the
+    previous backup, so a FAILED backup (disk full, lock) leaves the last good snapshot
+    intact instead of deleting it first. Returns the backup path when one was written,
+    None when there's nothing to snapshot, and RAISES on a real backup failure — the
+    caller aborts the migration rather than ALTER with no recovery point.
     """
     p = _sqlite_file_path()
     if not (p and p.exists() and p.stat().st_size > 0):
         return None
     bak = p.with_name(p.name + ".pre-migration.bak")
+    tmp = p.with_name(p.name + ".pre-migration.tmp")
     try:
-        if bak.exists():
-            bak.unlink()
-        target = bak.as_posix().replace("'", "''")  # VACUUM INTO takes no bind params
-        with get_engine().connect() as conn:
-            conn.exec_driver_sql(f"VACUUM INTO '{target}'")
-        return bak
-    except Exception as e:
-        import logging
-        logging.getLogger(__name__).warning("pre-migration DB backup skipped: %s", e)
-        return None
+        os.remove(tmp)
+    except FileNotFoundError:
+        pass
+    target = tmp.as_posix().replace("'", "''")  # VACUUM INTO takes no bind params
+    with get_engine().connect() as conn:
+        conn.exec_driver_sql(f"VACUUM INTO '{target}'")
+    os.replace(tmp, bak)  # atomic: the old .bak is replaced only once the new copy is complete
+    return bak
 
 
 def ensure_columns() -> None:
@@ -219,7 +233,13 @@ def ensure_columns() -> None:
                         if name not in existing]
         if not pending:
             return
-        backup_sqlite_before_migration()  # existing data at risk → snapshot it first
+        try:
+            backup_sqlite_before_migration()  # existing data at risk → snapshot it first
+        except Exception as e:  # a failed backup means no recovery point — do NOT ALTER
+            import logging
+            logging.getLogger(__name__).warning(
+                "skipping schema migration — pre-migration backup failed (data preserved): %s", e)
+            return
         with eng.begin() as conn:
             for table, name, ddl in pending:
                 conn.execute(text(f'ALTER TABLE "{table}" ADD COLUMN {name} {ddl}'))

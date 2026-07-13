@@ -232,6 +232,15 @@ def list_all_conversations(limit: int = 200) -> list[dict]:
     return out[:limit]
 
 
+def count_all_conversations() -> int:
+    """Total conversation rows via a COUNT(*) — for diagnostics/inventory. Never
+    materializes rows or transcripts (the old `len(list_all_conversations(100000))`
+    loaded up to 100k projected rows just to count them)."""
+    from sqlalchemy import func
+    with session() as s:
+        return int(s.exec(select(func.count()).select_from(Conversation)).one())
+
+
 # --------------------------------------------------------------------------- #
 #  Full-text search across every conversation (title + message bodies).
 #

@@ -1450,8 +1450,10 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
                                "anything yet. Finish researching read-only, then call "
                                "exit_plan_mode with your plan for the user to approve.")})
                 continue
-            # HITL: suspend for a user decision before running a sensitive tool.
-            if gate_on and permissions.requires_approval(name, perm_mode):
+            # HITL: suspend for a user decision before running a sensitive tool. Pass
+            # args so a memory *mutation* (create/delete/…) is gated even though the
+            # memory tool is otherwise read-only "safe".
+            if gate_on and permissions.requires_approval(name, perm_mode, args):
                 yield {"type": "approval_required", "turn_id": turn_id, "id": tc.id,
                        "name": name, "input": _tool_input(name, args)}
                 approved = await permissions.registry.wait(

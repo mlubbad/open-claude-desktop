@@ -1847,6 +1847,15 @@ def execute_code(code: str, project: str | None = None, on_output=None) -> dict:
     if mode in ("docker", "auto") and has_docker:
         engine = "docker"
     elif mode in ("local", "auto"):
+        # Host (non-container) execution is the local-desktop default and is HITL-gated.
+        # A hardened / network-exposed deploy sets OCD_NO_HOST_EXEC=1 to forbid it: better
+        # to fail than run model-authored code on the host with no sandbox.
+        if os.getenv("OCD_NO_HOST_EXEC", "").strip().lower() in ("1", "true", "yes"):
+            return {"ok": False, "return_code": 126, "engine": "host-disabled", "stdout": "",
+                    "stderr": ("Host code execution is disabled (OCD_NO_HOST_EXEC). Install "
+                               "Docker for sandboxed execution, or run in a trusted local "
+                               "environment."),
+                    "files": [], "timed_out": False}
         engine = "local"
     else:  # mode == "docker" and no docker available
         return {"ok": False, "return_code": 126, "engine": "docker-missing", "stdout": "",

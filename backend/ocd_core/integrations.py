@@ -622,14 +622,30 @@ def _mcpb_subst(value, dirname: str, user_values: dict):
     return value
 
 
+_MCPB_MAX_ENTRIES = int(os.getenv("OCD_MCPB_MAX_ENTRIES", "5000"))
+_MCPB_MAX_TOTAL_BYTES = int(os.getenv("OCD_MCPB_MAX_TOTAL_BYTES", str(500 * 1024 * 1024)))
+_MCPB_MAX_RATIO = int(os.getenv("OCD_MCPB_MAX_RATIO", "200"))
+
+
 def _mcpb_safe_extract(zf: zipfile.ZipFile, dest: Path) -> None:
     """Extract every member under ``dest``, rejecting path-traversal ("zip slip")
-    entries (absolute paths or ``..`` escapes) BEFORE writing anything to disk."""
+    entries (absolute paths or ``..`` escapes) AND zip-bomb bundles (too many entries,
+    too large expanded, or an implausible compression ratio) BEFORE writing to disk."""
     root = dest.resolve()
+    total = 0
+    count = 0
     for info in zf.infolist():
         name = info.filename
         if not name or name.endswith("/"):
             continue  # directory entries are created implicitly on member extract
+        count += 1
+        total += info.file_size
+        if count > _MCPB_MAX_ENTRIES:
+            raise McpbError(f"bundle has too many files (> {_MCPB_MAX_ENTRIES})")
+        if total > _MCPB_MAX_TOTAL_BYTES:
+            raise McpbError("bundle expands beyond the allowed size")
+        if info.compress_size > 0 and info.file_size / info.compress_size > _MCPB_MAX_RATIO:
+            raise McpbError(f"suspicious compression ratio in bundle member: {name}")
         target = (dest / name).resolve()
         if target != root and root not in target.parents:
             raise McpbError(f"unsafe path in bundle: {name}")

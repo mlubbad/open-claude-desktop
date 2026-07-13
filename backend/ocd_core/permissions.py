@@ -44,11 +44,13 @@ def is_sensitive(name: str) -> bool:
 
 def requires_approval(name: str, mode: str | None) -> bool:
     m = (mode or "auto").strip().lower()
-    if m == "strict":
-        return True
     if m == "ask":
         return is_sensitive(name)
-    return False  # "auto" or anything unrecognized → no prompts
+    if m == "auto":
+        return False
+    # "strict" — and any UNRECOGNIZED mode — fails closed: prompt for every tool. A
+    # typo'd or injected permission_mode must never silently disable the HITL gate.
+    return True
 
 
 class PermissionRegistry:

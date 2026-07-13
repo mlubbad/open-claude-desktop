@@ -60,6 +60,17 @@ class AgentTurnRequest(BaseModel):
             raise ValueError("style too long")
         return v
 
+    @field_validator("permission_mode")
+    @classmethod
+    def _bound_permission_mode(cls, v: str | None) -> str | None:
+        # None → server default. A recognized mode passes through (case-normalized); any
+        # unrecognized string coerces to "strict" so a typo/injected value fails closed
+        # rather than dropping to the autonomous "auto" path.
+        if v is None:
+            return None
+        m = str(v).strip().lower()
+        return m if m in {"strict", "ask", "auto"} else "strict"
+
     @field_validator("images")
     @classmethod
     def _bound_images(cls, v: list[str]) -> list[str]:

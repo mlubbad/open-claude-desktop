@@ -16,7 +16,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
 from ocd_core import agent, cowork, opik_tracing, settings
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from ..deps import current_user
 
@@ -30,6 +30,17 @@ class CoworkStart(BaseModel):
     effort: str = "High"
     project_id: str | None = None
     approval: str = "skip"   # skip (autonomous) | manual (HITL gate live)
+
+    @field_validator("approval")
+    @classmethod
+    def _bound_approval(cls, v: str) -> str:
+        # Empty/unset → the documented autonomous default ("skip"). But a NON-EMPTY typo
+        # ("Manual", "manaul", "gate") must NOT silently become an autonomous run — coerce
+        # it to the gated mode so a background job can't lose its HITL gate to a bad input.
+        m = str(v or "").strip().lower()
+        if m in {"skip", "manual"}:
+            return m
+        return "skip" if m == "" else "manual"
 
 
 @router.post("/cowork")

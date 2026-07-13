@@ -119,8 +119,15 @@ _allowed_hosts = [h.strip() for h in os.environ.get(
     "OCD_ALLOWED_HOSTS", "localhost,127.0.0.1,[::1],testserver").split(",") if h.strip()]
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=_allowed_hosts)
 
-_origins = os.environ.get("OCD_CORS_ORIGINS",
-                          "http://localhost:3000,http://localhost:5173").split(",")
+# Default CORS origins: web-dev servers PLUS the packaged Tauri webview origins. A
+# built desktop app serves its UI from tauri://localhost (macOS/Linux) or
+# http://tauri.localhost (Windows) and fetches the loopback sidecar cross-origin, so
+# without these the shipped app's own requests fail CORS preflight. Overridable via
+# OCD_CORS_ORIGINS (a hosted deploy sets its real origin).
+_origins = os.environ.get(
+    "OCD_CORS_ORIGINS",
+    "http://localhost:3000,http://localhost:5173,tauri://localhost,http://tauri.localhost",
+).split(",")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[o.strip() for o in _origins if o.strip()],

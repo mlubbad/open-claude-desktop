@@ -4,7 +4,7 @@
 // conversations never aborts an in-flight turn — the detached session keeps
 // streaming in the background and the view simply re-subscribes on return.
 
-import { useCallback, useSyncExternalStore } from "react";
+import { useCallback, useRef, useSyncExternalStore } from "react";
 
 import type { AgentTurnRequest } from "../api/client";
 import * as store from "./turnSessions";
@@ -40,9 +40,20 @@ function baseRequest(config: TurnConfig): Omit<AgentTurnRequest, "goal" | "histo
 export function useTranscript(config: TurnConfig) {
   const snap = useSyncExternalStore(store.subscribe, store.getSnapshot);
 
+  // The action callbacks below are STABLE (empty deps) and read the latest config from
+  // this ref, refreshed every render. This is the fix for a stale-config bug: the memo-
+  // ized message bubbles compare only data (not callback identity), so when a setting
+  // like permission mode / effort / style changes while idle, a bubble that doesn't re-
+  // render kept an OLD callback closed over the OLD config — and Retry / Edit / answering
+  // a question would submit with the superseded settings (e.g. still "auto" after the
+  // user switched to "strict"). Reading config from a ref means even a retained closure
+  // always builds the request from the current settings.
+  const configRef = useRef(config);
+  configRef.current = config;
+
   const send = useCallback(
-    (goal: string, images?: string[]) => store.sendActive(goal, baseRequest(config), images),
-    [config],
+    (goal: string, images?: string[]) => store.sendActive(goal, baseRequest(configRef.current), images),
+    [],
   );
   // Regenerate the last answer. An optional override swaps the model/provider for just
   // this run (used by "regenerate with a different model") — everything else about the
@@ -51,14 +62,14 @@ export function useTranscript(config: TurnConfig) {
     (override?: { model: string; provider?: string | null }) =>
       store.retryActive(
         override
-          ? { ...baseRequest(config), model: override.model, provider: override.provider ?? null }
-          : baseRequest(config),
+          ? { ...baseRequest(configRef.current), model: override.model, provider: override.provider ?? null }
+          : baseRequest(configRef.current),
       ),
-    [config],
+    [],
   );
   const editAndResend = useCallback(
-    (index: number, text: string) => store.editActive(index, text, baseRequest(config)),
-    [config],
+    (index: number, text: string) => store.editActive(index, text, baseRequest(configRef.current)),
+    [],
   );
   const stop = useCallback(() => store.stopActive(), []);
   const resolveApproval = useCallback(

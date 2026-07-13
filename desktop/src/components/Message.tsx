@@ -8,6 +8,7 @@ import { openExternal } from "../platform";
 import { type Attachment, parseAttachments } from "../state/attachments";
 import { Icon } from "./Icon";
 import { QuestionCard } from "./QuestionCard";
+import { RetryModelMenu } from "./RetryModelMenu";
 import {
   type ArtifactBlock,
   answerText,
@@ -127,6 +128,9 @@ function AssistantBubbleImpl({
   isLast,
   busy,
   onRetry,
+  onRetryWith,
+  retryProvider,
+  retryModel,
   onOpenArtifact,
   onAnswerQuestion,
   onFeedback,
@@ -136,6 +140,9 @@ function AssistantBubbleImpl({
   isLast: boolean;
   busy: boolean;
   onRetry?: () => void;
+  onRetryWith?: (provider: string, model: string) => void;
+  retryProvider?: string;
+  retryModel?: string;
   onOpenArtifact?: (id: string) => void;
   onAnswerQuestion?: (id: string, text: string) => void;
   onFeedback?: () => void;
@@ -146,6 +153,8 @@ function AssistantBubbleImpl({
   // Local, per-message feedback marker (visual only; nothing is sent anywhere).
   // A regenerated reply is new content, so streaming clears any prior vote.
   const [vote, setVote] = useState<"up" | "down" | null>(null);
+  // "Regenerate with a different model" popover open state (last reply only).
+  const [retryMenu, setRetryMenu] = useState(false);
   useEffect(() => {
     if (streaming) setVote(null);
   }, [streaming]);
@@ -184,6 +193,24 @@ function AssistantBubbleImpl({
               <Icon name="retry" size={14} />
             </button>
           )}
+          {isLast && onRetryWith && retryProvider && retryModel && (
+            <span className="retry-with">
+              <button className="msg-action retry-with-btn" disabled={busy}
+                      title="Regenerate with a different model"
+                      aria-label="Regenerate with a different model"
+                      aria-haspopup="menu" aria-expanded={retryMenu}
+                      onClick={() => setRetryMenu((o) => !o)}>
+                <Icon name="chev-down" size={13} />
+              </button>
+              {retryMenu && (
+                <RetryModelMenu
+                  current={{ provider: retryProvider, model: retryModel }}
+                  onPick={(p, m) => { setRetryMenu(false); onRetryWith(p, m); }}
+                  onClose={() => setRetryMenu(false)}
+                />
+              )}
+            </span>
+          )}
           {onBranch && (
             <button className="msg-action" onClick={onBranch}
                     title="Branch from here" aria-label="Branch conversation from this message">
@@ -203,7 +230,14 @@ function AssistantBubbleImpl({
 // identity in the comparison is safe.
 export const AssistantBubble = memo(
   AssistantBubbleImpl,
-  (a, b) => a.msg === b.msg && a.isLast === b.isLast && a.busy === b.busy,
+  (a, b) =>
+    a.msg === b.msg &&
+    a.isLast === b.isLast &&
+    a.busy === b.busy &&
+    // Keep the "regenerate with…" menu's current-model marker fresh when the
+    // conversation's model changes (primitives, so memoization still holds).
+    a.retryProvider === b.retryProvider &&
+    a.retryModel === b.retryModel,
 );
 
 function CopyButton({ getText }: { getText: () => string }) {

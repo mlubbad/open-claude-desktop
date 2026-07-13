@@ -701,7 +701,16 @@ export default function App() {
                 msg={m}
                 isLast={i === lastAssistantIdx}
                 busy={busy}
-                onRetry={retryLast}
+                onRetry={() => retryLast()}
+                // Regenerate with a different model: run this turn on the picked
+                // model AND switch the conversation forward to it (the composer
+                // then reflects it and follow-ups continue there).
+                onRetryWith={(p, mdl) => {
+                  applyOptions({ provider: p, model: mdl });
+                  retryLast({ provider: p, model: mdl });
+                }}
+                retryProvider={active.provider}
+                retryModel={active.model}
                 onOpenArtifact={openArtifact}
                 onAnswerQuestion={answerQuestion}
                 onFeedback={() => setFeedbackFor(current?.cid ?? "new")}

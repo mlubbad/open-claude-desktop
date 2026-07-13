@@ -40,3 +40,35 @@ def test_default_is_local_sqlite_never_postgres(monkeypatch):
     assert "postgresql" not in url
     assert url.endswith("/ocd.db")
     assert (config.REPO_ROOT / "ocd.db").as_posix() in url
+
+
+def test_file_sqlite_gets_wal_and_pragmas(monkeypatch, tmp_path):
+    """Concurrency fix: a file-backed SQLite connection must come up in WAL mode
+    with a busy_timeout so a second writer waits instead of erroring with
+    'database is locked'. foreign_keys is enforced too."""
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path.as_posix()}/w.db")
+    from ocd_core.db import engine
+    from sqlalchemy import text
+    engine.reset_engine()
+    try:
+        with engine.get_engine().connect() as c:
+            assert c.execute(text("PRAGMA journal_mode")).scalar() == "wal"
+            assert c.execute(text("PRAGMA busy_timeout")).scalar() == 5000
+            assert c.execute(text("PRAGMA foreign_keys")).scalar() == 1
+    finally:
+        engine.reset_engine()
+
+
+def test_memory_sqlite_skips_wal_but_sets_fk(monkeypatch):
+    """WAL is meaningless for an in-memory DB (it needs a real file), so it must not
+    be forced there — but foreign_keys still applies."""
+    monkeypatch.setenv("DATABASE_URL", "sqlite://")
+    from ocd_core.db import engine
+    from sqlalchemy import text
+    engine.reset_engine()
+    try:
+        with engine.get_engine().connect() as c:
+            assert c.execute(text("PRAGMA journal_mode")).scalar() == "memory"
+            assert c.execute(text("PRAGMA foreign_keys")).scalar() == 1
+    finally:
+        engine.reset_engine()

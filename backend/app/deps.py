@@ -11,13 +11,14 @@ _bearer = HTTPBearer(auto_error=False)
 
 def current_user(creds: HTTPAuthorizationCredentials | None = Depends(_bearer)) -> str:
     """Optional auth: when disabled (no creds configured) -> 'anonymous'.
-    When enabled -> require a valid Bearer token (decode to username), else 401."""
+    When enabled (HMAC login OR an OIDC/JWT issuer) -> require a valid Bearer token,
+    resolved to its principal, else 401."""
     if not auth.auth_enabled():
         return "anonymous"
-    user = auth.decode_token(creds.credentials) if creds else None
-    if not user:
+    principal = auth.identify(creds.credentials) if creds else None
+    if not principal:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid or missing token")
-    return user
+    return principal.user
 
 
 async def scope_workspace(request: Request) -> AsyncIterator[None]:

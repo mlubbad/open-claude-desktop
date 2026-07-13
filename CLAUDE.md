@@ -133,9 +133,15 @@ ContextVar), so they carry the owning workspace explicitly: a **Cowork** `Task` 
 **Schedule** each capture `tenancy.namespace()` at creation and `cowork._run` /
 `scheduler.default_launch` re-bind it (`use_workspace`) around the whole run — so a
 scheduler-launched automation executes as its tenant, not as the ticker's ambient `local`.
-NOT yet scoped (later slice): pluggable OIDC auth feeding `resolve_workspace`, object
-storage for uploads, and a durable job queue for multi-node scale. Tests:
-`test_tenancy.py`, `test_tenancy_stores.py`, `test_tenancy_background.py`.
+The request→workspace identity is pluggable: `auth.identify(token)` returns a `Principal`
+(user + workspace) from either the built-in HMAC login or an external **OIDC/JWT** issuer
+(`OCD_JWT_SECRET`/`OCD_JWT_PUBLIC_KEY`; HS256 via stdlib, RS256 via `cryptography`, no
+PyJWT/network — only the CONFIGURED alg is accepted, defeating alg=none/confusion), and
+`resolve_workspace` treats that identity's workspace as AUTHORITATIVE — a client's
+`X-OCD-Workspace` header is only a fallback when there is no valid token, so a caller can't
+escape their tenant. NOT yet built (later slices): pluggable object storage for uploads and
+a durable job queue for multi-node scale. Tests: `test_tenancy.py`,
+`test_tenancy_stores.py`, `test_tenancy_background.py`, `test_auth_identity.py`.
 
 ## Working conventions
 

@@ -68,20 +68,26 @@ def use_workspace(ws: str) -> Iterator[None]:
 
 def resolve_workspace(headers) -> str:
     """The workspace for an incoming request. Local (no enforcement) → always ``local``.
-    Enforcing → an explicit ``X-OCD-Workspace`` header wins; otherwise derive a personal
-    workspace from the authenticated bearer user (one workspace per user for the MVP);
-    otherwise fall back to ``local``."""
+
+    Enforcing → an AUTHENTICATED identity is authoritative and cannot be overridden by a
+    client header: a valid bearer resolves to its principal, whose workspace claim (a
+    hosted OIDC/JWT token) scopes the request, or whose user id is their personal
+    workspace (the MVP, and the HMAC login which carries no workspace). Only when there is
+    NO authenticated identity do we fall back to an explicit ``X-OCD-Workspace`` header —
+    for dev/testing, or a trusted reverse proxy that authenticates upstream and injects
+    it. Otherwise ``local``."""
     if not enforcing():
         return LOCAL_WORKSPACE
-    explicit = (headers.get("x-ocd-workspace") or "").strip()
-    if explicit:
-        return explicit
     authz = headers.get("authorization", "") or ""
     if authz.lower().startswith("bearer "):
         from . import auth  # lazy: keep this module import-light
-        user = auth.decode_token(authz[7:].strip())
-        if user:
-            return user
+        principal = auth.identify(authz[7:].strip())
+        if principal:
+            # The token's own workspace can't be overridden by a header → no tenant escape.
+            return principal.workspace or principal.user
+    explicit = (headers.get("x-ocd-workspace") or "").strip()
+    if explicit:
+        return explicit
     return LOCAL_WORKSPACE
 
 

@@ -56,22 +56,41 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const resp = await fetch(BASE + path, {
-    method,
-    headers: authHeaders(body !== undefined ? { "Content-Type": "application/json" } : undefined),
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
-  if (!resp.ok) {
-    let detail = resp.statusText;
-    try {
-      detail = (await resp.json())?.detail ?? detail;
-    } catch {
-      /* keep statusText */
+// A hung request (backend deadlocked, connection stalled) would otherwise leave the UI
+// spinner spinning forever. Bound every JSON REST call with a generous deadline — the
+// SSE agent turn (streamTurn) and multipart uploads are separate paths, so nothing slow-
+// but-legitimate rides through here; the ceiling only trips on a genuine hang.
+const REQUEST_TIMEOUT_MS = 120_000;
+
+async function request<T>(method: string, path: string, body?: unknown,
+                          timeoutMs = REQUEST_TIMEOUT_MS): Promise<T> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const resp = await fetch(BASE + path, {
+      method,
+      headers: authHeaders(body !== undefined ? { "Content-Type": "application/json" } : undefined),
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+      signal: ctrl.signal,
+    });
+    if (!resp.ok) {
+      let detail = resp.statusText;
+      try {
+        detail = (await resp.json())?.detail ?? detail;
+      } catch {
+        /* keep statusText */
+      }
+      throw new ApiError(resp.status, detail);
     }
-    throw new ApiError(resp.status, detail);
+    return (await resp.json()) as T;
+  } catch (e) {
+    // Turn an abort (our own deadline) into a clear, typed error instead of a bare
+    // DOMException the callers don't know how to render.
+    if (ctrl.signal.aborted) throw new ApiError(408, `request timed out after ${timeoutMs}ms`);
+    throw e;
+  } finally {
+    clearTimeout(timer);
   }
-  return (await resp.json()) as T;
 }
 
 export const api = {

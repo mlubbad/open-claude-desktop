@@ -57,4 +57,13 @@ describe("CapabilitiesPage", () => {
     await waitFor(() => expect(saveSpy).toHaveBeenCalled());
     expect(saveSpy.mock.calls.at(-1)![0]).toEqual({ memory_search: false });
   });
+
+  it("'Pause all automations' is a real toggle saving the autonomy_paused kill-switch", async () => {
+    render(<CapabilitiesPage />);
+    await waitFor(() =>
+      expect(screen.getByLabelText("Pause all automations")).toBeEnabled());
+    fireEvent.click(screen.getByLabelText("Pause all automations"));
+    await waitFor(() => expect(saveSpy).toHaveBeenCalled());
+    expect(saveSpy.mock.calls.at(-1)![0]).toEqual({ autonomy_paused: true });
+  });
 });

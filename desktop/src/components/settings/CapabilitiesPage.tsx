@@ -14,6 +14,7 @@ export function CapabilitiesPage() {
   const codeExecution = values?.code_execution ?? "auto";
   const permissionMode = values?.permission_mode ?? "ask";
   const memorySearch = values?.memory_search ?? true;
+  const autonomyPaused = values?.autonomy_paused ?? false;
 
   return (
     <>
@@ -131,6 +132,11 @@ export function CapabilitiesPage() {
             ]}
             onChange={(v) => save({ permission_mode: v })}
           />
+        </Row>
+        <Row label="Pause all automations"
+             desc="Emergency kill-switch. When on, scheduled automations don't run and new background (Cowork) tasks are refused; turning it on also cancels any background tasks already running. Your chats are unaffected.">
+          <Toggle label="Pause all automations" on={autonomyPaused}
+                  onChange={(v) => save({ autonomy_paused: v })} />
         </Row>
       </Section>
     </>

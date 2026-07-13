@@ -106,6 +106,7 @@ export interface AppSettings {
   code_execution?: string; // "auto" | "docker" | "local" | "off"
   permission_mode?: string; // "strict" | "ask" | "auto" (HITL autonomy)
   memory_search?: boolean; // agent may search past chats mid-turn
+  autonomy_paused?: boolean; // global kill-switch for unattended (Cowork/scheduled) runs
   // Which models each provider shows in the chat model picker; empty/missing
   // provider entry = the picker's default (the first few of the catalog).
   visible_models?: Record<string, string[]>;

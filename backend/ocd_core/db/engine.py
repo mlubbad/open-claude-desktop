@@ -158,6 +158,8 @@ _ADDED_COLUMNS = {
     },
     "conversation": {
         "pinned": "BOOLEAN DEFAULT 0",
+        "parent_id": "VARCHAR",
+        "fork_index": "INTEGER",
         "owner_id": "VARCHAR",
         "workspace_id": "VARCHAR",
     },

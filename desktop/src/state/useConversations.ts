@@ -197,6 +197,24 @@ export function useConversations(config: TurnConfig, incognito = false) {
     [refresh],
   );
 
+  // Fork the current conversation at message `index` into a new branch, then open it.
+  // The visible index maps to the persisted transcript index (conversations auto-save
+  // after each turn), so the backend copies messages [0..index] into the branch.
+  const branchAt = useCallback(
+    async (index: number): Promise<boolean> => {
+      if (!current) return false;
+      try {
+        const branch = await convApi.branch(current.pid, current.cid, index);
+        await refresh();
+        return await openConversation(branch.id, current.pid);
+      } catch (e) {
+        setHistErr(`Couldn't branch: ${e instanceof Error ? e.message : String(e)}`);
+        return false;
+      }
+    },
+    [current, refresh, openConversation],
+  );
+
   const move = useCallback(
     async (cid: string, pid: string, dstProjectId: string) => {
       if (pid === dstProjectId) return;
@@ -234,5 +252,6 @@ export function useConversations(config: TurnConfig, incognito = false) {
     rename,
     togglePin,
     move,
+    branchAt,
   };
 }

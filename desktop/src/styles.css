@@ -130,7 +130,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-
 
 /* Hover-revealed controls must also reveal on keyboard focus. */
 .conv-item:focus-within .conv-act, .conv-act:focus-visible, .conv-del:focus-visible { opacity: 1; }
-.msg.user:focus-within .user-edit { opacity: 1; }
+.msg.user:focus-within .user-actions { opacity: 1; }
 .msg.assistant:focus-within .msg-actions { opacity: 1; }
 .codeblock:focus-within .code-copy, .code-copy:focus-visible { opacity: 1; }
 /* Keep actions persistently visible on the latest assistant reply. */
@@ -427,8 +427,8 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-
 .edit-actions button { border: 1px solid var(--border); background: var(--surface-2); color: var(--text);
   border-radius: 6px; padding: 4px 10px; cursor: pointer; font-size: 12px; }
 .edit-actions .primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
-.user-edit { opacity: 0; margin-top: 4px; }
-.msg.user:hover .user-edit { opacity: 1; }
+.user-actions { display: flex; gap: 2px; margin-top: 4px; opacity: 0; transition: opacity 0.12s; }
+.msg.user:hover .user-actions { opacity: 1; }
 
 /* Attached/pasted files on a user turn: compact cards above the bubble, expandable
    to inspect exactly what was sent. */
@@ -470,6 +470,23 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-
 .msg-action:hover { color: var(--text); background: var(--surface-2); }
 .msg-action:disabled { opacity: 0.4; cursor: default; }
 .msg-action.voted { color: var(--accent); background: var(--accent-soft); }
+
+/* Branch switcher: a slim bar at the top of the transcript when the open chat belongs
+   to a branch family. Each chip hops to a member; the active one is marked and inert. */
+.branch-bar { max-width: 760px; margin: 4px auto 0; padding: 8px 20px;
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.branch-bar-lead { display: inline-flex; align-items: center; gap: 5px; flex: none;
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+.branch-chips { display: flex; gap: 6px; flex-wrap: wrap; min-width: 0; }
+.branch-chip { display: inline-flex; align-items: baseline; gap: 6px; max-width: 220px;
+  border: 1px solid var(--border); background: var(--surface-2); color: var(--text);
+  border-radius: 999px; padding: 4px 11px; font-size: 12.5px; cursor: pointer;
+  transition: background 0.12s, border-color 0.12s; }
+.branch-chip:hover:not(:disabled) { background: var(--surface); border-color: var(--border-strong); }
+.branch-chip.active { background: var(--accent-soft); border-color: var(--accent); color: var(--text); cursor: default; }
+.branch-chip-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.branch-chip-sub { flex: none; font-size: 10.5px; color: var(--muted); letter-spacing: 0.02em; }
+.branch-chip.active .branch-chip-sub { color: var(--accent); }
 
 .codeblock { position: relative; }
 .code-copy { position: absolute; top: 6px; right: 6px; border: 1px solid var(--border);

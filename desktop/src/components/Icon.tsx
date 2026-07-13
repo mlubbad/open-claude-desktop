@@ -47,6 +47,7 @@ export type IconName =
   | "shield"
   | "code"
   | "expand"
+  | "branch"
   | "cloud-up";
 
 const PATHS: Record<IconName, React.ReactNode> = {
@@ -164,6 +165,15 @@ const PATHS: Record<IconName, React.ReactNode> = {
     </>
   ),
   code: <path d="M5.5 4.5L2 8l3.5 3.5M10.5 4.5L14 8l-3.5 3.5" />,
+  branch: (
+    <>
+      <path d="M4.5 4.8v6.4" />
+      <circle cx="4.5" cy="3" r="1.6" />
+      <circle cx="4.5" cy="13" r="1.6" />
+      <circle cx="11.5" cy="5" r="1.6" />
+      <path d="M11.5 6.6c0 3-2.5 4.9-5.4 5.2" />
+    </>
+  ),
   expand: <path d="M9.5 2.5h4v4M13.5 2.5L9 7M6.5 13.5h-4v-4M2.5 13.5L7 9" />,
   "cloud-up": (
     <>

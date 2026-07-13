@@ -35,6 +35,11 @@ class Conversation(SQLModel, table=True):
     title: str
     pinned: bool = False
     transcript: list = Field(default_factory=list, sa_column=Column(JSON))
+    # Branching: a conversation forked from another carries its parent's id and the
+    # message index it was forked AT (its transcript is a copy of the parent up to and
+    # including that message). Both NULL for a normal (root) conversation.
+    parent_id: str | None = Field(default=None, index=True)
+    fork_index: int | None = None
     owner_id: str | None = Field(default=None, index=True)
     workspace_id: str | None = Field(default=None, index=True)
     created_at: datetime = Field(default_factory=utcnow)

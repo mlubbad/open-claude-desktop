@@ -5,6 +5,7 @@ from ocd_core import conversations
 
 from ..deps import current_user
 from ..schemas import (
+    BranchBody,
     ConversationCreate,
     ConversationPatch,
     ConversationSave,
@@ -56,6 +57,21 @@ def delete_conv(pid: str, cid: str, user: str = Depends(current_user)) -> dict:
 @router.post("/projects/{pid}/conversations/{cid}/move")
 def move_conv(pid: str, cid: str, body: MoveBody, user: str = Depends(current_user)) -> dict:
     return {"ok": conversations.move_conversation(pid, cid, body.dst_project_id)}
+
+
+@router.post("/projects/{pid}/conversations/{cid}/branch")
+def branch_conv(pid: str, cid: str, body: BranchBody, user: str = Depends(current_user)) -> dict:
+    """Fork the conversation at a message; returns the new branch conversation."""
+    branch = conversations.branch_conversation(pid, cid, body.at_index)
+    if branch is None:
+        raise HTTPException(404, "cannot branch: no such conversation or index out of range")
+    return branch
+
+
+@router.get("/projects/{pid}/conversations/{cid}/branches")
+def conv_branches(pid: str, cid: str, user: str = Depends(current_user)) -> dict:
+    """The branch family (tree) this conversation belongs to, for the switcher."""
+    return conversations.branch_family(pid, cid)
 
 
 @router.get("/conversations")

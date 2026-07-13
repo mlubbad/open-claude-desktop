@@ -25,7 +25,8 @@ def _to_dict(c: Conversation) -> dict:
     return {"id": c.id, "title": c.title,
             "created_at": c.created_at.isoformat(),
             "updated_at": c.updated_at.isoformat(),
-            "pinned": c.pinned, "messages": list(c.transcript)}
+            "pinned": c.pinned, "messages": list(c.transcript),
+            "parent_id": c.parent_id, "fork_index": c.fork_index}
 
 
 def _summary_fields(cid: str, title: str, updated_at, pinned, project_id: str) -> dict:
@@ -115,6 +116,78 @@ def delete_conversation(project_id: str, conv_id: str):
         c = s.get(Conversation, conv_id)
         if c and c.project_id == project_id:
             s.delete(c)
+
+
+# --------------------------------------------------------------------------- #
+#  Branching — fork a conversation at a message to explore an alternative path.
+#  A branch is a NEW conversation whose transcript is a copy of the source up to
+#  (and including) the fork message; it records the source id + fork index so the
+#  UI can present the family as a tree and switch between branches. This reuses the
+#  flat-transcript model wholesale — no in-place message tree — so nothing in the
+#  agent/persistence pipeline changes.
+# --------------------------------------------------------------------------- #
+def branch_conversation(project_id: str, conv_id: str, at_index: int) -> dict | None:
+    """Fork `conv_id` at message `at_index`; return the new branch conversation.
+
+    Returns None if the source is missing/mismatched or the index is out of range.
+    The branch keeps messages [0 .. at_index] and starts life editable from there."""
+    with session() as s:
+        src = s.get(Conversation, conv_id)
+        if src is None or src.project_id != project_id:
+            return None
+        msgs = list(src.transcript)
+        if not (0 <= at_index < len(msgs)):
+            return None
+        now = utcnow()
+        import copy
+        branch = Conversation(
+            id=uuid.uuid4().hex[:12], project_id=project_id,
+            title=src.title, pinned=False,
+            # Deep-copy so later edits to the branch never mutate the parent's blocks.
+            transcript=copy.deepcopy(msgs[: at_index + 1]),
+            parent_id=conv_id, fork_index=at_index,
+            created_at=now, updated_at=now)
+        s.add(branch)
+        return _to_dict(branch)
+
+
+def branch_family(project_id: str, conv_id: str) -> dict:
+    """The whole branch tree `conv_id` belongs to: walk up to the root, then collect
+    every descendant. Returns {root, current, nodes:[{id,title,parent_id,fork_index,
+    updated_at}]} — enough for the UI to draw the tree and highlight the current one."""
+    with session() as s:
+        cur = s.get(Conversation, conv_id)
+        if cur is None or cur.project_id != project_id:
+            return {"root": None, "current": conv_id, "nodes": []}
+        # Walk parent links up to the root (guard against a cycle with a seen-set).
+        root = cur
+        seen = {root.id}
+        while root.parent_id:
+            p = s.get(Conversation, root.parent_id)
+            if p is None or p.id in seen:
+                break
+            root, _ = p, seen.add(p.id)
+        # BFS down from the root over parent_id edges.
+        nodes: list[Conversation] = []
+        queue = [root.id]
+        visited: set[str] = set()
+        while queue:
+            cid = queue.pop(0)
+            if cid in visited:
+                continue
+            visited.add(cid)
+            node = s.get(Conversation, cid)
+            if node is None:
+                continue
+            nodes.append(node)
+            kids = s.exec(select(Conversation.id).where(
+                Conversation.parent_id == cid)).all()
+            queue.extend(k for k in kids if k not in visited)
+        out = [{"id": n.id, "title": n.title, "parent_id": n.parent_id,
+                "fork_index": n.fork_index, "updated_at": n.updated_at.isoformat(),
+                "project_id": n.project_id} for n in nodes]
+        out.sort(key=lambda x: x["updated_at"])
+        return {"root": root.id, "current": conv_id, "nodes": out}
 
 
 def list_conversations(project_id: str) -> list[dict]:

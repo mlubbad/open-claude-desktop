@@ -301,6 +301,23 @@ export interface StoredMsg {
 
 export interface ConversationDetail extends ConversationSummary {
   messages: StoredMsg[];
+  parent_id?: string | null; // set when this conversation is a branch of another
+  fork_index?: number | null; // the message index it was forked at
+}
+
+// One node in a branch family (the tree of conversations linked by parent_id).
+export interface BranchNode {
+  id: string;
+  title: string;
+  parent_id: string | null;
+  fork_index: number | null;
+  updated_at: string;
+  project_id: string;
+}
+export interface BranchFamily {
+  root: string | null;
+  current: string;
+  nodes: BranchNode[];
 }
 
 // A search hit: a conversation summary plus where it matched and a context snippet.
@@ -327,6 +344,13 @@ export const conversations = {
   move: (pid: string, cid: string, dstProjectId: string) =>
     api.post<{ ok: boolean }>(`/projects/${pid}/conversations/${cid}/move`, { dst_project_id: dstProjectId }),
   del: (pid: string, cid: string) => api.del<{ ok: boolean }>(`/projects/${pid}/conversations/${cid}`),
+  // Fork the conversation at a message → a new branch conversation (a copy of the
+  // history up to that point, linked to the parent).
+  branch: (pid: string, cid: string, atIndex: number) =>
+    api.post<ConversationDetail>(`/projects/${pid}/conversations/${cid}/branch`, { at_index: atIndex }),
+  // The branch family (tree) a conversation belongs to, for the switcher.
+  branches: (pid: string, cid: string) =>
+    api.get<BranchFamily>(`/projects/${pid}/conversations/${cid}/branches`),
 };
 
 export interface McpServer {

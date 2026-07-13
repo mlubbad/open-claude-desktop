@@ -128,10 +128,14 @@ unscoped name, so `local` and flag-off keep their pre-tenancy data): keychain **
 file (`settings.<workspace>.json` beside the base `settings.json`), and **vector**
 collections (`chroma.project_kb_collection_name` — a hashed, ≤63-char, charset-safe
 workspace prefix; project KB is already isolated by the globally-unique slug, this is
-defense-in-depth). NOT yet scoped (later slices): background Cowork/scheduler runs execute
-outside a request, so the ContextVar (and every store keyed off it) defaults to `local` —
-until that slice lands, unattended runs under enforcement operate in the `local` namespace.
-Tests: `test_tenancy.py`, `test_tenancy_stores.py`.
+defense-in-depth). Background runs execute OUTSIDE a request (no dependency to set the
+ContextVar), so they carry the owning workspace explicitly: a **Cowork** `Task` and a
+**Schedule** each capture `tenancy.namespace()` at creation and `cowork._run` /
+`scheduler.default_launch` re-bind it (`use_workspace`) around the whole run — so a
+scheduler-launched automation executes as its tenant, not as the ticker's ambient `local`.
+NOT yet scoped (later slice): pluggable OIDC auth feeding `resolve_workspace`, object
+storage for uploads, and a durable job queue for multi-node scale. Tests:
+`test_tenancy.py`, `test_tenancy_stores.py`, `test_tenancy_background.py`.
 
 ## Working conventions
 

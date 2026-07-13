@@ -150,6 +150,21 @@ def test_tick_skips_when_previous_run_still_active(tmp_path, monkeypatch):
     assert launched == ["s1", "s1"]
 
 
+def test_tick_skips_all_when_autonomy_paused(tmp_path, monkeypatch):
+    """Global kill-switch: while autonomy is paused NO scheduled automation fires, and
+    last_run is untouched so every due schedule resumes once it's unpaused."""
+    from ocd_core import settings as settings_mod
+    monkeypatch.setattr(settings_mod, "get_settings", lambda: {"autonomy_paused": True})
+    launched: list[str] = []
+    svc = _svc(tmp_path, launched)
+    svc.store.save([Schedule(id="s1", goal="g", kind="interval", every_seconds=1,
+                             last_run=_iso(NOON - timedelta(minutes=5)))])
+    assert svc.tick(now=NOON) == []
+    assert launched == []
+    monkeypatch.setattr(settings_mod, "get_settings", lambda: {"autonomy_paused": False})
+    assert svc.tick(now=NOON) == ["s1"]     # unpaused → the still-due schedule fires
+
+
 def test_tick_overlap_guard_can_be_disabled(tmp_path, monkeypatch):
     """OCD_SCHEDULER_SKIP_OVERLAP off → a due schedule fires even if the prior is live."""
     from ocd_core import config, cowork

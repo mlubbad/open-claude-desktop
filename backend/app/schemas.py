@@ -127,6 +127,7 @@ class SettingsBody(BaseModel):
     code_execution: str | None = None   # auto | docker | local | off
     permission_mode: str | None = None  # strict | ask | auto (HITL autonomy)
     memory_search: bool | None = None   # agent may search past chats mid-turn
+    autonomy_paused: bool | None = None  # global kill-switch for unattended runs
     visible_models: dict | None = None  # {provider_id: [model, ...]} shown in the picker
     # Opik observability (opt-in). The API key is NEVER accepted here — it goes to the
     # keychain via /observability/key. These are non-secret config only.

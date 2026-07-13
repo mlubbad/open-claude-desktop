@@ -260,3 +260,29 @@ def test_scheduled_launch_withholds_destructive_tools(monkeypatch, tmp_path):
     assert captured["text_editor"] is False
     # ...but read/browse/orchestrate stay available.
     assert captured["web_search"] and captured["web_fetch"] and captured["subagents"]
+
+
+def test_cowork_route_blocked_when_autonomy_paused(client, monkeypatch):
+    """Kill-switch: the Cowork route refuses to start new background work while paused."""
+    from ocd_core import settings as settings_mod
+    monkeypatch.setattr(settings_mod, "get_settings", lambda: {"autonomy_paused": True})
+    r = client.post("/cowork", json={"goal": "do it", "model": "m"})
+    assert r.status_code == 409
+    assert "paused" in r.json()["detail"].lower()
+
+
+def test_cancel_all_running_stops_in_flight_tasks(monkeypatch, tmp_path):
+    """The kill-switch's emergency stop cancels tasks already running."""
+    monkeypatch.setattr(cowork, "_STORE_PATH", tmp_path / "s.json")
+
+    async def go():
+        mgr = cowork.CoworkManager(store_path=tmp_path / "s.json")
+        r = mgr.start("slow", lambda: _slow_gen())
+        await asyncio.sleep(0.02)                 # let it start
+        n = mgr.cancel_all_running()
+        with contextlib.suppress(asyncio.CancelledError):
+            await r.handle
+        return n, mgr.get(r.id)["status"]
+
+    n, status = asyncio.run(go())
+    assert n == 1 and status == "cancelled"

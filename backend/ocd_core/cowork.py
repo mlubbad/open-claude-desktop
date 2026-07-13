@@ -231,6 +231,15 @@ class CoworkManager:
         t = self._tasks.get(task_id)
         return bool(t and t.status == "running")
 
+    def cancel_all_running(self) -> int:
+        """Cancel every in-flight task (the autonomy kill-switch). Returns the count."""
+        n = 0
+        for t in list(self._tasks.values()):
+            if t.status == "running" and t.handle is not None:
+                t.handle.cancel()
+                n += 1
+        return n
+
     def cancel(self, task_id: str) -> bool:
         t = self._tasks.get(task_id)
         if not t or t.status != "running" or t.handle is None:

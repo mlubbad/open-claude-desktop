@@ -48,6 +48,38 @@ trap 'rm -rf "$TMP"' EXIT
 echo "Fetching $URL"
 curl -fsSL "$URL" -o "$TMP/node.$EXT"
 
+# Supply-chain check: verify the archive against Node's published SHASUMS256 before we
+# trust (and bundle) it. A tampered mirror, a MITM, or a truncated download must fail
+# loudly here rather than ship a bad `node` inside the app. (SHASUMS256.txt is also
+# GPG-signed as .asc; the hash match is the pragmatic floor for an unattended CI fetch.)
+sha256_of() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$1" | awk '{print $1}'
+  else
+    python - "$1" <<'PY'
+import hashlib, sys
+print(hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest())
+PY
+  fi
+}
+SUMS_URL="https://nodejs.org/dist/v$NODE_VERSION/SHASUMS256.txt"
+echo "Verifying checksum against $SUMS_URL"
+EXPECTED="$(curl -fsSL "$SUMS_URL" | awk -v f="$NAME.$EXT" '$2 == f {print $1}')"
+if [ -z "$EXPECTED" ]; then
+  echo "error: no published SHA-256 for $NAME.$EXT in SHASUMS256.txt" >&2
+  exit 1
+fi
+ACTUAL="$(sha256_of "$TMP/node.$EXT")"
+if [ "$ACTUAL" != "$EXPECTED" ]; then
+  echo "error: checksum mismatch for $NAME.$EXT — refusing to bundle" >&2
+  echo "  expected $EXPECTED" >&2
+  echo "  actual   $ACTUAL" >&2
+  exit 1
+fi
+echo "Checksum OK ($ACTUAL)"
+
 if [ "$EXT" = "zip" ]; then
   # Windows runners: pull the one binary out with Python's zipfile (the tar on the
   # git-bash PATH is GNU tar, which can't read zips).

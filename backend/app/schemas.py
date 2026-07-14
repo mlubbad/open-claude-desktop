@@ -147,6 +147,8 @@ class SettingsBody(BaseModel):
     memory_search: bool | None = None   # agent may search past chats mid-turn
     autonomy_paused: bool | None = None  # global kill-switch for unattended runs
     visible_models: dict | None = None  # {provider_id: [model, ...]} shown in the picker
+    custom_models: dict | None = None   # {provider_id: [model, ...]} user-added model names
+    hidden_models: dict | None = None   # {provider_id: [model, ...]} catalog models the user removed
     # Opik observability (opt-in). The API key is NEVER accepted here — it goes to the
     # keychain via /observability/key. These are non-secret config only.
     opik_enabled: bool | None = None

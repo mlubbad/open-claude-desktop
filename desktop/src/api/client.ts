@@ -152,6 +152,11 @@ export interface AppSettings {
   // Which models each provider shows in the chat model picker; empty/missing
   // provider entry = the picker's default (the first few of the catalog).
   visible_models?: Record<string, string[]>;
+  // Per-provider model-list customisation: custom_models are names the user typed
+  // in (beyond the built-in catalog); hidden_models are catalog entries they removed.
+  // Effective list = (custom ∪ catalog) − hidden.
+  custom_models?: Record<string, string[]>;
+  hidden_models?: Record<string, string[]>;
   // Opik observability (opt-in): mirror agent turns into traces on a self-hosted
   // or Cloud Opik instance. The API key is NOT here — it lives in the OS keychain
   // (set via observability.setKey); these are non-secret config only.

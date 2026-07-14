@@ -139,6 +139,12 @@ DEFAULT_SETTINGS = {"model": AGENT_MODEL,
                     # ({provider_id: [model, ...]}). Empty/missing = the picker's
                     # default (the first few of the provider's catalog).
                     "visible_models": {},
+                    # User customisation of each provider's model list ({provider_id:
+                    # [model, ...]}): custom_models are names the user typed in (beyond the
+                    # built-in catalog); hidden_models are catalog entries they removed.
+                    # The effective list a provider shows is (custom ∪ catalog) − hidden.
+                    "custom_models": {},
+                    "hidden_models": {},
                     # Opik observability (opt-in; free/open-source, self-hostable).
                     # When enabled, every agent turn is mirrored into an Opik trace
                     # (tool spans, thinking phases, usage) by ocd_core.opik_tracing —

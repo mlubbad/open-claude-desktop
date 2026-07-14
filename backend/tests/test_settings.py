@@ -41,6 +41,22 @@ def test_save_settings_ignores_unknown_keys(monkeypatch, tmp_path):
     assert "bogus" not in s.get_settings()
 
 
+def test_custom_and_hidden_models_roundtrip(monkeypatch, tmp_path):
+    # The per-provider custom/hidden model lists persist like visible_models (free-form
+    # dicts, no enum clamping), so a user's added/removed models survive a restart.
+    monkeypatch.setenv("AJ360_DATA_DIR", str(tmp_path))
+    import ocd_core.config as c
+    import ocd_core.settings as s
+    importlib.reload(c)
+    importlib.reload(s)
+    assert s.get_settings()["custom_models"] == {} and s.get_settings()["hidden_models"] == {}
+    s.save_settings({"custom_models": {"ollama": ["qwen2.5:14b"]},
+                     "hidden_models": {"ollama": ["deepseek-r1"]}})
+    got = s.get_settings()
+    assert got["custom_models"] == {"ollama": ["qwen2.5:14b"]}
+    assert got["hidden_models"] == {"ollama": ["deepseek-r1"]}
+
+
 def test_legacy_reasoning_level_maps_to_effort(monkeypatch, tmp_path):
     # Backward-compat: older files stored "reasoning_level"; get_settings maps
     # it onto "effort" when "effort" is absent.

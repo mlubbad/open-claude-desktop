@@ -80,15 +80,40 @@ def get_client_for_model(model: str | None):
 
 
 def probe_provider(provider_id: str | None = None) -> tuple[bool, str]:
-    """Best-effort BYOK connectivity check: a minimal 1-token completion against the
-    provider's default model. Returns (ok, detail). Never raises — a bad key, wrong
-    base_url, or unreachable local runtime surfaces as (False, message)."""
+    """Best-effort BYOK connectivity check. Returns (ok, detail); never raises.
+
+    Verifies the provider is REACHABLE and the key (if any) is valid — WITHOUT requiring
+    a specific model to be installed. It lists models via the standard OpenAI-compatible
+    ``GET /models`` endpoint, which every backend implements (OpenAI, Groq, Mistral, and
+    the local runtimes Ollama / vLLM / LM Studio / llama.cpp). This is the fix for the old
+    behaviour: a 1-token completion against the shipped default model (e.g. ``llama3.1``)
+    404'd whenever a local server had only OTHER models pulled — reporting a working
+    provider as broken. The completion is now only a FALLBACK for gateways without a models
+    endpoint (notably the native Anthropic client, whose default model always exists)."""
     prov = get_provider(provider_id)
+    try:
+        client = get_client(provider_id)  # may raise for a missing required key
+    except Exception as e:  # noqa: BLE001
+        return False, str(e)[:200]
+
+    # Preferred check: list models — reachability + auth, independent of any installed model.
+    list_err = ""
+    try:
+        listed = client.models.list()
+        ids = [i for i in (getattr(m, "id", None) for m in (getattr(listed, "data", None) or [])) if i]
+        n = len(ids)
+        if n:
+            return True, f"Connected — {prov.label} reachable, {n} model{'' if n == 1 else 's'} available."
+        return True, f"Connected — {prov.label} reachable (no models installed yet)."
+    except Exception as e:  # noqa: BLE001 — no models endpoint, or a real connection/auth failure
+        list_err = str(e)
+
+    # Fallback: a minimal completion against the default model (works for cloud providers
+    # whose default always exists, and the native Anthropic client).
     model = prov.default_model or (prov.models[0] if prov.models else "")
     if not model:
-        return False, f"No model configured for {prov.label}; pick one first."
+        return False, (list_err or f"{prov.label} is not reachable.")[:200]
     try:
-        client = get_client(provider_id)
         client.chat.completions.create(
             model=model, max_tokens=1,
             messages=[{"role": "user", "content": "ping"}])

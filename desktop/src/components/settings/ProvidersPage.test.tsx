@@ -12,12 +12,14 @@ const stored: { custom_models: Record<string, string[]>; hidden_models: Record<s
   custom_models: {}, hidden_models: {}, visible_models: {},
 };
 const saveSpy = vi.fn(async (patch: object) => ({ ...patch }));
+const available: { ok: boolean; models: string[]; detail?: string } = { ok: true, models: [] };
 
 vi.mock("../../api/client", () => ({
   providers: {
     list: vi.fn(async () => [{ ...OLLAMA }]),
     test: vi.fn(),
     setKey: vi.fn(),
+    availableModels: vi.fn(async () => ({ id: "ollama", ...available })),
   },
   settings: { get: vi.fn(async () => ({ ...stored })), save: (p: object) => saveSpy(p) },
 }));
@@ -31,6 +33,8 @@ describe("ProvidersPage — custom models", () => {
     stored.custom_models = {};
     stored.hidden_models = {};
     stored.visible_models = {};
+    available.ok = true;
+    available.models = [];
   });
 
   it("shows the built-in catalog chips", async () => {
@@ -78,5 +82,17 @@ describe("ProvidersPage — custom models", () => {
     expect(addBtn).toBeDisabled();
     fireEvent.change(screen.getByLabelText("Add a custom model to Ollama"), { target: { value: "   " } });
     expect(addBtn).toBeDisabled();
+  });
+
+  it("Load models merges the provider's live catalog into custom_models", async () => {
+    available.models = ["llama3.1", "brand-new-model"]; // one existing, one new
+    render(<ProvidersPage active={active} onPick={noop} />);
+    fireEvent.click(await screen.findByRole("button", { name: /Load models/i }));
+    await waitFor(() =>
+      expect(saveSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ custom_models: { ollama: ["brand-new-model"] } }),
+      ));
+    // Only the genuinely new id is added; the existing built-in isn't duplicated.
+    expect(await screen.findByRole("button", { name: "brand-new-model" })).toBeInTheDocument();
   });
 });

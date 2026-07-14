@@ -61,6 +61,17 @@ def test_provider(provider_id: str, user: str = Depends(current_user)) -> dict:
     return {"id": provider_id, "ok": ok, "detail": detail}
 
 
+@router.get("/providers/{provider_id}/available-models")
+def available_models(provider_id: str, user: str = Depends(current_user)) -> dict:
+    """The models the provider's endpoint currently serves (live GET /models). Powers the
+    UI's "Load models", so a provider with a large/rotating catalog (e.g. NVIDIA NIM) is
+    populated from its real list. Never raises — a failure returns ok=False + detail."""
+    try:
+        return {"id": provider_id, "ok": True, "models": llm.list_provider_models(provider_id)}
+    except Exception as e:  # noqa: BLE001 - report any failure as a clean status
+        return {"id": provider_id, "ok": False, "models": [], "detail": str(e)[:200]}
+
+
 @router.get("/providers/{provider_id}/models")
 def provider_models(provider_id: str, user: str = Depends(current_user)) -> dict:
     from ocd_core.llm import catalog

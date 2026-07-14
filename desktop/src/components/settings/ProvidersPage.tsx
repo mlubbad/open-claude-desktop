@@ -18,6 +18,7 @@ export function ProvidersPage({
   const [keyDraft, setKeyDraft] = useState<Record<string, string>>({});
   const [err, setErr] = useState<string | null>(null);
   const [probing, setProbing] = useState<string | null>(null);
+  const [loading, setLoading] = useState<string | null>(null);
   const [probe, setProbe] = useState<Record<string, { ok: boolean; detail: string }>>({});
   // Per-provider models the chat picker shows ({} entry = the newest-few default).
   const [visible, setVisible] = useState<Record<string, string[]>>({});
@@ -116,6 +117,42 @@ export function ProvidersPage({
       .catch((e) => setErr(String(e)));
   }
 
+  // Pull the provider's live model catalog (GET /models) and merge new ids into the
+  // provider's list. For a large/rotating catalog (e.g. NVIDIA NIM) this populates the
+  // real, current models with one click instead of a guessed hardcoded set.
+  async function loadModels(p: ProviderInfo) {
+    setLoading(p.id);
+    try {
+      const res = await providers.availableModels(p.id);
+      if (!res.ok) {
+        setProbe((pr) => ({ ...pr, [p.id]: { ok: false, detail: res.detail || "Couldn't load models." } }));
+        return;
+      }
+      const base = p.models ?? [];
+      const cust = custom[p.id] ?? [];
+      const have = new Set([...base, ...cust]);
+      const fresh = res.models.filter((m) => m && !have.has(m));
+      const nextCustom = fresh.length ? { ...custom, [p.id]: [...cust, ...fresh] } : custom;
+      // Un-hide any returned models the user had removed, so a reload brings them back.
+      const nextHidden = hidden[p.id]?.length
+        ? { ...hidden, [p.id]: hidden[p.id].filter((m) => !res.models.includes(m)) }
+        : hidden;
+      setCustom(nextCustom);
+      setHidden(nextHidden);
+      setProbe((pr) => ({
+        ...pr,
+        [p.id]: { ok: true, detail: `Loaded ${res.models.length} models (${fresh.length} new).` },
+      }));
+      if (nextCustom !== custom || nextHidden !== hidden) {
+        await settingsApi.save({ custom_models: nextCustom, hidden_models: nextHidden });
+      }
+    } catch (e) {
+      setErr(String(e));
+    } finally {
+      setLoading(null);
+    }
+  }
+
   async function testProvider(id: string) {
     setProbing(id);
     try {
@@ -155,6 +192,14 @@ export function ProvidersPage({
                 {p.label} {p.is_local && <em>(local)</em>}
               </span>
               <span className="provider-row-right">
+                <button
+                  className="provider-test"
+                  disabled={loading === p.id || (p.requires_key && !p.has_key)}
+                  onClick={() => void loadModels(p)}
+                  title="Load this provider's available models from its endpoint"
+                >
+                  {loading === p.id ? "Loading…" : "Load models"}
+                </button>
                 <button
                   className="provider-test"
                   disabled={probing === p.id || (p.requires_key && !p.has_key)}

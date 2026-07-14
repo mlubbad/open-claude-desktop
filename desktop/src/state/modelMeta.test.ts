@@ -1,8 +1,33 @@
 import { describe, expect, it } from "vitest";
 
-import { DEFAULT_PICKER_COUNT, pickerModels } from "./modelMeta";
+import { DEFAULT_PICKER_COUNT, effectiveCatalog, pickerModels } from "./modelMeta";
 
 const CATALOG = ["m1", "m2", "m3", "m4", "m5", "m6", "m7", "m8"];
+
+describe("effectiveCatalog", () => {
+  it("returns the built-in catalog unchanged with no customisation", () => {
+    expect(effectiveCatalog(["a", "b"])).toEqual(["a", "b"]);
+    expect(effectiveCatalog(["a", "b"], [], [])).toEqual(["a", "b"]);
+  });
+
+  it("puts user-added models first, then the catalog", () => {
+    expect(effectiveCatalog(["a", "b"], ["z"])).toEqual(["z", "a", "b"]);
+  });
+
+  it("removes hidden models (built-in or custom)", () => {
+    expect(effectiveCatalog(["a", "b", "c"], ["z"], ["b", "z"])).toEqual(["a", "c"]);
+  });
+
+  it("collapses duplicates and trims blanks", () => {
+    expect(effectiveCatalog(["a", "a", "b"], ["a", " "], [])).toEqual(["a", "b"]);
+    expect(effectiveCatalog([" a ", "b"])).toEqual(["a", "b"]);
+  });
+
+  it("a custom model flows into the picker's default newest-few", () => {
+    // Added model sits at the front, so it appears without an explicit selection.
+    expect(pickerModels(effectiveCatalog(CATALOG, ["mine"]), undefined, "").slice(0, 1)).toEqual(["mine"]);
+  });
+});
 
 describe("pickerModels", () => {
   it("defaults to the newest few when the user hasn't chosen", () => {

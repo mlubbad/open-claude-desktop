@@ -817,9 +817,25 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-
   font: inherit; font-size: 12px; padding: 4px 4px 4px 10px; }
 .model-chip .model-pick:disabled { opacity: 0.4; cursor: default; }
 .model-chip .model-vis { border: none; background: none; color: var(--muted); cursor: pointer;
-  display: inline-flex; align-items: center; padding: 0 8px 0 4px; }
+  display: inline-flex; align-items: center; padding: 0 4px; }
 .model-chip .model-vis:hover { color: var(--text); }
 .model-chip.off .model-vis { color: var(--faint); }
+/* Remove (×): hides a built-in or deletes a custom model. */
+.model-chip .model-del { border: none; background: none; color: var(--faint); cursor: pointer;
+  display: inline-flex; align-items: center; padding: 0 8px 0 2px; }
+.model-chip .model-del:hover { color: var(--danger, #c0392b); }
+/* A user-added model is marked with a small accent dot before its name. */
+.model-chip.custom .model-pick::before { content: "•"; color: var(--accent); margin-right: 5px; }
+/* Inline "add a model" pill at the end of the row. */
+.model-add { display: inline-flex; align-items: center; gap: 2px; }
+.model-add input { border: 1px dashed var(--border); background: transparent; border-radius: 999px;
+  font: inherit; font-size: 12px; padding: 4px 6px 4px 10px; width: 110px; color: var(--text); }
+.model-add input::placeholder { color: var(--faint); }
+.model-add input:focus { outline: none; border-color: var(--accent); border-style: solid; }
+.model-add-btn { border: none; background: none; color: var(--muted); cursor: pointer;
+  display: inline-flex; align-items: center; padding: 4px 6px; border-radius: 999px; }
+.model-add-btn:hover:not(:disabled) { color: var(--accent); }
+.model-add-btn:disabled { opacity: 0.4; cursor: default; }
 
 .field-label { display: block; font-size: 13px; font-weight: 600; margin: 12px 0 4px; }
 .profile-form { display: flex; flex-direction: column; gap: 6px; }

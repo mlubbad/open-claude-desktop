@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
 
 import { type ProviderInfo, providers, settings as settingsApi } from "../../api/client";
-import { pickerModels } from "../../state/modelMeta";
+import { effectiveCatalog, pickerModels } from "../../state/modelMeta";
 import { Icon } from "../Icon";
 
-// Models & keys: BYOK providers, connection test, and per-model picker visibility.
+// Models & keys: BYOK providers, connection test, and a fully customisable per-provider
+// model list — add any model name the endpoint accepts, remove ones you don't use, and
+// choose which appear in the chat picker (the eye).
 export function ProvidersPage({
   active,
   onPick,
@@ -19,6 +21,11 @@ export function ProvidersPage({
   const [probe, setProbe] = useState<Record<string, { ok: boolean; detail: string }>>({});
   // Per-provider models the chat picker shows ({} entry = the newest-few default).
   const [visible, setVisible] = useState<Record<string, string[]>>({});
+  // Per-provider user customisation of the model list.
+  const [custom, setCustom] = useState<Record<string, string[]>>({});
+  const [hidden, setHidden] = useState<Record<string, string[]>>({});
+  // The "add a model" input per provider.
+  const [modelDraft, setModelDraft] = useState<Record<string, string>>({});
 
   async function refresh() {
     try {
@@ -29,24 +36,84 @@ export function ProvidersPage({
   }
   useEffect(() => {
     void refresh();
-    settingsApi.get().then((s) => setVisible(s.visible_models ?? {})).catch(() => {});
+    settingsApi
+      .get()
+      .then((s) => {
+        setVisible(s.visible_models ?? {});
+        setCustom(s.custom_models ?? {});
+        setHidden(s.hidden_models ?? {});
+      })
+      .catch(() => {});
   }, []);
+
+  // The provider's effective model list: user additions first, then the built-in
+  // catalog, minus the models the user removed.
+  function catalogFor(p: ProviderInfo): string[] {
+    const base = p.models.length ? p.models : [p.default_model].filter(Boolean);
+    return effectiveCatalog(base, custom[p.id], hidden[p.id]);
+  }
 
   // Is this model currently shown in the chat picker? (explicit selection, or the
   // newest-few default when the provider has no selection yet)
   function shown(p: ProviderInfo, m: string): boolean {
-    return pickerModels(p.models, visible[p.id], "").includes(m);
+    return pickerModels(catalogFor(p), visible[p.id], "").includes(m);
   }
 
   // Toggle a model's picker visibility. The first toggle materializes the provider's
   // default into an explicit list; hiding the last visible model is a no-op.
   function toggleShown(p: ProviderInfo, m: string) {
-    const cur = pickerModels(p.models, visible[p.id], "");
+    const cat = catalogFor(p);
+    const cur = pickerModels(cat, visible[p.id], "");
     const next = cur.includes(m) ? cur.filter((x) => x !== m) : [...cur, m];
     if (next.length === 0) return;
-    const all = { ...visible, [p.id]: p.models.filter((x) => next.includes(x)) };
+    const all = { ...visible, [p.id]: cat.filter((x) => next.includes(x)) };
     setVisible(all);
     void settingsApi.save({ visible_models: all }).catch((e) => setErr(String(e)));
+  }
+
+  // Add a custom model name to a provider. Un-hides it if it was removed, records it as
+  // custom when it's not a built-in, and surfaces it in the chat picker straight away.
+  function addModel(p: ProviderInfo, raw: string) {
+    const m = raw.trim();
+    if (!m) return;
+    const base = p.models ?? [];
+    const cust = custom[p.id] ?? [];
+    const hid = hidden[p.id] ?? [];
+    const preCatalog = effectiveCatalog(base.length ? base : [p.default_model].filter(Boolean), cust, hid);
+    const nextHidden = { ...hidden, [p.id]: hid.filter((x) => x !== m) };
+    const nextCustom =
+      base.includes(m) || cust.includes(m) ? custom : { ...custom, [p.id]: [...cust, m] };
+    const nextVisible = { ...visible, [p.id]: Array.from(new Set([...pickerModels(preCatalog, visible[p.id], ""), m])) };
+    setHidden(nextHidden);
+    setCustom(nextCustom);
+    setVisible(nextVisible);
+    setModelDraft((d) => ({ ...d, [p.id]: "" }));
+    void settingsApi
+      .save({ custom_models: nextCustom, hidden_models: nextHidden, visible_models: nextVisible })
+      .catch((e) => setErr(String(e)));
+  }
+
+  // Remove a model from a provider's list. A custom entry is deleted; a built-in catalog
+  // entry is hidden (it can't be deleted from the shipped catalog). Either way it also
+  // leaves the picker selection.
+  function removeModel(p: ProviderInfo, m: string) {
+    const base = p.models ?? [];
+    const cust = custom[p.id] ?? [];
+    const isCustom = cust.includes(m);
+    const nextCustom = isCustom ? { ...custom, [p.id]: cust.filter((x) => x !== m) } : custom;
+    const nextHidden =
+      !isCustom && base.includes(m)
+        ? { ...hidden, [p.id]: [...(hidden[p.id] ?? []), m] }
+        : hidden;
+    const nextVisible = visible[p.id]
+      ? { ...visible, [p.id]: visible[p.id].filter((x) => x !== m) }
+      : visible;
+    setCustom(nextCustom);
+    setHidden(nextHidden);
+    setVisible(nextVisible);
+    void settingsApi
+      .save({ custom_models: nextCustom, hidden_models: nextHidden, visible_models: nextVisible })
+      .catch((e) => setErr(String(e)));
   }
 
   async function testProvider(id: string) {
@@ -76,8 +143,9 @@ export function ProvidersPage({
       {err && <div className="settings-err">{err}</div>}
       <p className="settings-hint">
         Bring your own key — pick any OpenAI-compatible provider. Keys are stored in the OS
-        keychain and never read back. Click a model to use it now; the eye chooses which
-        models appear in the chat's model picker (a short newest-first list by default).
+        keychain and never read back. Click a model to use it now; add any model name your
+        provider accepts, remove ones you don't use (×), and the eye chooses which appear in
+        the chat's model picker.
       </p>
       <ul className="provider-list">
         {list.map((p) => (
@@ -121,11 +189,15 @@ export function ProvidersPage({
               </div>
             )}
             <div className="model-row">
-              {(p.models.length ? p.models : [p.default_model].filter(Boolean)).map((m) => {
+              {catalogFor(p).map((m) => {
                 const isActive = p.id === active.provider && m === active.model;
                 const isShown = shown(p, m);
+                const isCustom = (custom[p.id] ?? []).includes(m);
                 return (
-                  <span key={m} className={`model-chip ${isActive ? "active" : ""} ${isShown ? "" : "off"}`}>
+                  <span
+                    key={m}
+                    className={`model-chip ${isActive ? "active" : ""} ${isShown ? "" : "off"} ${isCustom ? "custom" : ""}`}
+                  >
                     <button
                       className="model-pick"
                       onClick={() => onPick(p.id, m)}
@@ -143,9 +215,43 @@ export function ProvidersPage({
                     >
                       <Icon name="eye" size={12} />
                     </button>
+                    <button
+                      className="model-del"
+                      aria-label={`Remove ${m} from ${p.label}`}
+                      title="Remove this model"
+                      onClick={() => removeModel(p, m)}
+                    >
+                      <Icon name="x" size={11} />
+                    </button>
                   </span>
                 );
               })}
+              <form
+                className="model-add"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  addModel(p, modelDraft[p.id] ?? "");
+                }}
+              >
+                <input
+                  value={modelDraft[p.id] ?? ""}
+                  onChange={(e) => setModelDraft((d) => ({ ...d, [p.id]: e.target.value }))}
+                  placeholder="Add model…"
+                  aria-label={`Add a custom model to ${p.label}`}
+                  spellCheck={false}
+                  autoCapitalize="off"
+                  autoCorrect="off"
+                />
+                <button
+                  type="submit"
+                  className="model-add-btn"
+                  disabled={!(modelDraft[p.id] ?? "").trim()}
+                  aria-label={`Add model to ${p.label}`}
+                  title="Add this model"
+                >
+                  <Icon name="plus" size={12} />
+                </button>
+              </form>
             </div>
           </li>
         ))}

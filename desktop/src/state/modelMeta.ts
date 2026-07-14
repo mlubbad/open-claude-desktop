@@ -25,6 +25,29 @@ const DESCRIPTORS: [RegExp, string][] = [
   [/sonnet|plus|glm-4-air|glm-4-long|qwen-plus/i, "Most efficient for everyday tasks."],
 ];
 
+// A provider's EFFECTIVE model list: the user's custom additions first (newest
+// intent), then the built-in catalog, with the models the user removed filtered out
+// and duplicates collapsed. This is the single source every surface derives from — the
+// Settings card, the composer picker, and the retry menu — so a custom model name is
+// offered everywhere and a removed one disappears everywhere. All args optional; with no
+// customisation it returns the built-in catalog unchanged.
+export function effectiveCatalog(
+  base: string[],
+  custom?: string[],
+  hidden?: string[],
+): string[] {
+  const hide = new Set(hidden ?? []);
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const m of [...(custom ?? []), ...(base ?? [])]) {
+    const name = (m ?? "").trim();
+    if (!name || hide.has(name) || seen.has(name)) continue;
+    seen.add(name);
+    out.push(name);
+  }
+  return out;
+}
+
 // Without a user selection, the picker shows only the first few of a provider's
 // catalog (catalogs are ordered newest-first) — the rest live in Settings.
 export const DEFAULT_PICKER_COUNT = 6;

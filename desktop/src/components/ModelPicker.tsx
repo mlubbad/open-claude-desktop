@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { type ProviderInfo, providers as providerApi, settings as settingsApi } from "../api/client";
-import { EFFORT_LEVELS, modelDescriptor, pickerModels } from "../state/modelMeta";
+import { effectiveCatalog, EFFORT_LEVELS, modelDescriptor, pickerModels } from "../state/modelMeta";
 import { Icon } from "./Icon";
 
 // The two-column Model + Effort popover opened from the composer's model control
@@ -32,11 +32,20 @@ export function ModelPicker({
 }) {
   const [list, setList] = useState<ProviderInfo[]>([]);
   const [visible, setVisible] = useState<Record<string, string[]>>({});
+  const [custom, setCustom] = useState<Record<string, string[]>>({});
+  const [hidden, setHidden] = useState<Record<string, string[]>>({});
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     providerApi.list().then(setList).catch(() => {});
-    settingsApi.get().then((s) => setVisible(s.visible_models ?? {})).catch(() => {});
+    settingsApi
+      .get()
+      .then((s) => {
+        setVisible(s.visible_models ?? {});
+        setCustom(s.custom_models ?? {});
+        setHidden(s.hidden_models ?? {});
+      })
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -62,9 +71,8 @@ export function ModelPicker({
   // provider list hasn't loaded yet), narrowed to the user's picker selection —
   // or the newest few by default. The rest live behind "More models & keys".
   const active = list.find((p) => p.id === provider);
-  const models = active?.models?.length
-    ? pickerModels(active.models, visible[provider], model)
-    : [model];
+  const catalog = active ? effectiveCatalog(active.models, custom[provider], hidden[provider]) : [];
+  const models = catalog.length ? pickerModels(catalog, visible[provider], model) : [model];
 
   return (
     <div className="mp-pop" ref={ref} role="dialog" aria-label="Model and effort">

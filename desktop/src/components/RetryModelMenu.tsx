@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { type ProviderInfo, providers as providerApi, settings as settingsApi } from "../api/client";
-import { modelDescriptor, pickerModels } from "../state/modelMeta";
+import { effectiveCatalog, modelDescriptor, pickerModels } from "../state/modelMeta";
 import { Icon } from "./Icon";
 
 // Compact popover on the last reply's retry control: pick any usable model — across all
@@ -20,11 +20,20 @@ export function RetryModelMenu({
 }) {
   const [list, setList] = useState<ProviderInfo[]>([]);
   const [visible, setVisible] = useState<Record<string, string[]>>({});
+  const [custom, setCustom] = useState<Record<string, string[]>>({});
+  const [hidden, setHidden] = useState<Record<string, string[]>>({});
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     providerApi.list().then(setList).catch(() => {});
-    settingsApi.get().then((s) => setVisible(s.visible_models ?? {})).catch(() => {});
+    settingsApi
+      .get()
+      .then((s) => {
+        setVisible(s.visible_models ?? {});
+        setCustom(s.custom_models ?? {});
+        setHidden(s.hidden_models ?? {});
+      })
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -58,7 +67,8 @@ export function RetryModelMenu({
           <div className="retry-menu-empty">No ready-to-use models — add a key in Settings.</div>
         )}
         {usable.map((p) => {
-          const models = pickerModels(p.models ?? [], visible[p.id], p.id === current.provider ? current.model : "");
+          const catalog = effectiveCatalog(p.models ?? [], custom[p.id], hidden[p.id]);
+          const models = pickerModels(catalog, visible[p.id], p.id === current.provider ? current.model : "");
           if (!models.length) return null;
           return (
             <div key={p.id} className="retry-menu-group">

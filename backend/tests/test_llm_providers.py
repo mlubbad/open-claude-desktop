@@ -129,33 +129,68 @@ def _fake_client(create):
         chat=types.SimpleNamespace(completions=types.SimpleNamespace(create=create)))
 
 
-def test_probe_provider_success(monkeypatch):
+def _client_with_models(model_ids, create=None):
+    """A fake client exposing the OpenAI-compatible ``models.list()`` (and optionally a
+    completion `create` — which the probe must NOT reach when models.list() succeeds)."""
+    import types
+    def _list():
+        return types.SimpleNamespace(data=[types.SimpleNamespace(id=i) for i in model_ids])
+    def _boom(**_kw):
+        raise AssertionError("completion must not run when /models works")
+    return types.SimpleNamespace(
+        models=types.SimpleNamespace(list=_list),
+        chat=types.SimpleNamespace(completions=types.SimpleNamespace(create=create or _boom)))
+
+
+def test_probe_lists_models_without_needing_the_default_installed(monkeypatch):
+    """The fix: a local runtime with only OTHER models pulled tests as CONNECTED — the
+    probe lists models instead of completing against the (possibly-missing) default."""
+    monkeypatch.setattr(llm_client, "get_client",
+                        lambda pid=None: _client_with_models(["fast-llama", "qwen2.5"]))
+    ok, detail = llm.probe_provider("ollama")  # ships default "llama3.1", NOT installed here
+    assert ok is True
+    assert "2 models" in detail and "reachable" in detail
+
+
+def test_probe_reports_reachable_when_no_models_installed(monkeypatch):
+    monkeypatch.setattr(llm_client, "get_client", lambda pid=None: _client_with_models([]))
+    ok, detail = llm.probe_provider("ollama")
+    assert ok is True and "no models installed" in detail.lower()
+
+
+def test_probe_without_models_endpoint_falls_back_to_a_completion(monkeypatch):
+    # A gateway without /models (fake client has no `.models`) → the 1-token completion
+    # fallback still verifies connectivity (this is the Anthropic-native path).
     def create(model, **kw):
         assert kw.get("max_tokens") == 1  # minimal, cheap probe
         return "ok"
     monkeypatch.setattr(llm_client, "get_client", lambda pid=None: _fake_client(create))
     ok, detail = llm.probe_provider("deepseek")
-    assert ok is True
-    assert "Connected" in detail
+    assert ok is True and "Connected" in detail
 
 
-def test_probe_provider_reports_error(monkeypatch):
+def test_probe_reports_error(monkeypatch):
+    # models.list() raises (unreachable/auth); the completion fallback surfaces the failure.
     def create(model, **kw):
         raise RuntimeError("401 unauthorized")
     monkeypatch.setattr(llm_client, "get_client", lambda pid=None: _fake_client(create))
     ok, detail = llm.probe_provider("deepseek")
-    assert ok is False
-    assert "401" in detail
+    assert ok is False and "401" in detail
 
 
-def test_probe_provider_without_a_model_does_not_connect(monkeypatch):
-    calls = {"n": 0}
-    monkeypatch.setattr(llm_client, "get_client",
-                        lambda pid=None: calls.__setitem__("n", calls["n"] + 1))
-    ok, detail = llm.probe_provider("vllm")  # no default_model, empty models
-    assert ok is False
-    assert "No model" in detail
-    assert calls["n"] == 0  # never attempted a connection
+def test_probe_without_installed_default_surfaces_connection_error(monkeypatch):
+    # vllm has no default model; if /models is unreachable there's nothing to complete
+    # with, so the connection error is reported (not a misleading "no model" message).
+    import types
+    def boom_list():
+        raise RuntimeError("connection refused")
+    fake = types.SimpleNamespace(
+        models=types.SimpleNamespace(list=boom_list),
+        chat=types.SimpleNamespace(completions=types.SimpleNamespace(
+            create=lambda **_k: (_ for _ in ()).throw(AssertionError("no model to complete with")))))
+    monkeypatch.setattr(llm_client, "get_client", lambda pid=None: fake)
+    ok, detail = llm.probe_provider("vllm")
+    assert ok is False and "connection refused" in detail
 
 
 def test_resolve_turn_client_prefix_and_fallback(monkeypatch):

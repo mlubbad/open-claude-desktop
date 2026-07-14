@@ -79,6 +79,17 @@ def get_client_for_model(model: str | None):
     return get_client(pid), bare
 
 
+def list_provider_models(provider_id: str | None = None) -> list[str]:
+    """The model ids the provider's endpoint currently serves, via the OpenAI-compatible
+    ``GET /models`` (implemented by OpenAI, Groq, Mistral, NVIDIA NIM, and the local
+    runtimes). Powers the UI's "Load models" — so a provider with a large or rotating
+    catalog (e.g. NVIDIA) can be populated from its real, live list instead of a guessed
+    hardcoded set. Raises on an unreachable/unauthorized endpoint or one without a models
+    endpoint; callers handle the failure."""
+    listed = get_client(provider_id).models.list()
+    return [i for i in (getattr(m, "id", None) for m in (getattr(listed, "data", None) or [])) if i]
+
+
 def probe_provider(provider_id: str | None = None) -> tuple[bool, str]:
     """Best-effort BYOK connectivity check. Returns (ok, detail); never raises.
 
@@ -99,8 +110,7 @@ def probe_provider(provider_id: str | None = None) -> tuple[bool, str]:
     # Preferred check: list models — reachability + auth, independent of any installed model.
     list_err = ""
     try:
-        listed = client.models.list()
-        ids = [i for i in (getattr(m, "id", None) for m in (getattr(listed, "data", None) or [])) if i]
+        ids = list_provider_models(provider_id)
         n = len(ids)
         if n:
             return True, f"Connected — {prov.label} reachable, {n} model{'' if n == 1 else 's'} available."
@@ -129,9 +139,15 @@ def resolve_turn_client(model: str | None, provider: str | None = None):
     ``provider/model`` prefix on ``model``, else the configured default provider.
     The fallback model is the resolved provider's own default model (so a failed
     turn retries within the SAME provider/client, never on an unrelated one).
+
+    When the provider is EXPLICIT the model is used VERBATIM — it is not split. NVIDIA NIM
+    (and OpenRouter/Together) use vendor-prefixed ids like ``qwen/…``, ``nvidia/…``,
+    ``openai/gpt-oss-…`` whose prefix collides with a provider id; splitting would strip a
+    prefix the endpoint actually needs and send the wrong model. The prefix split only
+    applies when the provider must be INFERRED from the model string.
     """
     if provider:
-        pid, bare = provider, split_model(model)[1]
+        pid, bare = provider, (model or "").strip()
     else:
         pid, bare = split_model(model)
     client = get_client(pid)

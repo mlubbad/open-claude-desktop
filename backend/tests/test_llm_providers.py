@@ -207,3 +207,47 @@ def test_resolve_turn_client_missing_key_raises(monkeypatch):
     monkeypatch.delenv("LLM_API_KEY", raising=False)
     with pytest.raises(llm.LLMConfigError):
         llm.resolve_turn_client("gpt-4o", provider="openai")
+
+
+# ---- NVIDIA NIM provider + live model loading ------------------------------------------
+
+def test_nvidia_provider_in_catalog():
+    assert "nvidia" in {p.id for p in llm.list_providers()}
+    p = llm.get_provider("nvidia")
+    assert "integrate.api.nvidia.com" in (p.base_url or "")
+    assert p.requires_key is True and p.is_local is False
+    assert p.default_model == "z-ai/glm-5.2" and "z-ai/glm-5.2" in p.models
+
+
+def test_explicit_provider_keeps_vendor_prefixed_model_verbatim():
+    # NVIDIA/OpenRouter-style ids whose vendor prefix collides with a provider id
+    # ("qwen/", "nvidia/", "openai/") must NOT be split when the provider is explicit —
+    # the endpoint needs the FULL id, else the wrong model is sent.
+    llm_keys.set_api_key("nvidia", "sk-x")
+    for mid in ("qwen/qwen2.5-coder-32b-instruct",
+                "nvidia/llama-3.1-nemotron-70b-instruct",
+                "openai/gpt-oss-120b", "z-ai/glm-5.2"):
+        _client, model, _fallback = llm.resolve_turn_client(mid, provider="nvidia")
+        assert model == mid  # verbatim, prefix intact
+
+
+def test_list_provider_models_returns_live_ids(monkeypatch):
+    monkeypatch.setattr(llm_client, "get_client",
+                        lambda pid=None: _client_with_models(["a", "b", "c"]))
+    assert llm.list_provider_models("nvidia") == ["a", "b", "c"]
+
+
+def test_available_models_route_lists_and_reports_failure(monkeypatch):
+    from app.main import app
+    from fastapi.testclient import TestClient
+    c = TestClient(app)
+    monkeypatch.setattr(llm_client, "get_client",
+                        lambda pid=None: _client_with_models(["z-ai/glm-5.2", "meta/llama-3.3-70b-instruct"]))
+    ok = c.get("/providers/nvidia/available-models").json()
+    assert ok["ok"] is True and "z-ai/glm-5.2" in ok["models"]
+
+    def boom(pid=None):
+        raise RuntimeError("connection refused")
+    monkeypatch.setattr(llm_client, "get_client", boom)
+    bad = c.get("/providers/nvidia/available-models").json()
+    assert bad["ok"] is False and bad["models"] == [] and "connection refused" in bad["detail"]

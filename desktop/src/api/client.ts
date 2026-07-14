@@ -224,6 +224,9 @@ export const providers = {
   setKey: (id: string, key: string) => api.put<{ id: string; has_key: boolean }>(`/providers/${id}/key`, { key }),
   deleteKey: (id: string) => api.del<{ id: string; has_key: boolean }>(`/providers/${id}/key`),
   test: (id: string) => api.post<{ id: string; ok: boolean; detail: string }>(`/providers/${id}/test`),
+  // The provider's live model catalog (GET /models) — for the "Load models" action.
+  availableModels: (id: string) =>
+    api.get<{ id: string; ok: boolean; models: string[]; detail?: string }>(`/providers/${id}/available-models`),
 };
 
 export interface AgentTurnRequest {

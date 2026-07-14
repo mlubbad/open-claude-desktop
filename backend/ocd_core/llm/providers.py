@@ -88,6 +88,19 @@ _BUILTINS: tuple[Provider, ...] = (
              ("mistral-large-latest", "mistral-small-latest",
               "open-mixtral-8x22b", "codestral-latest"),
              docs="https://docs.mistral.ai"),
+    # NVIDIA NIM: one OpenAI-compatible endpoint fronting build.nvidia.com's large,
+    # frequently-rotating catalog of open models. Model ids are vendor-prefixed
+    # ("z-ai/glm-5.2", "meta/llama-3.3-70b-instruct", "nvidia/…"). This is a starter set
+    # led by the GLM-5.2 flagship — use "Load models" on the card to pull the provider's
+    # full live catalog, or type any id the endpoint accepts.
+    Provider("nvidia", "NVIDIA NIM", "https://integrate.api.nvidia.com/v1",
+             "NVIDIA_API_KEY", "z-ai/glm-5.2",
+             ("z-ai/glm-5.2", "deepseek-ai/deepseek-r1",
+              "meta/llama-3.3-70b-instruct", "meta/llama-3.1-8b-instruct",
+              "qwen/qwen2.5-coder-32b-instruct",
+              "nvidia/llama-3.1-nemotron-70b-instruct",
+              "openai/gpt-oss-120b", "mistralai/mixtral-8x22b-instruct-v0.1"),
+             docs="https://build.nvidia.com/models"),
     Provider("ollama", "Ollama (local)", "http://localhost:11434/v1", "OLLAMA_API_KEY",
              "llama3.1",
              ("llama3.1", "llama3.2", "llama3", "qwen2.5",

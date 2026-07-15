@@ -1580,8 +1580,10 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-
 .modal-textarea.tall { min-height: 240px; }
 
 /* ---------- Settings window (Claude Desktop clone) ---------- */
-/* Chat font preference: "sans" swaps the serif display face app-wide. */
-html[data-chat-font="sans"] { --font-serif: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+/* Chat font preference: the chosen font is applied app-wide by setting an inline
+   `--font-serif` on <html> (see state/uiPrefs.ts). The default "serif" clears that
+   inline value so the editorial :root stack above applies. `data-chat-font` is still
+   stamped for styling hooks/tests. */
 /* Motion preference: "reduced" collapses animations/transitions. */
 html[data-motion="reduced"] *, html[data-motion="reduced"] *::before, html[data-motion="reduced"] *::after {
   animation-duration: 0.001s !important; transition-duration: 0.001s !important;

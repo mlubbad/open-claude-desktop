@@ -1,18 +1,53 @@
 // Local UI preferences that need no backend: chat font and motion. Persisted in
-// localStorage and applied as data-attributes on <html>, which styles.css picks up
-// (data-chat-font="serif|sans", data-motion="system|reduced").
+// localStorage and applied to <html> at startup and after every change. Motion is a
+// data-attribute (data-motion="system|reduced") that styles.css keys off; the chat
+// font drives the `--font-serif` custom property directly (inline style on <html>),
+// so picking a font re-flows every surface that reads var(--font-serif) — the whole app.
 
-export type ChatFont = "serif" | "sans";
 export type MotionPref = "system" | "reduced";
+
+// A selectable font. `stack` is the CSS font-family value applied to `--font-serif`;
+// `null` means "use the default stack from :root" (the editorial serif chain), so the
+// default option clears the override rather than duplicating that long stack here.
+export interface FontOption {
+  value: string;
+  label: string;
+  stack: string | null;
+}
+
+// The fonts offered in Settings → Chat font. Only concrete, resolvable families:
+// the default editorial serif, the bundled open Noto Serif (always renders), two
+// widely-installed classic serifs, and the system sans. We intentionally do NOT list
+// the proprietary "Anthropic Serif" as its own option — the default "Serif" already
+// prefers it by name (falling back to the bundled Noto Serif) via the :root stack.
+export const FONT_OPTIONS: FontOption[] = [
+  { value: "serif", label: "Serif", stack: null },
+  { value: "noto", label: "Noto Serif", stack: '"Noto Serif", Georgia, serif' },
+  { value: "georgia", label: "Georgia", stack: 'Georgia, "Times New Roman", Times, serif' },
+  { value: "times", label: "Times New Roman", stack: '"Times New Roman", Times, serif' },
+  { value: "system", label: "System Sans", stack: 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif' },
+  { value: "mono", label: "Monospace", stack: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace' },
+];
+
+export type ChatFont = (typeof FONT_OPTIONS)[number]["value"];
+
+const DEFAULT_FONT: ChatFont = "serif";
 
 const FONT_KEY = "ocd.chatFont";
 const MOTION_KEY = "ocd.motion";
 
+function fontOption(value: string): FontOption | undefined {
+  return FONT_OPTIONS.find((o) => o.value === value);
+}
+
 export function getChatFont(): ChatFont {
   try {
-    return localStorage.getItem(FONT_KEY) === "sans" ? "sans" : "serif";
+    const v = localStorage.getItem(FONT_KEY);
+    // "sans" is the legacy key for the system-sans option; keep it working.
+    if (v === "sans") return "system";
+    return v && fontOption(v) ? v : DEFAULT_FONT;
   } catch {
-    return "serif";
+    return DEFAULT_FONT;
   }
 }
 
@@ -45,6 +80,12 @@ export function setMotion(m: MotionPref): void {
 // Stamp the current preferences onto <html>; call once at startup and after changes.
 export function applyUiPrefs(): void {
   if (typeof document === "undefined") return;
-  document.documentElement.dataset.chatFont = getChatFont();
-  document.documentElement.dataset.motion = getMotion();
+  const root = document.documentElement;
+  const font = getChatFont();
+  root.dataset.chatFont = font;
+  const stack = fontOption(font)?.stack ?? null;
+  // Inline `--font-serif` wins over the :root stack; clearing it restores the default.
+  if (stack) root.style.setProperty("--font-serif", stack);
+  else root.style.removeProperty("--font-serif");
+  root.dataset.motion = getMotion();
 }

@@ -24,10 +24,14 @@ export function useAutoScroll<T extends HTMLElement>(deps: DependencyList) {
     if (el) el.scrollTo({ top: el.scrollHeight, behavior });
   }, []);
 
-  // Follow new content when already near the bottom.
+  // Follow new content when already near the bottom; otherwise the content grew below
+  // the fold, so surface the jump affordance (streaming a reply pushes the bottom down
+  // WITHOUT firing a scroll event, so recompute it here too — not only on scroll).
   useEffect(() => {
     const el = ref.current;
-    if (el && isNearBottom(el)) scrollToBottom();
+    if (!el) return;
+    if (isNearBottom(el)) scrollToBottom();
+    else setShowJump(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps);
 

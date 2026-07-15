@@ -95,13 +95,13 @@ def test_kb_empty_returns_a_graceful_no_match(monkeypatch):
     assert result["summary"] == "no matches"
 
 
-def test_images_ride_the_user_message_as_multimodal_parts(monkeypatch):
-    """P0-2: data-URI images become OpenAI-style content parts on THIS turn's user
-    message; without images the content stays a plain string."""
+def test_vision_model_gets_images_as_multimodal_parts(monkeypatch):
+    """P0-2: for a VISION-capable model, data-URI images become OpenAI-style content parts
+    on THIS turn's user message; without images the content stays a plain string."""
     captured: dict = {}
     _wire(monkeypatch, captured)
     uri = "data:image/png;base64,iVBORw0KGgo="
-    _drive(agent.run_turn("what is in this picture?", [], None, "m",
+    _drive(agent.run_turn("what is in this picture?", [], None, "gpt-4o",
                           effort="Low", images=[uri]))
     user = next(m for m in captured["messages"] if m["role"] == "user")
     assert isinstance(user["content"], list)
@@ -110,9 +110,25 @@ def test_images_ride_the_user_message_as_multimodal_parts(monkeypatch):
 
     captured2: dict = {}
     _wire(monkeypatch, captured2)
-    _drive(agent.run_turn("plain", [], None, "m", effort="Low"))
+    _drive(agent.run_turn("plain", [], None, "gpt-4o", effort="Low"))
     user2 = next(m for m in captured2["messages"] if m["role"] == "user")
     assert user2["content"] == "plain"
+
+
+def test_text_only_model_gets_images_described_as_text(monkeypatch):
+    """A text-only model can't take vision parts, so attached images are described by a
+    configured vision model and injected as TEXT (root-cause fix for 'I can't see the
+    image'). The content stays a plain string the model can actually read."""
+    captured: dict = {}
+    _wire(monkeypatch, captured)
+    monkeypatch.setattr(agent.vision, "image_context",
+                        lambda imgs: "[image content: a bar chart of monthly revenue]")
+    uri = "data:image/png;base64,iVBORw0KGgo="
+    _drive(agent.run_turn("build this table", [], None, "m", effort="Low", images=[uri]))
+    user = next(m for m in captured["messages"] if m["role"] == "user")
+    assert isinstance(user["content"], str)
+    assert "build this table" in user["content"]
+    assert "bar chart of monthly revenue" in user["content"]
 
 
 def test_kb_search_is_read_only_safe():

@@ -6,10 +6,10 @@ import { Icon } from "./Icon";
 
 export type SurfaceView = "chat" | "cowork" | "code";
 
-// The app sidebar: surface switcher (Chat / Cowork / Code) at the top, primary nav
-// (New chat, Projects, Artifacts, Customize), a distinct Pinned section above the
-// Recents list, each row carrying a ⋮ overflow menu (pin/rename/move/delete), and
-// the workspace footer. All conversation/project functions survive.
+// The app sidebar: surface switcher (Home / Code) at the top — Cowork is a mode on the
+// Home composer, not a separate tab — primary nav (New chat, Projects, Artifacts,
+// Customize), a distinct Pinned section above the Recents list, each row carrying a ⋮
+// overflow menu (pin/rename/move/delete), and the user footer. All functions survive.
 export function Sidebar({
   view,
   onView,
@@ -30,6 +30,7 @@ export function Sidebar({
   onMove,
   onCustomize,
   modelLabel,
+  userName,
 }: {
   view: SurfaceView;
   onView: (v: SurfaceView) => void;
@@ -50,6 +51,7 @@ export function Sidebar({
   onMove: (cid: string, pid: string, dstProjectId: string) => void;
   onCustomize: () => void;
   modelLabel: string;
+  userName?: string;
 }) {
   const [renaming, setRenaming] = useState<{ id: string; draft: string } | null>(null);
   const [menuFor, setMenuFor] = useState<string | null>(null); // conv id with its ⋮ menu open
@@ -139,17 +141,22 @@ export function Sidebar({
   return (
     <aside className="sidebar">
       <div className="side-tabs" role="tablist" aria-label="Surface">
-        {(["chat", "cowork", "code"] as const).map((v) => (
-          <button
-            key={v}
-            role="tab"
-            aria-selected={view === v}
-            className={`side-tab ${view === v ? "active" : ""}`}
-            onClick={() => onView(v)}
-          >
-            {v === "chat" ? "Chat" : v === "cowork" ? "Cowork" : "Code"}
-          </button>
-        ))}
+        {(["chat", "code"] as const).map((v) => {
+          // Cowork isn't a tab — it's a mode of the Home composer — so "Home" stays
+          // selected while the Cowork surface is open (view === "cowork").
+          const active = v === "chat" ? view !== "code" : view === "code";
+          return (
+            <button
+              key={v}
+              role="tab"
+              aria-selected={active}
+              className={`side-tab ${active ? "active" : ""}`}
+              onClick={() => onView(v)}
+            >
+              {v === "chat" ? "Home" : "Code"}
+            </button>
+          );
+        })}
       </div>
 
       <nav className="side-nav">
@@ -211,7 +218,7 @@ export function Sidebar({
       <button className="side-foot" onClick={onCustomize} title="Settings">
         <span className="side-avatar" aria-hidden="true" />
         <span className="side-foot-meta">
-          <span className="side-foot-name">Workspace</span>
+          <span className="side-foot-name">{userName || "Workspace"}</span>
           <span className="side-foot-sub">{modelLabel}</span>
         </span>
         <span className="side-caret">⌄</span>

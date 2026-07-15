@@ -732,6 +732,9 @@ export default function App() {
               }}
             />
           )}
+          {/* Sentinel at the very end of the transcript: the jump-to-latest button shows
+              exactly when this is off-screen (see useAutoScroll). */}
+          <div ref={scroll.bottomRef} className="scroll-sentinel" aria-hidden="true" />
         </main>
         )}
 

@@ -49,3 +49,28 @@ def has_key(provider_id: str | None = None) -> bool:
     if not prov.requires_key:
         return True
     return bool(get_api_key(prov.id))
+
+
+def has_key_map(provider_ids: list[str]) -> dict[str, bool]:
+    """Resolve ``has_key`` for many providers, reading the secret store CONCURRENTLY.
+
+    Each OS-keychain read is a slow IPC round-trip; done serially (as GET /providers
+    did) ~10 hosted providers cost the sum of every read and dominate the settings
+    page's load. Reading them in a small thread pool collapses that to roughly one
+    read's latency. The current workspace is snapshotted and re-bound inside each
+    worker so tenant-scoped secrets still resolve under the right namespace (worker
+    threads don't inherit the request's ContextVar automatically)."""
+    ids = list(provider_ids)
+    if len(ids) <= 1:
+        return {pid: has_key(pid) for pid in ids}
+    from concurrent.futures import ThreadPoolExecutor
+
+    from .. import tenancy
+    ws = tenancy.current_workspace()
+
+    def _one(pid: str) -> bool:
+        with tenancy.use_workspace(ws):
+            return has_key(pid)
+
+    with ThreadPoolExecutor(max_workers=min(8, len(ids))) as ex:
+        return dict(zip(ids, ex.map(_one, ids), strict=True))

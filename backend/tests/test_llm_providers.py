@@ -76,6 +76,25 @@ def test_local_provider_needs_no_key(monkeypatch):
     assert llm_keys.has_key("ollama") is True  # local runtimes are always usable
 
 
+def test_has_key_map_matches_serial_reads(monkeypatch):
+    # The concurrent sweep the /providers route uses must agree with per-provider has_key.
+    for env in ("OPENAI_API_KEY", "DEEPSEEK_API_KEY", "GROQ_API_KEY", "MISTRAL_API_KEY"):
+        monkeypatch.delenv(env, raising=False)
+    llm_keys.set_api_key("deepseek", "sk-stored")
+    ids = ["openai", "deepseek", "ollama", "vllm", "groq"]
+    result = llm_keys.has_key_map(ids)
+    assert result == {pid: llm_keys.has_key(pid) for pid in ids}
+    # Spot-check the semantics: local providers usable, only the keyed one is set.
+    assert result["deepseek"] is True
+    assert result["openai"] is False and result["groq"] is False
+    assert result["ollama"] is True and result["vllm"] is True  # local
+
+
+def test_has_key_map_handles_empty_and_single():
+    assert llm_keys.has_key_map([]) == {}
+    assert llm_keys.has_key_map(["ollama"]) == {"ollama": True}
+
+
 def test_get_client_requires_key_for_hosted(monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("LLM_API_KEY", raising=False)

@@ -883,6 +883,27 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-
 .settings-close:hover { color: var(--text); }
 .settings-page-body { flex: 1; overflow-y: auto; padding: 4px 24px 24px; }
 .settings-hint { font-size: 13px; color: var(--muted); margin: 0 0 14px; }
+
+/* Inline loading state (e.g. Models & keys while the provider list resolves). */
+.settings-loading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 13px;
+  padding: 18px 4px;
+}
+.spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  flex: none;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 2s; } }
 .settings-subhead { font-size: 15px; margin: 18px 0 8px; }
 .settings-toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
 .settings-toolbar-spacer { flex: 1; }

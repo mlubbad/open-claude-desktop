@@ -43,6 +43,13 @@ describe("ProvidersPage — custom models", () => {
     expect(screen.getByRole("button", { name: "llama3.2" })).toBeInTheDocument();
   });
 
+  it("shows a loading spinner until the providers resolve, then hides it", async () => {
+    render(<ProvidersPage active={active} onPick={noop} />);
+    expect(screen.getByText(/Loading providers/i)).toBeInTheDocument();
+    await screen.findByRole("button", { name: "llama3.1" });
+    expect(screen.queryByText(/Loading providers/i)).not.toBeInTheDocument();
+  });
+
   it("adding a model persists it under custom_models", async () => {
     render(<ProvidersPage active={active} onPick={noop} />);
     const input = await screen.findByLabelText("Add a custom model to Ollama");

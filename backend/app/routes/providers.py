@@ -20,23 +20,29 @@ class KeyBody(BaseModel):
     key: str
 
 
-def _provider_view(p) -> dict:
+def _provider_view(p, *, has_key: bool, default_id: str) -> dict:
     return {
         "id": p.id,
         "label": p.label,
         "is_local": p.is_local,
         "requires_key": p.requires_key,
-        "has_key": llm_keys.has_key(p.id),
+        "has_key": has_key,
         "default_model": p.default_model,
         "models": list(p.models),
         "docs": p.docs,
-        "is_default": p.id == llm.default_provider_id(),
+        "is_default": p.id == default_id,
     }
 
 
 @router.get("/providers")
 def list_providers(user: str = Depends(current_user)) -> list[dict]:
-    return [_provider_view(p) for p in llm.list_providers()]
+    # has_key is a per-provider secret-store read (a slow OS-keychain IPC on the desktop);
+    # resolve them all in ONE concurrent sweep instead of N serial round-trips, and read
+    # the default provider once rather than per row.
+    provs = llm.list_providers()
+    keys = llm_keys.has_key_map([p.id for p in provs])
+    default_id = llm.default_provider_id()
+    return [_provider_view(p, has_key=keys[p.id], default_id=default_id) for p in provs]
 
 
 @router.put("/providers/{provider_id}/key")

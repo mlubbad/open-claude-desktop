@@ -16,7 +16,7 @@ from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from . import agent, config, cowork, jsonstore, opik_tracing, tenancy
+from . import agent, config, cowork, jobqueue, jsonstore, opik_tracing, tenancy
 
 
 def _now() -> datetime:
@@ -145,9 +145,36 @@ def default_launch(s: Schedule) -> str:
             model=model, provider=s.provider, effort=s.effort).id
 
 
+def _run_schedule_job(payload: dict) -> str | None:
+    """Durable-queue runner for a scheduled automation: reload the schedule by id and
+    launch it. Runs on whichever worker claimed the job — its workspace was already
+    re-bound by `jobqueue.dispatch`, and `default_launch` re-binds it again (idempotent)."""
+    sid = (payload or {}).get("schedule_id")
+    if not sid:
+        return None
+    s = next((x for x in ScheduleStore().load() if x.id == sid), None)
+    return default_launch(s) if s else None
+
+
+jobqueue.register_runner("run_schedule", _run_schedule_job)
+
+
+def _dispatch_launch(s: Schedule) -> str:
+    """The scheduler's launcher. Durable queue ON → enqueue an idempotent ``run_schedule``
+    job any node's worker can claim and run; OFF (default) → launch inline exactly as
+    before. The dedup_key (schedule id + its prior last_run) makes two nodes racing to
+    fire the SAME occurrence enqueue a single job."""
+    if jobqueue.enabled():
+        jid = jobqueue.get_job_queue().enqueue(
+            "run_schedule", {"schedule_id": s.id},
+            dedup_key=f"schedule:{s.id}:{s.last_run or ''}", workspace=s.workspace)
+        return jid or ""
+    return default_launch(s)
+
+
 class SchedulerService:
     def __init__(self, store: ScheduleStore | None = None,
-                 launch: Callable[[Schedule], str] = default_launch) -> None:
+                 launch: Callable[[Schedule], str] = _dispatch_launch) -> None:
         self.store = store or ScheduleStore()
         self.launch = launch
         # schedule id -> the task id of its most recent launch, for the overlap guard.

@@ -71,13 +71,21 @@ async def lifespan(_: FastAPI):
     if os.getenv("SCHEDULER_ENABLED", "1").strip().lower() in ("1", "true", "yes"):
         interval = int(os.getenv("SCHEDULER_INTERVAL_SEC", "30"))
         ticker = asyncio.create_task(scheduler.run_loop(interval_seconds=interval))
+    # Durable-queue worker (opt-in, OCD_JOB_QUEUE=sql): claim + run enqueued background
+    # jobs, reclaiming any a dead node abandoned. A no-op for the default in-process
+    # queue (jobs run at enqueue), so this task simply returns immediately then.
+    worker = None
+    from ocd_core import jobqueue
+    if jobqueue.enabled():
+        worker = asyncio.create_task(jobqueue.run_worker())
     try:
         yield
     finally:
-        if ticker is not None:
-            ticker.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await ticker
+        for bg in (ticker, worker):
+            if bg is not None:
+                bg.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await bg
         # Persist Cowork task state (cancel + save any still-running tasks) so a
         # graceful shutdown doesn't lose transcripts.
         from ocd_core import cowork

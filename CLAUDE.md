@@ -147,11 +147,22 @@ unchanged); `OCD_BLOB_BACKEND=s3` swaps in `S3BlobStore` (lazy boto3, `OCD_S3_BU
 `_ENDPOINT`) with a per-node `.blobcache` so the path-based extractors + the code-exec knowledge
 mirror keep working. Blob keys are workspace-namespaced via `tenancy.namespace()` (defense in
 depth); `knowledge.py` (save/list/delete/reindex) + the two direct-path consumers in
-`integrations.py` (`_sync_project_knowledge`, GitHub-repo KB ingest) route through it. NOT yet
-built (last slice): a durable job queue for multi-node Cowork/scheduler scale. Operator guide
-(enabling it, the auth env, object storage, per-workspace behavior, single-node caveats):
-`docs/hosted-deployment.md`. Tests: `test_tenancy.py`, `test_tenancy_stores.py`,
-`test_tenancy_background.py`, `test_auth_identity.py`, `test_blobstore.py`.
+`integrations.py` (`_sync_project_knowledge`, GitHub-repo KB ingest) route through it. Background
+work goes through a pluggable **job queue** (`ocd_core.jobqueue`, `get_job_queue()`): default
+`InProcessJobQueue` runs an enqueued job IMMEDIATELY via its registered runner (the pre-queue
+inline behavior — desktop unchanged); `OCD_JOB_QUEUE=sql` swaps in `SqlJobQueue`, a DB-backed
+`Job` table (created by create_all + an Alembic migration) with atomic claim (guarded conditional
+UPDATE), time-boxed lease, `heartbeat`, and `reclaim_expired` (a dead node's job is requeued, or
+failed once `max_attempts` is spent); `dedup_key` (UNIQUE) makes racing nodes enqueue one job. A
+`kind → runner` registry (`register_runner`) keeps job specs serializable (payload dict, not a
+closure) so any node can run them; `app.main` starts a `run_worker()` in durable mode. The
+scheduler registers `run_schedule` and `_dispatch_launch` enqueues in durable mode / launches
+inline by default; workspace is re-bound around each run. Both stores follow the same off-by-default
+pluggable pattern as tenancy. Multi-node's last gap is the shared schedule store (`schedules.json`
+→ DB), noted in the operator guide. Operator guide (enabling it, the auth env, object storage,
+durable queue, per-workspace behavior, single-node caveats): `docs/hosted-deployment.md`. Tests:
+`test_tenancy.py`, `test_tenancy_stores.py`, `test_tenancy_background.py`, `test_auth_identity.py`,
+`test_blobstore.py`, `test_jobqueue.py`.
 
 ## Working conventions
 

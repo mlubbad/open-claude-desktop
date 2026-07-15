@@ -122,7 +122,9 @@ body { margin: 0; background: var(--bg); color: var(--text); line-height: 1.55; 
 .app-shell { display: flex; height: 100vh; }
 .app { flex: 1; display: flex; flex-direction: column; min-width: 0; position: relative; }
 .workarea { flex: 1; display: flex; min-height: 0; }
-.chat-col { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+/* position:relative makes it the containing block for the absolutely-positioned
+   jump-to-latest button, so the ↓ anchors just above the composer (not the viewport). */
+.chat-col { flex: 1; display: flex; flex-direction: column; min-width: 0; position: relative; }
 
 /* Focus visibility (guide: accent border + soft accent ring on focus). */
 input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-visible {
@@ -719,8 +721,15 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-
   background: var(--surface-2); }
 .attach-del { border: none; background: none; color: var(--muted); cursor: pointer; padding: 0;
   font-size: 12px; width: auto; height: auto; }
-.attach-chip.attach-img { padding: 3px; border-radius: 10px; }
-.attach-thumb { width: 48px; height: 48px; object-fit: cover; border-radius: 8px; display: block; }
+/* Image attachments show a LARGE preview (Claude-Desktop style) with a corner ✕. */
+.attach-chip.attach-img { padding: 0; border: none; background: none; border-radius: 12px;
+  position: relative; }
+.attach-thumb { height: 96px; width: auto; max-width: 220px; min-width: 60px;
+  object-fit: cover; border-radius: 12px; display: block; border: 1px solid var(--border); }
+.attach-img .attach-del { position: absolute; top: 5px; right: 5px; width: 20px; height: 20px;
+  display: flex; align-items: center; justify-content: center; border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55); color: #fff; font-size: 11px; }
+.attach-img .attach-del:hover { background: rgba(0, 0, 0, 0.78); color: #fff; }
 /* Drag-and-drop target state + overlay ("Drop files to attach"). */
 .composer.dragging { outline: 2px dashed var(--accent); outline-offset: -2px; }
 .composer-drop-overlay { position: absolute; inset: 0; z-index: 30; display: flex;
@@ -765,8 +774,9 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-
 .slash-desc { font-size: 12px; opacity: 0.75; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .composer textarea { width: 100%; border: none; outline: none; resize: none; background: transparent;
   color: var(--text); font: inherit; font-size: 14.5px; line-height: 1.5;
-  /* Auto-grows to fit content (height set from JS to scrollHeight); past this it scrolls. */
-  max-height: 40vh; overflow-y: auto; display: block; }
+  /* Auto-grows to fit content (height set from JS to scrollHeight in Composer) so the whole
+     message stays visible while typing; only once it reaches this cap does it scroll. */
+  max-height: 50vh; overflow-y: auto; display: block; }
 .composer textarea:focus-visible { box-shadow: none; }
 
 .palette-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.35);

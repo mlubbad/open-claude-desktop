@@ -8,6 +8,8 @@
   `src/styles.css`, so a refined serif renders on any platform even when no system
   serif is installed.
 
-The proprietary **"Anthropic Serif"** family (and its `Anthropic Serif Fallback *`
-metric fonts) is **not** bundled here — it is only referenced by name in the CSS
-fallback stack and is used solely when the viewer's OS already has it installed.
+The **"Anthropic Serif"** family (the product's primary typeface) IS now bundled,
+at the project owner's direction, under [`anthropic/`](./anthropic/) — see that
+folder's `README.md` for the weights, wiring, and a licensing note (it is a
+proprietary face, unlike the OFL Noto Serif here). Noto Serif remains the open
+fallback so a quality serif renders even if the Anthropic faces fail to load.

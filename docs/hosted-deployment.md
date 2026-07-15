@@ -130,6 +130,25 @@ OCD_S3_ENDPOINT=https://…           # optional; set for MinIO / Cloudflare R2 
 Blob keys are workspace-namespaced when tenancy is enforcing (the `local` workspace and flag-off
 keep the historical unprefixed key), so two tenants' uploads never collide.
 
+### Durable job queue for background work
+
+Scheduled automations run through a pluggable job queue. **Default (`inprocess`)** runs an
+enqueued job immediately in-process — exactly the pre-queue behavior, no config needed. Flip
+`OCD_JOB_QUEUE=sql` for a durable, DB-backed queue: enqueued jobs become rows in the shared
+database, and each node runs a worker that atomically **claims** a due job under a time-boxed
+**lease**, runs it, and marks it done. A worker that dies mid-job lets its lease expire; the
+next `reclaim_expired()` returns the job to the queue for another node (at-least-once dispatch).
+A `dedup_key` makes two nodes racing to fire the same scheduled occurrence enqueue a single job.
+
+```bash
+OCD_JOB_QUEUE=sql          # default "inprocess" (run at enqueue). "sql" = durable DB-backed queue.
+# Uses the same DATABASE_URL as everything else — point it at shared Postgres for multi-node.
+```
+
+Multi-node caveat: the durable queue makes background *execution* node-independent, but the
+schedule *definitions* still live in `schedules.json` on local disk. For more than one node,
+put that on a shared volume (or a single ticker node) until it moves into the DB.
+
 `OCD_API_TOKEN` is a **desktop-only** loopback secret (the shell mints it per launch); a hosted
 deployment does not set it — use the auth modes in §2 instead.
 
@@ -138,19 +157,19 @@ configured (`netguard`), so a hosted deploy must set an auth mode before it will
 
 ---
 
-## 5. Not yet built (single-node works today)
+## 5. Multi-node checklist
 
-The tenancy **isolation** guarantees above are complete, so a **single-node** hosted deployment
-is supported now. Uploads are no longer node-bound — the pluggable blob store (§4) can be pointed
-at shared S3-compatible object storage. One piece is still required before running **more than one
-backend node**:
+The tenancy **isolation** guarantees above are complete, and the two former single-node
+constraints now have pluggable answers:
 
-- **Durable job queue.** Cowork tasks and the scheduler ticker run as in-process asyncio work,
-  so background jobs are bound to the node that started them and don't survive a restart. Multi-
-  node scale needs a durable queue any node can pick from. *(Not yet abstracted.)*
+- **Shared Postgres** (`DATABASE_URL`) — projects, conversations, and the durable job queue.
+- **Shared object storage** (`OCD_BLOB_BACKEND=s3`, §4) — uploaded knowledge files.
+- **Durable job queue** (`OCD_JOB_QUEUE=sql`, §4) — background job execution any node can pick up.
+- **Shared schedule store** — put `schedules.json` on a shared volume, or run the ticker on one
+  node, until schedule definitions move into the DB.
 
-Until that lands, run the hosted service as a single backend node (with a shared Postgres and,
-optionally, shared object storage).
+A single-node deployment needs none of these — the local defaults (SQLite, filesystem, in-process
+queue) work out of the box.
 
 ---
 

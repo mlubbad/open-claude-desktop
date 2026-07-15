@@ -1,4 +1,4 @@
-"""SQLModel tables for ocd_core persistence (Phase 2): Project, Conversation."""
+"""SQLModel tables for ocd_core persistence (Phase 2): Project, Conversation, Job."""
 from __future__ import annotations
 
 from datetime import UTC, datetime
@@ -45,6 +45,29 @@ class Conversation(SQLModel, table=True):
     # than silently clobbering the newer transcript.
     version: int = Field(default=1)
     owner_id: str | None = Field(default=None, index=True)
+    workspace_id: str | None = Field(default=None, index=True)
+    created_at: datetime = Field(default_factory=utcnow)
+    updated_at: datetime = Field(default_factory=utcnow)
+
+
+class Job(SQLModel, table=True):
+    """A durable background job (hosted-SaaS slice 4c). Rows exist only when the durable
+    queue backend is selected (OCD_JOB_QUEUE=sql); the default in-process queue never
+    touches this table. `payload` is the serializable spec a runner rebuilds the work
+    from; `dedup_key` is UNIQUE so two nodes racing to enqueue one occurrence make one
+    job; `status`/`worker_id`/`lease_expires_at` drive atomic claim + lease reclaim."""
+
+    id: str = Field(primary_key=True)                 # uuid hex
+    kind: str = Field(index=True)                      # runner key, e.g. "run_schedule"
+    payload: dict = Field(default_factory=dict, sa_column=Column(JSON))
+    status: str = Field(default="queued", index=True)  # queued | running | done | failed
+    dedup_key: str | None = Field(default=None, unique=True)
+    run_at: datetime = Field(default_factory=utcnow, index=True)  # not-before time
+    attempts: int = Field(default=0)
+    max_attempts: int = Field(default=3)
+    worker_id: str | None = Field(default=None)
+    lease_expires_at: datetime | None = Field(default=None)
+    last_error: str | None = Field(default=None)
     workspace_id: str | None = Field(default=None, index=True)
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)

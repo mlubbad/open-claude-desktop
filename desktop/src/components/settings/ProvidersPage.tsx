@@ -15,6 +15,7 @@ export function ProvidersPage({
   onPick: (provider: string, model: string) => void;
 }) {
   const [list, setList] = useState<ProviderInfo[]>([]);
+  const [listLoading, setListLoading] = useState(true);
   const [keyDraft, setKeyDraft] = useState<Record<string, string>>({});
   const [err, setErr] = useState<string | null>(null);
   const [probing, setProbing] = useState<string | null>(null);
@@ -33,6 +34,8 @@ export function ProvidersPage({
       setList(await providers.list());
     } catch (e) {
       setErr(String(e));
+    } finally {
+      setListLoading(false);
     }
   }
   useEffect(() => {
@@ -184,6 +187,12 @@ export function ProvidersPage({
         provider accepts, remove ones you don't use (×), and the eye chooses which appear in
         the chat's model picker.
       </p>
+      {listLoading && list.length === 0 && (
+        <div className="settings-loading" role="status" aria-live="polite">
+          <span className="spinner" aria-hidden="true" />
+          Loading providers…
+        </div>
+      )}
       <ul className="provider-list">
         {list.map((p) => (
           <li key={p.id} className={p.id === active.provider ? "active" : ""}>

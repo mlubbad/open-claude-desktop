@@ -48,11 +48,13 @@ describe("GeneralPage", () => {
     expect(setTheme).toHaveBeenCalledWith("dark");
   });
 
-  it("chat font select persists via uiPrefs onto <html>", async () => {
+  it("chat font select persists via uiPrefs onto <html> and applies the font", async () => {
     renderPage();
     await waitFor(() => expect(screen.getByLabelText("Chat font")).toBeInTheDocument());
-    fireEvent.change(screen.getByLabelText("Chat font"), { target: { value: "sans" } });
-    expect(document.documentElement.dataset.chatFont).toBe("sans");
+    fireEvent.change(screen.getByLabelText("Chat font"), { target: { value: "noto" } });
+    expect(document.documentElement.dataset.chatFont).toBe("noto");
+    // The chosen font actually drives the app-wide serif variable.
+    expect(document.documentElement.style.getPropertyValue("--font-serif")).toContain("Noto Serif");
   });
 
   it("voice rows render faithfully but disabled (no backend)", async () => {

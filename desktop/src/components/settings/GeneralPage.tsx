@@ -2,7 +2,7 @@ import { useState } from "react";
 
 import type { UserProfile } from "../../api/client";
 import type { ThemePref } from "../../state/theme";
-import { type ChatFont, getChatFont, getMotion, type MotionPref, setChatFont, setMotion } from "../../state/uiPrefs";
+import { type ChatFont, FONT_OPTIONS, getChatFont, getMotion, type MotionPref, setChatFont, setMotion } from "../../state/uiPrefs";
 import { useSettingsFields } from "../../state/useSettingsFields";
 import { Icon } from "../Icon";
 import { InlineSelect, Row, Section, Segmented } from "./controls";
@@ -90,10 +90,7 @@ export function GeneralPage({ theme }: { theme: { pref: ThemePref; set: (p: Them
           <InlineSelect
             label="Chat font"
             value={font}
-            options={[
-              { value: "serif", label: "Serif" },
-              { value: "sans", label: "System Sans" },
-            ]}
+            options={FONT_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
             onChange={(v) => {
               const f = v as ChatFont;
               setFont(f);

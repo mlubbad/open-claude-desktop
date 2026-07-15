@@ -1270,11 +1270,11 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
         if plan:
             messages.append({"role": "assistant", "content": f"My plan: {plan}"})
 
-    # A delegated subtask runs a fresh, isolated agent turn: same model/provider/effort
-    # and tool CAPABILITIES, but auto-permission (no HITL to answer), no UI artifacts, and
-    # no further nesting (subagents=False). Only its final answer flows back to the parent.
-    # Subagent turns are deliberately NOT Opik-traced individually: the parent turn's
-    # spawn_subagent tool span already covers them in the trace tree.
+    # A delegated subtask runs a fresh, isolated agent turn: same model/provider/effort,
+    # tool CAPABILITIES, and PROJECT CONTEXT as the parent, but auto-permission (no HITL to
+    # answer), no UI artifacts, and no further nesting (subagents=False). Only its final
+    # answer flows back to the parent. Subagent turns are deliberately NOT Opik-traced
+    # individually: the parent turn's spawn_subagent tool span already covers them.
     subagent_calls = 0
 
     async def _run_subagent(sub_prompt: str, description: str) -> dict:
@@ -1291,8 +1291,14 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
         fold = events.AnswerAccumulator()
         tools_used: list[str] = []
         err: str | None = None
+        # Inherit the parent's project context so delegated work obeys the SAME project
+        # rules ("respond in French", "use TypeScript", "never touch production") and sees
+        # the same memory. These are the parent's already-hydrated values; active_project
+        # carries the knowledge base (search_project_knowledge + the uploaded-file listing).
+        # Previously the subagent passed project_instructions="" and silently dropped them.
         async for ev in run_turn(
-                sub_prompt, [], active_project, model, project_instructions="",
+                sub_prompt, [], active_project, model,
+                project_instructions=project_instructions, project_memory=project_memory,
                 top_k=top_k, web_search=web_search, research=research, web_fetch=web_fetch,
                 code_exec=code_exec, bash=bash, text_editor=text_editor, memory=memory,
                 artifacts=False, effort=effort, parallel=parallel, provider=provider,

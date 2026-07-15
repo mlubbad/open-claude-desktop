@@ -80,6 +80,45 @@ def test_subagent_delegates_and_returns_answer(monkeypatch):
     assert "spawn_subagent" not in tool_sets[1]
 
 
+def test_subagent_inherits_project_context(monkeypatch):
+    """A delegated subagent runs under the SAME project rules as its parent: the
+    project's INSTRUCTIONS and MEMORY both reach the subagent's system prompt (knowledge
+    is inherited via active_project). Regression: instructions used to be dropped
+    (the closure passed project_instructions="")."""
+    _patch_client(monkeypatch)
+    import ocd_core.projects as projects_mod
+    monkeypatch.setattr(projects_mod, "get_project_instructions",
+                        lambda pid: "ALWAYS respond in French.")
+    monkeypatch.setattr(projects_mod, "get_project_memory",
+                        lambda pid: ("Ship v2 by March.", "rel"))
+
+    system_prompts = []  # the system prompt seen on each _stream_llm call
+    state = {"n": 0}
+
+    async def _fake_stream(llm, model, messages, tools, temperature, max_tokens,
+                           content_scope="answer", fallback_model=None, **_kw):
+        state["n"] += 1
+        system_prompts.append(messages[0]["content"])
+        n = state["n"]
+        if n == 1:  # parent delegates
+            yield {"__done__": {"content": "", "note": None, "tool_calls": [
+                _FakeToolCall("c1", "spawn_subagent",
+                              '{"description": "draft", "prompt": "write a greeting"}')]}}
+        elif n == 2:  # subagent answers
+            yield {"__done__": {"content": "Bonjour", "tool_calls": [], "note": None}}
+        else:  # parent finalises
+            yield {"__done__": {"content": "done", "tool_calls": [], "note": None}}
+
+    monkeypatch.setattr(agent, "_stream_llm", _fake_stream)
+
+    # active_project set → project context is hydrated for the parent and inherited.
+    _drive(agent.run_turn("go", [], "proj-1", "m", effort="Low", subagents=True))
+    assert state["n"] == 3
+    sub_prompt = system_prompts[1]  # index 1 == the SUBAGENT's own system prompt
+    assert "ALWAYS respond in French." in sub_prompt   # project instructions inherited
+    assert "Ship v2 by March." in sub_prompt           # project memory inherited
+
+
 def test_subagent_refused_when_not_enabled(monkeypatch):
     """Without subagents=True the tool is not in the turn's set, so a call to it is
     refused at dispatch (H6 enablement) rather than silently recursing."""

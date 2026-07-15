@@ -7,6 +7,7 @@ import type { ProducedFile } from "../api/events";
 import { openExternal } from "../platform";
 import { type Attachment, parseAttachments } from "../state/attachments";
 import { Icon } from "./Icon";
+import { ImageZoom } from "./ImageZoom";
 import { QuestionCard } from "./QuestionCard";
 import { RetryModelMenu } from "./RetryModelMenu";
 import {
@@ -59,7 +60,7 @@ function UserBubbleImpl({
       {(msg.images?.length ?? 0) > 0 && (
         <div className="user-images">
           {msg.images!.map((src, i) => (
-            <img key={i} src={src} alt={`Attached image ${i + 1}`} className="user-image" />
+            <ImageZoom key={i} src={src} alt={`Attached image ${i + 1}`} className="user-image" />
           ))}
         </div>
       )}

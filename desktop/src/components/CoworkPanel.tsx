@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import type { CoworkDetail, CoworkTask, Schedule } from "../api/client";
 import { AssistantBubble, UserBubble } from "./Message";
 import { nextRun, nextRunLabel, relativeTime, replayEvents, statusBadge } from "../state/coworkView";
+import { useMenuFit } from "../state/useMenuFit";
 import { Icon } from "./Icon";
 
 export interface SchedControls {
@@ -87,6 +88,8 @@ function CoworkHome({
   const [goal, setGoal] = useState("");
   const [approval, setApproval] = useState<"skip" | "manual">("manual");
   const [apprOpen, setApprOpen] = useState(false);
+  const apprRef = useRef<HTMLDivElement>(null);
+  useMenuFit(apprRef, apprOpen);
   const [showSchedForm, setShowSchedForm] = useState(false);
   const [showAll, setShowAll] = useState(false);
 
@@ -138,7 +141,7 @@ function CoworkHome({
                 <Icon name="chev-down" size={11} />
               </button>
               {apprOpen && (
-                <div className="cw-appr-menu" role="menu" aria-label="Approvals">
+                <div className="cw-appr-menu" role="menu" aria-label="Approvals" ref={apprRef}>
                   {APPROVALS.map((a) => (
                     <button
                       key={a.value}

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
+import { useMenuFit } from "../state/useMenuFit";
 import { Icon } from "./Icon";
 
 export interface VoiceInfo {
@@ -16,6 +17,7 @@ export interface VoiceInfo {
 // full speech-to-text is out of scope and flagged in the UI.
 export function MicPicker({ voice, onClose }: { voice: VoiceInfo; onClose: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
+  useMenuFit(ref, true); // only mounted while open
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [level, setLevel] = useState(0);
   const [denied, setDenied] = useState(false);

@@ -10,11 +10,13 @@ import {
   withAttachments,
 } from "../state/attachments";
 import { applySlash, slashSuggestions } from "../state/slashCommands";
+import { useMenuFit } from "../state/useMenuFit";
 import type { McpSlashPrompt } from "../state/useMcpPrompts";
 
 // A `/` suggestion is either an Agent Skill or an MCP prompt (P1-2).
 type SlashItem = SkillSummary | McpSlashPrompt;
 import { Icon } from "./Icon";
+import { ImageZoom } from "./ImageZoom";
 import { MicPicker, type VoiceInfo } from "./MicPicker";
 import { ModelPicker } from "./ModelPicker";
 
@@ -157,6 +159,9 @@ export function Composer({
     ta.style.height = `${ta.scrollHeight}px`;
   }, [text]);
   const addMenuRef = useRef<HTMLDivElement>(null);
+  const subMenuRef = useRef<HTMLDivElement>(null);
+  useMenuFit(addMenuRef, addOpen);
+  useMenuFit(subMenuRef, subOpen !== null);
   const suggestions = useMemo(
     () => slashSuggestions<SlashItem>([...skills, ...mcpPrompts], text),
     [skills, mcpPrompts, text],
@@ -338,7 +343,7 @@ export function Composer({
         <div className="attach-row">
           {images.map((img, i) => (
             <span key={`img-${i}`} className="attach-chip attach-img" title={img.name}>
-              <img src={img.dataUrl} alt={img.name} className="attach-thumb" />
+              <ImageZoom src={img.dataUrl} alt={img.name} className="attach-thumb" />
               <button
                 className="attach-del"
                 title="Remove image"
@@ -455,7 +460,7 @@ export function Composer({
                   <span className="add-chev" aria-hidden="true"><Icon name="chev-right" size={13} /></span>
                 </button>
                 {subOpen === "project" && (
-                  <div className="add-submenu" role="menu" aria-label="Add to project">
+                  <div className="add-submenu" role="menu" aria-label="Add to project" ref={subMenuRef}>
                     <button
                       role="menuitemradio"
                       aria-checked={addMenu.activeProjectId === null}
@@ -512,7 +517,7 @@ export function Composer({
                   <span className="add-chev" aria-hidden="true"><Icon name="chev-right" size={13} /></span>
                 </button>
                 {subOpen === "skills" && (
-                  <div className="add-submenu" role="menu" aria-label="Skills">
+                  <div className="add-submenu" role="menu" aria-label="Skills" ref={subMenuRef}>
                     {skills.map((s) => (
                       <button
                         key={s.name}
@@ -553,7 +558,7 @@ export function Composer({
                   <span className="add-chev" aria-hidden="true"><Icon name="chev-right" size={13} /></span>
                 </button>
                 {subOpen === "connectors" && (
-                  <div className="add-submenu" role="menu" aria-label="Connectors">
+                  <div className="add-submenu" role="menu" aria-label="Connectors" ref={subMenuRef}>
                     {addMenu.connectors.map((c) => (
                       <button
                         key={c.id}
@@ -594,7 +599,7 @@ export function Composer({
                   <span className="add-chev" aria-hidden="true"><Icon name="chev-right" size={13} /></span>
                 </button>
                 {subOpen === "plugins" && (
-                  <div className="add-submenu" role="menu" aria-label="Plugins">
+                  <div className="add-submenu" role="menu" aria-label="Plugins" ref={subMenuRef}>
                     {addMenu.pluginsList.map((pl) => (
                       <button
                         key={pl.name}
@@ -640,7 +645,7 @@ export function Composer({
                   <span className="add-chev" aria-hidden="true"><Icon name="chev-right" size={13} /></span>
                 </button>
                 {subOpen === "style" && (
-                  <div className="add-submenu" role="menu" aria-label="Response style">
+                  <div className="add-submenu" role="menu" aria-label="Response style" ref={subMenuRef}>
                     {STYLE_OPTIONS.map((o) => (
                       <button
                         key={o.value}

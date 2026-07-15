@@ -1,6 +1,7 @@
 import { type ReactNode, useEffect, useRef, useState } from "react";
 
 import type { Project, ProjectFile } from "../api/client";
+import { useMenuFit } from "../state/useMenuFit";
 import { Icon } from "./Icon";
 
 // The project home (Claude Desktop parity): a breadcrumb, the project title, a project-
@@ -41,6 +42,8 @@ export function ProjectHome({
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const cardMenuRef = useRef<HTMLDivElement>(null);
+  useMenuFit(cardMenuRef, menuOpen);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -91,7 +94,7 @@ export function ProjectHome({
                   <Icon name="dots" size={16} />
                 </button>
                 {menuOpen && (
-                  <div className="card-menu" role="menu">
+                  <div className="card-menu" role="menu" ref={cardMenuRef}>
                     <button role="menuitem" onClick={() => { setMenuOpen(false); onEditDetails(); }}>
                       <Icon name="pencil" size={14} /> Edit details
                     </button>

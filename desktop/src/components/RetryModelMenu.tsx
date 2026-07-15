@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { type ProviderInfo, providers as providerApi, settings as settingsApi } from "../api/client";
 import { effectiveCatalog, modelDescriptor, pickerModels } from "../state/modelMeta";
+import { useMenuFit } from "../state/useMenuFit";
 import { Icon } from "./Icon";
 
 // Compact popover on the last reply's retry control: pick any usable model — across all
@@ -23,6 +24,7 @@ export function RetryModelMenu({
   const [custom, setCustom] = useState<Record<string, string[]>>({});
   const [hidden, setHidden] = useState<Record<string, string[]>>({});
   const ref = useRef<HTMLDivElement>(null);
+  useMenuFit(ref, true); // only mounted while open
 
   useEffect(() => {
     providerApi.list().then(setList).catch(() => {});

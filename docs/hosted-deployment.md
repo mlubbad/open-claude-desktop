@@ -93,6 +93,7 @@ mismatched configured algorithm, or a failed issuer/audience check. Clients send
 | Keychain **secrets** (provider API keys, connector auth, OAuth tokens) | keys namespaced per non-local workspace |
 | **Settings** (model/provider/keys/automation config) | `settings.<workspace>.json` beside the base `settings.json` |
 | **Vector** collections (project knowledge) | workspace-prefixed collection names (defense-in-depth; already isolated by the globally-unique project slug) |
+| **Uploaded files** (project knowledge blobs) | blob keys namespaced per non-local workspace, in whichever object store is configured (§4) |
 | Background **Cowork** tasks & **scheduler** automations | each captures its workspace at creation and re-binds it around the whole background run |
 
 For every one of these, the `local` workspace (and flag-off) keeps the historical, unscoped
@@ -109,6 +110,26 @@ OCD_ALLOWED_HOSTS=app.example.com                     # Host allowlist (defeats 
 SCHEDULER_ENABLED=1                                   # background automation ticker (0 to disable)
 ```
 
+### Object storage for uploads
+
+Project-knowledge uploads go through a pluggable blob store. **Default (`local`)** is a
+transparent filesystem pass-through — the same `projects/<pid>/knowledge/` layout as before,
+so the desktop and a single-node server are byte-for-byte unchanged and need no configuration.
+For a **multi-node** deploy, point it at an S3-compatible bucket so every node reads the same
+uploads; each node keeps an ephemeral local cache (under `.blobcache`) so the path-based text
+extractors keep working.
+
+```bash
+OCD_BLOB_BACKEND=s3                 # default "local" (filesystem). "s3" enables the bucket backend.
+OCD_S3_BUCKET=my-ocd-uploads        # required for the s3 backend
+OCD_S3_PREFIX=prod                  # optional key prefix inside the bucket (share one bucket across envs)
+OCD_S3_ENDPOINT=https://…           # optional; set for MinIO / Cloudflare R2 / other S3-compatible stores
+# AWS credentials come from the standard chain (env / instance role / profile). Needs boto3.
+```
+
+Blob keys are workspace-namespaced when tenancy is enforcing (the `local` workspace and flag-off
+keep the historical unprefixed key), so two tenants' uploads never collide.
+
 `OCD_API_TOKEN` is a **desktop-only** loopback secret (the shell mints it per launch); a hosted
 deployment does not set it — use the auth modes in §2 instead.
 
@@ -120,16 +141,16 @@ configured (`netguard`), so a hosted deploy must set an auth mode before it will
 ## 5. Not yet built (single-node works today)
 
 The tenancy **isolation** guarantees above are complete, so a **single-node** hosted deployment
-is supported now. Two pieces are still required before running **more than one backend node**:
+is supported now. Uploads are no longer node-bound — the pluggable blob store (§4) can be pointed
+at shared S3-compatible object storage. One piece is still required before running **more than one
+backend node**:
 
-- **Object storage for uploads.** Project-knowledge files are written to local disk
-  (`projects/<pid>/knowledge/`). On ephemeral containers or multiple nodes this needs shared,
-  durable object storage (e.g. S3) behind a storage port. *(Not yet abstracted.)*
 - **Durable job queue.** Cowork tasks and the scheduler ticker run as in-process asyncio work,
   so background jobs are bound to the node that started them and don't survive a restart. Multi-
   node scale needs a durable queue any node can pick from. *(Not yet abstracted.)*
 
-Until those land, run the hosted service as a single backend node with a shared Postgres.
+Until that lands, run the hosted service as a single backend node (with a shared Postgres and,
+optionally, shared object storage).
 
 ---
 

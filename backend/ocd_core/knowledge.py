@@ -12,44 +12,68 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from . import config, util
+from . import blobstore, config, util
 from .chroma import get_project_kb_collection
 
 # Matches core.py: extensions whose _file_meta reports a line count.
 _TEXT_EXTS = {"sql", "md", "txt", "csv", "json", "py", "yaml", "yml", "log"}
 
 
+# Uploaded files live in the pluggable blob store under a per-project logical key.
+# LocalBlobStore (default) maps these 1:1 onto the historical on-disk layout
+# (REPO_ROOT/projects/<pid>/knowledge/<name>), so the desktop is unchanged; the
+# S3 backend puts the same keys in a bucket. `name` is always reduced to a
+# basename, so a crafted "../" can never escape the project's prefix.
+def _kb_prefix(project_id: str) -> str:
+    # PROJECTS_DIR.name (normally "projects") keeps the key resolving onto
+    # config.PROJECTS_DIR even under a PROJECTS_DIR override or test monkeypatch.
+    return f"{config.PROJECTS_DIR.name}/{project_id}/knowledge"
+
+
+def _kb_key(project_id: str, name: str) -> str:
+    return f"{_kb_prefix(project_id)}/{Path(name).name}"
+
+
+def project_knowledge_dir(project_id: str) -> Path:
+    """A real filesystem directory holding the project's uploaded files.
+
+    Local backend: the canonical dir. S3 backend: a per-node cache dir populated
+    from the bucket. Used by the code-exec knowledge mirror, which needs real
+    files to copy into the sandbox."""
+    return blobstore.get_blob_store().local_dir(_kb_prefix(project_id))
+
+
 # --------------------------------------------------------------------------- #
 #  Files / capacity
 # --------------------------------------------------------------------------- #
-def _file_meta(path: Path) -> dict:
-    size = path.stat().st_size
-    ext = path.suffix.lstrip(".").lower()
-    if ext in _TEXT_EXTS:
+def _file_meta(store: blobstore.BlobStore, key: str) -> dict:
+    name = key.rsplit("/", 1)[-1]
+    size = store.size(key)
+    ext = Path(name).suffix.lstrip(".").lower()
+    meta = util.fmt_size(size)
+    # The line-count nicety needs the actual bytes; only pay for it when the
+    # backend already has them locally (never download from S3 just to list).
+    if ext in _TEXT_EXTS and store.is_local:
         try:
-            with open(path, encoding="utf-8", errors="ignore") as fh:
+            with open(store.local_path(key), encoding="utf-8", errors="ignore") as fh:
                 meta = f"{sum(1 for _ in fh)} lines"
         except Exception:
-            meta = util.fmt_size(size)
-    else:
-        meta = util.fmt_size(size)
-    return {"name": path.name, "meta": meta, "badge": (ext.upper() or "FILE"),
+            pass
+    return {"name": name, "meta": meta, "badge": (ext.upper() or "FILE"),
             "size": size}
 
 
 def list_project_files(project_id: str) -> list[dict]:
-    kb_dir = config.PROJECTS_DIR / project_id / "knowledge"
-    if not kb_dir.exists():
-        return []
-    return [_file_meta(f) for f in sorted(kb_dir.glob("*")) if f.is_file()]
+    store = blobstore.get_blob_store()
+    return [_file_meta(store, k) for k in store.list(_kb_prefix(project_id))]
 
 
 def save_uploaded_file(project_id: str, filename: str, data: bytes) -> Path:
-    kb_dir = config.PROJECTS_DIR / project_id / "knowledge"
-    kb_dir.mkdir(parents=True, exist_ok=True)
-    dest = kb_dir / Path(filename).name
-    dest.write_bytes(data)
-    return dest
+    store = blobstore.get_blob_store()
+    key = _kb_key(project_id, filename)
+    store.put(key, data)
+    # Return a real path so the caller can ingest it (S3: a materialized cache copy).
+    return store.local_path(key)
 
 
 def list_all_files(limit: int = 500) -> list[dict]:
@@ -322,13 +346,12 @@ def chunk_text(text: str, size: int = 1200, overlap: int = 200) -> list[str]:
 def delete_project_file(project_id: str, name: str) -> bool:
     """Delete ONE knowledge file and purge its chunks from the project's KB (P1-11).
     Previously only deleting the whole project dropped the collection, so removing a
-    single file left orphaned vectors that kept matching searches."""
+    single file left orphaned vectors that kept matching searches. `_kb_key` reduces
+    `name` to a basename, so traversal can't reach another project's blob."""
     import contextlib
-    kb_dir = (config.PROJECTS_DIR / project_id / "knowledge").resolve()
-    dest = (kb_dir / Path(name).name).resolve()
-    if dest.parent != kb_dir or not dest.is_file():
+    store = blobstore.get_blob_store()
+    if not store.delete(_kb_key(project_id, name)):
         return False
-    dest.unlink()
     with contextlib.suppress(Exception):  # missing collection = nothing to purge
         get_project_kb_collection(project_id).delete(where={"source": Path(name).name})
     return True
@@ -339,13 +362,13 @@ def reindex_project_file(project_id: str, name: str) -> int:
     (e.g. after an extraction fix). Returns the new chunk count; raises
     ExtractionError like ingest. Returns -1 if the file doesn't exist."""
     import contextlib
-    kb_dir = (config.PROJECTS_DIR / project_id / "knowledge").resolve()
-    path = (kb_dir / Path(name).name).resolve()
-    if path.parent != kb_dir or not path.is_file():
+    store = blobstore.get_blob_store()
+    key = _kb_key(project_id, name)
+    if not store.exists(key):
         return -1
     with contextlib.suppress(Exception):
-        get_project_kb_collection(project_id).delete(where={"source": path.name})
-    return ingest_file_to_kb(project_id, path)
+        get_project_kb_collection(project_id).delete(where={"source": Path(name).name})
+    return ingest_file_to_kb(project_id, store.local_path(key))
 
 
 def ingest_file_to_kb(project_id: str, path: Path) -> int:

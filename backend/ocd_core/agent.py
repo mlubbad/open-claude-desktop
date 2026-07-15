@@ -89,6 +89,7 @@ from . import (
     settings,
     usage,
     util,
+    vision,
 )
 from .llm import LLMConfigError, reasoning_of, resolve_turn_client
 from .llm import catalog as llm_catalog
@@ -1158,14 +1159,20 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
     # Long-horizon context management: compact older turns so a long conversation
     # never overflows the model's context window (catalog handles a provider/ prefix).
     history, _ = context.compact_for_model(list(history or []), model)
-    # Attached images ride the CURRENT user message as OpenAI-style multimodal parts.
-    # Providers without vision reject the request with their own clear error, which
-    # surfaces through the normal error path — no silent drop.
+    # Attached images: a vision-capable model gets them as native multimodal parts; a
+    # text-only model (most open models) would SILENTLY ignore them and then hallucinate
+    # "I can't see the image", so instead we describe them with a configured vision model
+    # and inject that text (or a clear notice when no vision provider is available). This
+    # makes attached images usable by ANY model, and the description flows to sub-agents.
     user_content: str | list = goal
     if images:
-        user_content = [{"type": "text", "text": goal},
-                        *({"type": "image_url", "image_url": {"url": u}}
-                          for u in images)]
+        if llm_catalog.supports_vision(model):
+            user_content = [{"type": "text", "text": goal},
+                            *({"type": "image_url", "image_url": {"url": u}}
+                              for u in images)]
+        else:
+            note = await asyncio.to_thread(vision.image_context, images)
+            user_content = f"{goal}\n\n{note}" if goal.strip() else note
     messages = [{"role": "system",
                  "content": prompts.build_system_prompt(
                      extra_sections=extra_sections or None, memory=memory,

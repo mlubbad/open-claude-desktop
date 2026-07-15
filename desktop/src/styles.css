@@ -1,8 +1,32 @@
-/* Bundled OPEN serif (Noto Serif, latin subset — SIL OFL 1.1, see assets/fonts/OFL.txt)
-   so a refined serif renders on ANY platform, even without a system serif installed. It
-   is the concrete tail of the --font-serif fallback chain. We deliberately do NOT bundle
-   the proprietary "Anthropic Serif" / "Anthropic Serif Fallback *" fonts — those are
-   referenced by name only (used if the OS has them) and are never shipped here. */
+/* Fonts. Two families are bundled:
+   1. "Anthropic Serif" — the product's editorial typeface, provided by the project owner
+      (assets/fonts/anthropic/, converted to woff2). Two optical sizes: the "Text" cut for
+      body/UI (400/400i/500/600/700) and the "Display" cut for large headings (400/600),
+      exposed as --font-serif and --font-display. It is a proprietary face (not open-
+      licensed like Noto Serif below); see assets/fonts/anthropic/README.md.
+   2. "Noto Serif" (latin subset — SIL OFL 1.1, see assets/fonts/OFL.txt) — the OPEN
+      concrete tail of the --font-serif chain, so a refined serif still renders on any
+      platform if the bundled Anthropic faces ever fail to load. */
+
+/* --- Anthropic Serif · Text (body/UI) --- */
+@font-face { font-family: "Anthropic Serif"; font-style: normal; font-weight: 400;
+  font-display: swap; src: url("./assets/fonts/anthropic/anthropic-serif-text-400.woff2") format("woff2"); }
+@font-face { font-family: "Anthropic Serif"; font-style: italic; font-weight: 400;
+  font-display: swap; src: url("./assets/fonts/anthropic/anthropic-serif-text-400-italic.woff2") format("woff2"); }
+@font-face { font-family: "Anthropic Serif"; font-style: normal; font-weight: 500;
+  font-display: swap; src: url("./assets/fonts/anthropic/anthropic-serif-text-500.woff2") format("woff2"); }
+@font-face { font-family: "Anthropic Serif"; font-style: normal; font-weight: 600;
+  font-display: swap; src: url("./assets/fonts/anthropic/anthropic-serif-text-600.woff2") format("woff2"); }
+@font-face { font-family: "Anthropic Serif"; font-style: normal; font-weight: 700;
+  font-display: swap; src: url("./assets/fonts/anthropic/anthropic-serif-text-700.woff2") format("woff2"); }
+
+/* --- Anthropic Serif · Display (large headings) --- */
+@font-face { font-family: "Anthropic Serif Display"; font-style: normal; font-weight: 400;
+  font-display: swap; src: url("./assets/fonts/anthropic/anthropic-serif-display-400.woff2") format("woff2"); }
+@font-face { font-family: "Anthropic Serif Display"; font-style: normal; font-weight: 600;
+  font-display: swap; src: url("./assets/fonts/anthropic/anthropic-serif-display-600.woff2") format("woff2"); }
+
+/* --- Noto Serif (open fallback) --- */
 @font-face {
   font-family: "Noto Serif";
   font-style: normal;
@@ -28,25 +52,27 @@
    - the accent is SCARCE — send button, focus rings, checkmarks, active states only
    - radius + spacing follow a fixed scale (below) */
 :root {
-  --bg: #f4f1e9;            /* canvas — cream, never white */
-  --surface: #fbf9f3;       /* cards/popovers/modals — cream, a hair above canvas */
-  --surface-2: #efeae0;     /* hover fills on rows/menu items */
-  --card: #ece4d6;          /* user bubble, active tab pill, badges, selected rows */
-  --card-strong: #e4dbc9;   /* pressed rows */
-  --sunken: #efece4;
-  --border: #e5dfd2;
-  --border-strong: #d8d1c1;
-  --text: #201d18;          /* ink */
-  --muted: #726b5f;
-  --faint: #9c9282;
-  --accent: #b3563b;
-  --accent-2: #c9754c;
-  --accent-soft: #f1e5da;
-  --accent-fg: #ffffff;
-  --accent-active: #97432c;  /* send button pressed */
+  /* Anthropic brand palette (from the uploaded brand sheet): warm-ivory canvas, near-black
+     ink #191919, tan/Kraft accent #D4A27F. Tan is a LIGHT accent, so accent text is dark. */
+  --bg: #f0eee6;            /* canvas — Anthropic warm ivory ("Cloud"), never pure white */
+  --surface: #faf9f5;       /* cards/popovers/modals — a hair above canvas */
+  --surface-2: #eeece2;     /* hover fills on rows/menu items */
+  --card: #e8e4d7;          /* user bubble, active tab pill, badges, selected rows */
+  --card-strong: #ded9c8;   /* pressed rows */
+  --sunken: #eae7dd;
+  --border: #e4e0d2;
+  --border-strong: #d6d1c0;
+  --text: #191919;          /* ink — Anthropic #191919 */
+  --muted: #6b675e;
+  --faint: #9a9384;
+  --accent: #d4a27f;        /* Anthropic tan/Kraft #D4A27F */
+  --accent-2: #c78f68;
+  --accent-soft: #f2e7db;
+  --accent-fg: #191919;     /* dark ink on the light tan → AA contrast */
+  --accent-active: #c08a63;  /* send button pressed */
   --danger: #b0402f;
   --ok: #4a7c59;
-  --ring: rgba(179, 86, 59, 0.18);
+  --ring: rgba(212, 162, 127, 0.35);
   --shadow-1: 0 1px 3px rgba(20, 20, 19, 0.08);
   --shadow-soft: 0 1px 3px rgba(20, 20, 19, 0.05);
   /* radius scale: sm 6 · md 8 (inputs/buttons) · lg 12 (cards/popovers/bubbles) · xl 16 (overlays) */
@@ -56,9 +82,10 @@
   --r-xl: 16px;
   --radius: 12px;
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
-  /* The product serif stack (applied to ALL text below via `font-family`). Names resolve
-     against whatever the OS has installed and fall through in order; "Noto Serif" (bundled,
-     open) is the concrete tail so a quality serif always renders, then the generic serif. */
+  /* The product serif stack (applied to ALL text below via `font-family`). "Anthropic
+     Serif" is now BUNDLED (see @font-face above), so it renders on any platform; the rest
+     of the chain (script-specific system faces, then bundled open "Noto Serif", then the
+     generic serif) covers glyphs the Latin-primary Anthropic face lacks (CJK, Hebrew…). */
   --font-serif: "Anthropic Serif", "Anthropic Serif Fallback Georgia",
     "Anthropic Serif Fallback Times", "Anthropic Serif Fallback DejaVu",
     "Anthropic Serif Fallback Noto", Georgia, "Arial Hebrew", "Noto Sans Hebrew",
@@ -66,6 +93,8 @@
     "PingFang TC", "Microsoft JhengHei", "Noto Sans CJK TC", "Hiragino Sans", "Yu Gothic",
     Meiryo, "Noto Sans CJK JP", "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans CJK KR",
     "Noto Serif", serif;
+  /* The Display optical size for large headings; falls back to the Text stack. */
+  --font-display: "Anthropic Serif Display", var(--font-serif);
   /* Serif everywhere text appears (code keeps --mono). */
   font-family: var(--font-serif);
   color-scheme: light dark;
@@ -74,25 +103,25 @@
 /* Dark palette. Applied when the app stamps data-theme="dark" (explicit choice or a
    resolved "system" preference). */
 :root[data-theme="dark"] {
-  --bg: #1b1916;
-  --surface: #23201c;
-  --surface-2: #2c2823;
-  --card: #322d26;
-  --card-strong: #3a342c;
-  --sunken: #17150f;
-  --border: #322d26;
-  --border-strong: #40392f;
-  --text: #efe9df;
-  --muted: #a69c8d;
-  --faint: #6f665a;
-  --accent: #df8a63;
-  --accent-2: #e8a074;
-  --accent-soft: #33271e;
-  --accent-fg: #1b1916;
-  --accent-active: #c9754c;
+  --bg: #191919;            /* Anthropic near-black #191919 */
+  --surface: #22201e;
+  --surface-2: #2a2825;
+  --card: #302d29;
+  --card-strong: #38342f;
+  --sunken: #141413;
+  --border: #302d29;
+  --border-strong: #403c36;
+  --text: #f0eee6;          /* ivory ink on dark */
+  --muted: #a8a294;
+  --faint: #6f685c;
+  --accent: #d4a27f;        /* tan — consistent with light theme */
+  --accent-2: #e0b28f;
+  --accent-soft: #2e2620;
+  --accent-fg: #191919;     /* dark ink on tan */
+  --accent-active: #c08a63;
   --danger: #e88a7d;
   --ok: #82b394;
-  --ring: rgba(223, 138, 99, 0.28);
+  --ring: rgba(212, 162, 127, 0.30);
   --shadow-1: 0 1px 3px rgba(0, 0, 0, 0.5);
   --shadow-soft: 0 1px 3px rgba(0, 0, 0, 0.4);
   color-scheme: dark;
@@ -101,25 +130,25 @@
    data-theme. Once an explicit data-theme is present, that wins by specificity. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme]) {
-    --bg: #1b1916;
-    --surface: #23201c;
-    --surface-2: #2c2823;
-    --card: #322d26;
-    --card-strong: #3a342c;
-    --sunken: #17150f;
-    --border: #322d26;
-    --border-strong: #40392f;
-    --text: #efe9df;
-    --muted: #a69c8d;
-    --faint: #6f665a;
-    --accent: #df8a63;
-    --accent-2: #e8a074;
-    --accent-soft: #33271e;
-    --accent-fg: #1b1916;
-    --accent-active: #c9754c;
+    --bg: #191919;
+    --surface: #22201e;
+    --surface-2: #2a2825;
+    --card: #302d29;
+    --card-strong: #38342f;
+    --sunken: #141413;
+    --border: #302d29;
+    --border-strong: #403c36;
+    --text: #f0eee6;
+    --muted: #a8a294;
+    --faint: #6f685c;
+    --accent: #d4a27f;
+    --accent-2: #e0b28f;
+    --accent-soft: #2e2620;
+    --accent-fg: #191919;
+    --accent-active: #c08a63;
     --danger: #e88a7d;
     --ok: #82b394;
-    --ring: rgba(223, 138, 99, 0.28);
+    --ring: rgba(212, 162, 127, 0.30);
     --shadow-1: 0 1px 3px rgba(0, 0, 0, 0.5);
     --shadow-soft: 0 1px 3px rgba(0, 0, 0, 0.4);
     color-scheme: dark;
@@ -135,7 +164,7 @@
 
 /* Editorial display type: headings run the serif at weight 400 with negative
    tracking; body stays humanist sans at a readable line-height. */
-h1, h2, h3 { font-family: var(--font-serif); font-weight: 400; letter-spacing: -0.01em; }
+h1, h2, h3 { font-family: var(--font-display); font-weight: 400; letter-spacing: -0.01em; }
 body { margin: 0; background: var(--bg); color: var(--text); line-height: 1.55; }
 
 /* Themed thin scrollbars (the default UA bars clash with the warm palette). */
@@ -425,7 +454,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-
 .hero { flex: 1; display: flex; align-items: center; justify-content: center; overflow-y: auto;
   padding: 24px; }
 .hero-inner { width: min(720px, 100%); display: flex; flex-direction: column; align-items: center; }
-.hero-greet { display: flex; align-items: center; gap: 14px; font-family: var(--font-serif);
+.hero-greet { display: flex; align-items: center; gap: 14px; font-family: var(--font-display);
   font-weight: 400; font-size: clamp(26px, 3.2vw, 34px); letter-spacing: -0.5px; margin: 0 0 26px;
   text-wrap: balance; }
 .hero-mark { width: 30px; height: 30px; border-radius: 9px; flex: none; position: relative;
@@ -1375,7 +1404,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-
   width: min(520px, 100%); max-height: 88vh; overflow-y: auto; padding: 24px 24px 20px;
   box-shadow: 0 20px 60px rgba(0,0,0,0.28); }
 .modal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
-.modal-title { margin: 0; font-family: var(--font-serif); font-size: 23px; font-weight: 400;
+.modal-title { margin: 0; font-family: var(--font-display); font-size: 23px; font-weight: 400;
   letter-spacing: -0.3px; line-height: 1.2; color: var(--text); }
 .modal-close { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px;
   border: none; background: none; color: var(--muted); border-radius: var(--r-md); cursor: pointer; }
@@ -1469,7 +1498,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-
   width: 100%; margin: 0 auto; }
 .projects-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px;
   margin-bottom: 22px; }
-.projects-title { font-family: var(--font-serif); font-size: 36px; font-weight: 400;
+.projects-title { font-family: var(--font-display); font-size: 36px; font-weight: 400;
   letter-spacing: -0.5px; line-height: 1.1; margin: 0; color: var(--text); }
 .projects-head-actions { display: flex; align-items: center; gap: 14px; }
 .proj-sort { position: relative; }
@@ -1534,7 +1563,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-
 @media (max-width: 940px) { .project-home-body { grid-template-columns: 1fr; } }
 .project-home-title-row { display: flex; align-items: center; justify-content: space-between; gap: 12px;
   margin: 20px 0 26px; }
-.project-home-title { font-family: var(--font-serif); font-size: 42px; font-weight: 400;
+.project-home-title { font-family: var(--font-display); font-size: 42px; font-weight: 400;
   letter-spacing: -0.9px; line-height: 1.08; margin: 0; color: var(--text); }
 .project-home-actions { display: flex; align-items: center; gap: 4px; }
 .project-home-menu { position: relative; }

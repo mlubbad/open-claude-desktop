@@ -15,13 +15,13 @@ export interface FontOption {
   stack: string | null;
 }
 
-// The fonts offered in Settings → Chat font. Only concrete, resolvable families:
-// the default editorial serif, the bundled open Noto Serif (always renders), two
-// widely-installed classic serifs, and the system sans. We intentionally do NOT list
-// the proprietary "Anthropic Serif" as its own option — the default "Serif" already
-// prefers it by name (falling back to the bundled Noto Serif) via the :root stack.
+// The fonts offered in Settings → Chat font. Every entry is a concrete, resolvable
+// family. The DEFAULT is "Anthropic Serif" — the product typeface, now bundled
+// (see styles.css @font-face) — applied via the :root --font-serif stack (stack: null),
+// which is why it needs no explicit stack here. The rest are alternatives: the bundled
+// open Noto Serif, two classic serifs, the system sans, and a monospace.
 export const FONT_OPTIONS: FontOption[] = [
-  { value: "serif", label: "Serif", stack: null },
+  { value: "serif", label: "Anthropic Serif", stack: null },
   { value: "noto", label: "Noto Serif", stack: '"Noto Serif", Georgia, serif' },
   { value: "georgia", label: "Georgia", stack: 'Georgia, "Times New Roman", Times, serif' },
   { value: "times", label: "Times New Roman", stack: '"Times New Roman", Times, serif' },

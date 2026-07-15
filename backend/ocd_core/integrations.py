@@ -1614,7 +1614,9 @@ def _sync_project_knowledge(project: str | None, root: Path) -> None:
     untouched whatever the code does to its copies."""
     if not project:
         return
-    src = config.PROJECTS_DIR / project / "knowledge"
+    # Real files to copy into the sandbox — the canonical dir for the local backend,
+    # a per-node cache (populated from the bucket) for the S3 backend.
+    src = knowledge.project_knowledge_dir(project)
     if not src.is_dir():
         return
     dst = root / "knowledge"
@@ -2173,8 +2175,6 @@ def import_github_repo(repo_url: str, project_id: str) -> tuple[int, str]:
                      and Path(it["path"]).suffix.lower() in _TEXT_SUFFIXES
                      and it.get("size", 0) <= _GH_MAX_BYTES][:_GH_MAX_FILES]
 
-            kb_dir = config.PROJECTS_DIR / project_id / "knowledge"
-            kb_dir.mkdir(parents=True, exist_ok=True)
             count = 0
             for path in paths:
                 raw = client.get(
@@ -2182,9 +2182,11 @@ def import_github_repo(repo_url: str, project_id: str) -> tuple[int, str]:
                 if raw.status_code != 200:
                     continue
                 safe = f"gh_{owner}_{repo}_" + path.replace("/", "_")
-                dest = kb_dir / safe[:180]
                 try:
-                    dest.write_text(raw.text, encoding="utf-8")
+                    # Route the write through the blob store (local dir or S3 bucket),
+                    # then ingest from the returned real path.
+                    dest = knowledge.save_uploaded_file(
+                        project_id, safe[:180], raw.text.encode("utf-8"))
                     knowledge.ingest_file_to_kb(project_id, dest)
                     count += 1
                 except Exception:

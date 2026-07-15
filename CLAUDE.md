@@ -139,11 +139,19 @@ The request→workspace identity is pluggable: `auth.identify(token)` returns a 
 PyJWT/network — only the CONFIGURED alg is accepted, defeating alg=none/confusion), and
 `resolve_workspace` treats that identity's workspace as AUTHORITATIVE — a client's
 `X-OCD-Workspace` header is only a fallback when there is no valid token, so a caller can't
-escape their tenant. NOT yet built (later slices): pluggable object storage for uploads and
-a durable job queue for multi-node scale. Operator guide (enabling it, the auth env,
-per-workspace behavior, single-node caveats): `docs/hosted-deployment.md`. Tests:
-`test_tenancy.py`, `test_tenancy_stores.py`, `test_tenancy_background.py`,
-`test_auth_identity.py`.
+escape their tenant. Uploaded files go through a pluggable **blob store**
+(`ocd_core.blobstore`, `get_blob_store()`): default `LocalBlobStore` is a transparent
+filesystem pass-through rooted at the projects parent, so a key like
+`<projects>/<pid>/knowledge/<name>` resolves onto `config.PROJECTS_DIR` byte-for-byte (desktop
+unchanged); `OCD_BLOB_BACKEND=s3` swaps in `S3BlobStore` (lazy boto3, `OCD_S3_BUCKET`/`_PREFIX`/
+`_ENDPOINT`) with a per-node `.blobcache` so the path-based extractors + the code-exec knowledge
+mirror keep working. Blob keys are workspace-namespaced via `tenancy.namespace()` (defense in
+depth); `knowledge.py` (save/list/delete/reindex) + the two direct-path consumers in
+`integrations.py` (`_sync_project_knowledge`, GitHub-repo KB ingest) route through it. NOT yet
+built (last slice): a durable job queue for multi-node Cowork/scheduler scale. Operator guide
+(enabling it, the auth env, object storage, per-workspace behavior, single-node caveats):
+`docs/hosted-deployment.md`. Tests: `test_tenancy.py`, `test_tenancy_stores.py`,
+`test_tenancy_background.py`, `test_auth_identity.py`, `test_blobstore.py`.
 
 ## Working conventions
 

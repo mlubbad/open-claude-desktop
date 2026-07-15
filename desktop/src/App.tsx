@@ -477,6 +477,7 @@ export default function App() {
         onMove={move}
         onCustomize={() => setSettingsPage("general")}
         modelLabel={`${defaults.provider} · ${defaults.model}`}
+        userName={profileName}
       />
 
       <div className="app">

@@ -17,6 +17,7 @@ import {
 import { projects as projectApi } from "../api/client";
 import { getDriveClientId, saveToDrive, setDriveClientId } from "../state/gdrive";
 import { type ArtifactDoc, contentAtVersion } from "../state/transcript";
+import { useMenuFit } from "../state/useMenuFit";
 import { Icon } from "./Icon";
 
 // Renders an artifact in a side panel, matching the reference chrome: an eye/code
@@ -52,6 +53,8 @@ export function ArtifactPanel({
   const [renderKey, setRenderKey] = useState(0);
   const menuRef = useRef<HTMLDivElement>(null);
   const driveRef = useRef<HTMLDivElement>(null);
+  const exportMenuRef = useRef<HTMLDivElement>(null);
+  useMenuFit(exportMenuRef, menuOpen);
 
   // Which version is on screen. Snap to the newest whenever a new version lands so a
   // fresh revision is shown live; the user can then page back through the history.
@@ -227,7 +230,7 @@ export function ArtifactPanel({
               <Icon name="chev-down" size={12} />
             </button>
             {menuOpen && (
-              <div className="artifact-menu" role="menu" aria-label="Export">
+              <div className="artifact-menu" role="menu" aria-label="Export" ref={exportMenuRef}>
                 <button role="menuitem" onClick={() => { setMenuOpen(false); download(); }}>
                   Download as {tag}
                 </button>
@@ -355,6 +358,8 @@ function DrivePopover({
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [link, setLink] = useState<string | null>(null);
+  const popRef = useRef<HTMLDivElement>(null);
+  useMenuFit(popRef, true); // only mounted while open
 
   async function upload() {
     setBusy(true);
@@ -370,7 +375,7 @@ function DrivePopover({
   }
 
   return (
-    <div className="drive-pop" role="dialog" aria-label="Save to Google Drive">
+    <div className="drive-pop" role="dialog" aria-label="Save to Google Drive" ref={popRef}>
       <div className="drive-title">Save to Google Drive</div>
       {!clientId ? (
         <>

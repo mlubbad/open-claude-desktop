@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { Project } from "../api/client";
 import { filterSortProjects, type ProjectSort, SORT_LABELS } from "../state/projectsView";
+import { useMenuFit } from "../state/useMenuFit";
 import { Icon } from "./Icon";
 
 // The Projects grid (Claude Desktop parity): a search box, a Sort-by control, a
@@ -29,6 +30,8 @@ export function ProjectsPage({
   const [sort, setSort] = useState<ProjectSort>("updated");
   const [sortOpen, setSortOpen] = useState(false);
   const sortRef = useRef<HTMLDivElement>(null);
+  const sortMenuRef = useRef<HTMLDivElement>(null);
+  useMenuFit(sortMenuRef, sortOpen);
 
   const shown = useMemo(() => filterSortProjects(list, query, sort), [list, query, sort]);
 
@@ -60,7 +63,7 @@ export function ProjectsPage({
               <Icon name="chev-down" size={12} />
             </button>
             {sortOpen && (
-              <div className="proj-sort-menu" role="menu">
+              <div className="proj-sort-menu" role="menu" ref={sortMenuRef}>
                 {(Object.keys(SORT_LABELS) as ProjectSort[]).map((s) => (
                   <button key={s} role="menuitemradio" aria-checked={sort === s}
                           className={sort === s ? "active" : ""}
@@ -126,6 +129,8 @@ function ProjectCard({
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const cardMenuRef = useRef<HTMLDivElement>(null);
+  useMenuFit(cardMenuRef, menuOpen);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -171,7 +176,7 @@ function ProjectCard({
             <Icon name="dots" size={16} />
           </button>
           {menuOpen && (
-            <div className="card-menu" role="menu" onClick={(e) => e.stopPropagation()}>
+            <div className="card-menu" role="menu" ref={cardMenuRef} onClick={(e) => e.stopPropagation()}>
               <button role="menuitem" onClick={() => { setMenuOpen(false); onTogglePin(); }}>
                 <Icon name={project.pinned ? "pin" : "pin-filled"} size={14} />
                 {project.pinned ? "Unpin" : "Pin"}

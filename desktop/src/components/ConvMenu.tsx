@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import type { Project } from "../api/client";
+import { useMenuFit } from "../state/useMenuFit";
 import { Icon } from "./Icon";
 
 // The recents-row ⋮ overflow menu (contract §7.3): Pin/Unpin (P), Rename (R), a
@@ -28,7 +29,10 @@ export function ConvMenu({
   onClose: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const subRef = useRef<HTMLDivElement>(null);
   const [submenu, setSubmenu] = useState(false);
+  useMenuFit(ref, true); // main menu is only mounted while open
+  useMenuFit(subRef, submenu); // the "Change project" flyout — flip in from either edge
 
   useEffect(() => {
     function onDoc(e: MouseEvent) {
@@ -72,7 +76,7 @@ export function ConvMenu({
           <span className="cm-chev" aria-hidden="true"><Icon name="chev-right" size={12} /></span>
         </button>
         {submenu && (
-          <div className="conv-submenu" role="menu" aria-label="Move to project">
+          <div className="conv-submenu" role="menu" aria-label="Move to project" ref={subRef}>
             {targets.map((t) => (
               <button key={t.id} role="menuitem" onClick={() => { onClose(); onMove(t.id); }}>
                 {t.name}

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
+import { useMenuFit } from "../state/useMenuFit";
 import { Icon } from "./Icon";
 
 // The conversation-title breadcrumb dropdown: rename / export / delete for the open
@@ -19,6 +20,7 @@ export function ChatMenu({
   const [draft, setDraft] = useState<string | null>(null);
   const ref = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  useMenuFit(menuRef, open);
 
   // Menu keyboard pattern: focus lands on the first item when the menu opens, and
   // the arrow keys cycle through the items.

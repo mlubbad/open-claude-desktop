@@ -70,6 +70,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import random
 import re
 import time
 import types
@@ -435,17 +436,78 @@ def _is_retryable(exc: BaseException) -> bool:
     return any(h in name for h in _RETRYABLE_NAME_HINTS)
 
 
+# Backoff shape for transient LLM failures (esp. HTTP 429). We WAIT the amount the
+# provider asks for via the `Retry-After` header when present — the single most
+# effective thing for rate limits, since a per-minute quota needs the window to reset,
+# not a sub-second retry — and otherwise fall back to jittered exponential backoff.
+_RETRY_AFTER_CAP = 30.0   # never honor a Retry-After longer than this (avoid a long freeze)
+_BACKOFF_CAP = 20.0       # ceiling for the exponential term
+_BACKOFF_BASE = 0.75      # first exponential step
+_STREAM_RETRIES = 4       # pre-first-chunk backoff retries on the streaming path
+
+
+def _retry_after_seconds(exc: BaseException) -> float | None:
+    """The server-suggested wait before retrying, parsed from the response's
+    ``Retry-After`` header. Handles both the delta-seconds and the HTTP-date forms
+    (OpenAI/Anthropic/most gateways send seconds). Returns None when absent."""
+    resp = getattr(exc, "response", None)
+    headers = getattr(resp, "headers", None)
+    raw = None
+    if headers is not None:
+        try:
+            raw = headers.get("retry-after") or headers.get("Retry-After")
+        except Exception:  # noqa: BLE001 - not a mapping
+            raw = None
+    if not raw:
+        return None
+    raw = str(raw).strip()
+    try:
+        return max(0.0, float(raw))
+    except ValueError:
+        pass
+    try:  # HTTP-date form, e.g. "Wed, 21 Oct 2026 07:28:00 GMT"
+        import datetime as _dt
+        from email.utils import parsedate_to_datetime
+        when = parsedate_to_datetime(raw)
+        if when is not None:
+            now = _dt.datetime.now(tz=when.tzinfo)
+            return max(0.0, (when - now).total_seconds())
+    except Exception:  # noqa: BLE001 - unparseable header, fall back to backoff
+        pass
+    return None
+
+
+def _backoff_delay(attempt: int, retry_after: float | None = None) -> float:
+    """Seconds to sleep before the next attempt: honor the provider's Retry-After
+    (capped), else jittered exponential backoff so retries don't align across callers."""
+    if retry_after is not None:
+        return min(retry_after, _RETRY_AFTER_CAP)
+    base = min(_BACKOFF_CAP, _BACKOFF_BASE * (2 ** attempt))
+    return base * (0.5 + random.random() * 0.5)  # 50–100% of the step
+
+
+def _friendly_error(msg: str) -> str:
+    """Turn a raw provider error into a user-actionable message. Rate limits are the
+    common case worth explaining (the turn is retried first; this is only shown once
+    the backoff budget is spent)."""
+    low = (msg or "").lower()
+    if "429" in low or "too many requests" in low or "rate limit" in low or "ratelimit" in low:
+        return ("The model provider is rate-limiting requests right now (HTTP 429). "
+                "Wait a few seconds and try again, or switch to a different "
+                "model/provider in Settings.")
+    return f"LLM call failed: {msg}"
+
+
 async def _create_with_retry(llm, model, kw, retries: int = 2, base_delay: float = 0.5):
-    """Call the model, retrying transient errors with exponential backoff. Non-transient
+    """Call the model, retrying transient errors with backoff. Honors the provider's
+    Retry-After header (falling back to jittered exponential backoff). Non-transient
     errors (and the final attempt) raise so the caller can fall back."""
-    delay = base_delay
     for attempt in range(retries + 1):
         try:
             return await asyncio.to_thread(llm.chat.completions.create, model=model, **kw)
         except Exception as e:
             if attempt < retries and _is_retryable(e):
-                await asyncio.sleep(delay)
-                delay *= 2
+                await asyncio.sleep(_backoff_delay(attempt, _retry_after_seconds(e)))
                 continue
             raise
 
@@ -505,25 +567,43 @@ async def _stream_chunks(llm, model, messages, tools, temperature, max_tokens,
     DONE = object()
 
     def _worker():
+        base_kw = dict(messages=messages, temperature=temperature,
+                       max_tokens=max_tokens, stream=True)
+        if tools:
+            base_kw["tools"] = tools
+            base_kw["tool_choice"] = "auto"
+        attempt = 0          # transient-failure backoff counter (pre-first-chunk only)
+        drop_extras = False  # set once if the endpoint rejects the optional params
         try:
-            kw = dict(messages=messages, temperature=temperature,
-                      max_tokens=max_tokens, stream=True)
-            if tools:
-                kw["tools"] = tools
-                kw["tool_choice"] = "auto"
-            got_chunk = False
-            try:
-                for chunk in llm.chat.completions.create(model=model, **kw,
-                                                         **(extra or {})):
-                    got_chunk = True
-                    loop.call_soon_threadsafe(queue.put_nowait, chunk)
-                return
-            except Exception:
-                if got_chunk or not extra:
-                    raise  # a mid-stream failure isn't the extras' fault
-            for chunk in llm.chat.completions.create(model=model, **kw):
-                loop.call_soon_threadsafe(queue.put_nowait, chunk)
-        except Exception as e:
+            while True:
+                kw = dict(base_kw)
+                if extra and not drop_extras:
+                    kw.update(extra)
+                got_chunk = False
+                try:
+                    for chunk in llm.chat.completions.create(model=model, **kw):
+                        got_chunk = True
+                        loop.call_soon_threadsafe(queue.put_nowait, chunk)
+                    return
+                except Exception as e:  # noqa: BLE001
+                    if got_chunk:
+                        raise  # a partial stream can't be safely replayed
+                    # Transient (rate limit / 5xx / timeout) BEFORE any output: back off
+                    # and retry, waiting the provider's Retry-After when present. This is
+                    # the fix for a turn dying on a 429 after several tool rounds — the
+                    # streaming path previously had NO rate-limit retry, so the first 429
+                    # ended the turn.
+                    if _is_retryable(e) and attempt < _STREAM_RETRIES:
+                        time.sleep(_backoff_delay(attempt, _retry_after_seconds(e)))
+                        attempt += 1
+                        continue
+                    # Not transient, but the optional params may be unsupported: retry once
+                    # without them so an endpoint that rejects extras still streams.
+                    if extra and not drop_extras:
+                        drop_extras = True
+                        continue
+                    raise
+        except Exception as e:  # noqa: BLE001
             loop.call_soon_threadsafe(queue.put_nowait, e)
         finally:
             loop.call_soon_threadsafe(queue.put_nowait, DONE)
@@ -637,7 +717,7 @@ async def _stream_llm(llm, model, messages, tools=None, temperature=0.1,
                                            fallback_model=fallback_model)
             if resp is None:
                 yield {"__done__": {"content": "", "tool_calls": [],
-                                    "note": f"LLM call failed: {note}", "error": True}}
+                                    "note": _friendly_error(note), "error": True}}
                 return
             msg = resp.choices[0].message
             full = msg.content or ""

@@ -1,3 +1,23 @@
+/* Bundled OPEN serif (Noto Serif, latin subset — SIL OFL 1.1, see assets/fonts/OFL.txt)
+   so a refined serif renders on ANY platform, even without a system serif installed. It
+   is the concrete tail of the --font-serif fallback chain. We deliberately do NOT bundle
+   the proprietary "Anthropic Serif" / "Anthropic Serif Fallback *" fonts — those are
+   referenced by name only (used if the OS has them) and are never shipped here. */
+@font-face {
+  font-family: "Noto Serif";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./assets/fonts/noto-serif-latin-400.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Noto Serif";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("./assets/fonts/noto-serif-latin-600.woff2") format("woff2");
+}
+
 /* Original, theme-aware palette (light + dark). A warm, editorial identity —
    inspired by the warm-canvas *category* of design, but built with our own values:
    our clay accent (not any third-party's signature colour), our own neutrals, and
@@ -36,8 +56,18 @@
   --r-xl: 16px;
   --radius: 12px;
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
-  --font-serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  /* The product serif stack (applied to ALL text below via `font-family`). Names resolve
+     against whatever the OS has installed and fall through in order; "Noto Serif" (bundled,
+     open) is the concrete tail so a quality serif always renders, then the generic serif. */
+  --font-serif: "Anthropic Serif", "Anthropic Serif Fallback Georgia",
+    "Anthropic Serif Fallback Times", "Anthropic Serif Fallback DejaVu",
+    "Anthropic Serif Fallback Noto", Georgia, "Arial Hebrew", "Noto Sans Hebrew",
+    "Times New Roman", Times, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC",
+    "PingFang TC", "Microsoft JhengHei", "Noto Sans CJK TC", "Hiragino Sans", "Yu Gothic",
+    Meiryo, "Noto Sans CJK JP", "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans CJK KR",
+    "Noto Serif", serif;
+  /* Serif everywhere text appears (code keeps --mono). */
+  font-family: var(--font-serif);
   color-scheme: light dark;
 }
 :root[data-theme="light"] { color-scheme: light; }

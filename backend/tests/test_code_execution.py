@@ -10,7 +10,9 @@ from ocd_core import config, integrations
 @pytest.fixture
 def sandbox(tmp_path, monkeypatch):
     monkeypatch.setattr(integrations, "SANDBOX_ROOT", tmp_path / "_sandbox")
-    # Force local mode: CI may have a docker binary on PATH but no running daemon.
+    # Explicitly opt into the host capability under test, then force local mode: CI
+    # may have a docker binary on PATH but no running daemon.
+    monkeypatch.setattr(config, "HOST_EXECUTION_ENABLED", True)
     monkeypatch.setattr(integrations, "_code_execution_mode", lambda: "local")
     return tmp_path
 
@@ -127,9 +129,9 @@ def test_run_python_backcompat_wrapper(sandbox):
 def test_code_execution_mode_default_is_valid_and_falls_back(monkeypatch):
     from ocd_core import settings as settings_mod
     assert config.DEFAULT_SETTINGS["code_execution"] in config.CODE_EXECUTION_MODES
-    # An unknown persisted value falls back to "auto" rather than a broken mode.
+    # An unknown persisted value falls back to fail-closed Docker mode.
     monkeypatch.setattr(settings_mod, "get_settings", lambda: {"code_execution": "bogus"})
-    assert integrations._code_execution_mode() == "auto"
+    assert integrations._code_execution_mode() == "docker"
 
 
 def test_safe_project_blocks_traversal():

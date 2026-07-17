@@ -16,7 +16,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from . import config
+from . import config, egress
 
 
 def valid_git_url(url: str) -> bool:
@@ -97,11 +97,12 @@ def clone_repo(url: str, ref: str, dest: Path) -> None:
     any failure. Cloning only fetches data; git does not execute a remote repo's hooks,
     so passing the real environment here is safe (repo code runs only on install).
     """
-    # NOTE: we deliberately do NOT pin protocol.http.allow=never. Proxy setups (incl.
-    # this app's own agent proxy) route git via a gitconfig `insteadOf` rule that rewrites
-    # https://github.com/ to a plaintext http:// proxy URL — blocking http would break
-    # cloning behind a proxy. The residual "a machine's gitconfig could downgrade the URL"
-    # risk is low, not attacker-injectable, and no worse than any tool running git here.
+    if not valid_git_url(url) or not url.lower().startswith("https://"):
+        raise RuntimeError("repository URL must be public HTTPS")
+    try:
+        egress.assert_public_url(url, schemes=("https",))
+    except egress.EgressBlocked as exc:
+        raise RuntimeError(f"repository destination blocked: {exc}") from exc
     base = ["git", "clone", "--depth", "1", "--no-tags", "--single-branch"]
     if ref.strip():
         base += ["--branch", ref.strip()]
@@ -109,6 +110,10 @@ def clone_repo(url: str, ref: str, dest: Path) -> None:
     env = dict(os.environ)
     env["GIT_TERMINAL_PROMPT"] = "0"      # fail fast instead of hanging for a password
     env.setdefault("GIT_LFS_SKIP_SMUDGE", "1")  # don't pull large LFS blobs on checkout
+    # Ignore URL rewrite rules that could redirect a validated public URL to an
+    # internal/plaintext endpoint. System/user credential helpers remain available.
+    env["GIT_CONFIG_NOSYSTEM"] = "1"
+    env["GIT_CONFIG_GLOBAL"] = os.devnull
 
     def _run(cmd: list[str]) -> None:
         subprocess.run(cmd, env=env, check=True, capture_output=True,

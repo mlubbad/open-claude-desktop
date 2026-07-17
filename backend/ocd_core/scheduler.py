@@ -16,7 +16,7 @@ from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from . import agent, config, cowork, jobqueue, jsonstore, opik_tracing, tenancy
+from . import agent, config, cowork, jobqueue, jsonstore, opik_tracing, tenancy, workspace_store
 
 
 def _now() -> datetime:
@@ -95,6 +95,11 @@ class ScheduleStore:
         self.path = Path(path) if path else Path(config.REPO_ROOT) / "schedules.json"
 
     def load(self) -> list[Schedule]:
+        if tenancy.enforcing():
+            raw = workspace_store.list_schedules()
+            fields = set(Schedule.__dataclass_fields__)
+            return [Schedule(**{k: v for k, v in item.items() if k in fields})
+                    for item in raw]
         try:
             raw = json.loads(self.path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
@@ -110,6 +115,9 @@ class ScheduleStore:
         # Atomic write (temp + os.replace): a crash mid-write must not truncate
         # schedules.json — load() fails soft to [], which would silently erase
         # every automation the user configured.
+        if tenancy.enforcing():
+            workspace_store.save_schedules([asdict(s) for s in schedules])
+            return
         with contextlib.suppress(OSError):
             jsonstore.save_json(self.path, [asdict(s) for s in schedules])
 

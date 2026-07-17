@@ -8,6 +8,7 @@
 import asyncio
 import json
 
+import pytest
 from sqlalchemy import inspect, text
 
 # --- Cowork incremental flush ---------------------------------------------------
@@ -105,5 +106,21 @@ def test_backup_is_a_noop_for_memory_db(monkeypatch):
     try:
         engine.init_db()
         assert engine.backup_sqlite_before_migration() is None  # no file to snapshot
+    finally:
+        engine.reset_engine()
+
+
+def test_migration_backup_failure_is_not_suppressed(monkeypatch, tmp_path):
+    engine, _ = _use_file_db(monkeypatch, tmp_path)
+    try:
+        with engine.get_engine().begin() as c:
+            c.execute(text("CREATE TABLE conversation (id VARCHAR PRIMARY KEY)"))
+        monkeypatch.setattr(
+            engine,
+            "backup_sqlite_before_migration",
+            lambda: (_ for _ in ()).throw(OSError("disk full")),
+        )
+        with pytest.raises(OSError, match="disk full"):
+            engine.ensure_columns()
     finally:
         engine.reset_engine()

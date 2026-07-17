@@ -24,7 +24,7 @@ import shutil
 from datetime import UTC, datetime
 from pathlib import Path
 
-from . import config, git_sync, integrations, jsonstore
+from . import config, git_sync, integrations, jsonstore, tenancy, workspace_store
 
 _META = {
     "name": re.compile(r'^NAME\s*=\s*["\'](.+?)["\']', re.M),
@@ -83,11 +83,16 @@ def _sources_file() -> Path:
 
 
 def _load_sources() -> list[dict]:
+    if tenancy.enforcing():
+        return workspace_store.load_integrations("marketplace_source")
     return jsonstore.load_json(_sources_file(), [])
 
 
 def _save_sources(sources: list[dict]) -> None:
     # Atomic replace so a crash mid-write can't corrupt/truncate the registry.
+    if tenancy.enforcing():
+        workspace_store.save_integrations("marketplace_source", sources)
+        return
     jsonstore.save_json(_sources_file(), sources)
 
 

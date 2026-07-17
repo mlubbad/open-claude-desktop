@@ -2,8 +2,8 @@
 list / inspect / cancel those tasks.
 
 Approval mode (P1-8):
-  * ``skip``   — permission_mode=auto, no reply channel: fully autonomous (default).
-  * ``manual`` — permission_mode=ask + a turn_id: the task pauses on sensitive actions
+  * ``skip``   — permission_mode=auto, no reply channel: explicit autonomous opt-in.
+  * ``manual`` — permission_mode=ask + a turn_id (default): the task pauses on sensitive actions
     and surfaces ``approval_required`` in its transcript; the task-detail view resolves
     it through the shared ``/agent/turn/{turn_id}/permission`` endpoint.
 
@@ -18,7 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from ocd_core import agent, cowork, opik_tracing, settings
 from pydantic import BaseModel, field_validator
 
-from ..deps import current_user
+from ..deps import current_user, require_workspace_role
 
 router = APIRouter()
 
@@ -29,22 +29,22 @@ class CoworkStart(BaseModel):
     provider: str | None = None
     effort: str = "High"
     project_id: str | None = None
-    approval: str = "skip"   # skip (autonomous) | manual (HITL gate live)
+    approval: str = "manual"   # skip (autonomous opt-in) | manual (default HITL gate)
 
     @field_validator("approval")
     @classmethod
     def _bound_approval(cls, v: str) -> str:
-        # Empty/unset → the documented autonomous default ("skip"). But a NON-EMPTY typo
-        # ("Manual", "manaul", "gate") must NOT silently become an autonomous run — coerce
-        # it to the gated mode so a background job can't lose its HITL gate to a bad input.
+        # Empty/unset and typos resolve to the gated mode so a background job cannot
+        # lose its HITL gate because of an omitted or malformed input.
         m = str(v or "").strip().lower()
         if m in {"skip", "manual"}:
             return m
-        return "skip" if m == "" else "manual"
+        return "manual"
 
 
 @router.post("/cowork")
-async def start_task(body: CoworkStart, user: str = Depends(current_user)) -> dict:
+async def start_task(body: CoworkStart,
+                     user: str = Depends(require_workspace_role("member"))) -> dict:
     """Delegate a goal to a background agent task. Returns the task summary immediately."""
     if not body.goal.strip():
         raise HTTPException(status_code=400, detail="goal is required")
@@ -89,7 +89,7 @@ def list_tasks(user: str = Depends(current_user)) -> list[dict]:
 
 
 @router.post("/cowork/clear")
-def clear_tasks(user: str = Depends(current_user)) -> dict:
+def clear_tasks(user: str = Depends(require_workspace_role("member"))) -> dict:
     """Drop all finished tasks (the 'Clear active' action). Running tasks are kept."""
     return {"cleared": cowork.manager.clear_finished()}
 
@@ -103,5 +103,7 @@ def get_task(task_id: str, user: str = Depends(current_user)) -> dict:
 
 
 @router.post("/cowork/{task_id}/cancel")
-def cancel_task(task_id: str, user: str = Depends(current_user)) -> dict:
-    return {"cancelled": cowork.manager.cancel(task_id)}
+def cancel_task(task_id: str, user: str = Depends(require_workspace_role("member"))) -> dict:
+    if not cowork.manager.cancel(task_id):
+        raise HTTPException(status_code=404, detail="no cancellable task")
+    return {"cancelled": True}

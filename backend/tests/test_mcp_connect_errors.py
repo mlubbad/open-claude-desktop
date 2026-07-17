@@ -13,6 +13,7 @@ from ocd_core import config, integrations, mcp_registry
 @pytest.fixture
 def mcp_file(tmp_path, monkeypatch):
     monkeypatch.setattr(integrations, "MCP_FILE", tmp_path / "mcp.json")
+    monkeypatch.setattr(config, "STDIO_MCP_ENABLED", True)
     return tmp_path / "mcp.json"
 
 

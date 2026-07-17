@@ -17,6 +17,7 @@ from ocd_core import tenancy
 def enforced(monkeypatch):
     """Turn multi-tenant enforcement on for the duration of a test."""
     monkeypatch.setenv("OCD_MULTI_TENANT", "1")
+    monkeypatch.setenv("OCD_ALLOW_DEV_WORKSPACE_HEADER", "1")
     assert tenancy.enforcing() is True
     yield
 

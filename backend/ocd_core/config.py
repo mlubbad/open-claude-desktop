@@ -52,10 +52,10 @@ MARKETPLACE_SOURCES_DIR = Path(os.getenv(
     "MARKETPLACE_SOURCES_DIR", str(REPO_ROOT / "content" / "marketplace_sources")))
 MARKETPLACE_SOURCES_FILE = Path(os.getenv(
     "MARKETPLACE_SOURCES_FILE", str(MARKETPLACE_SOURCES_DIR / "sources.json")))
-# A remote marketplace runs third-party plugin CODE on this machine. On by default (the
-# desktop app gates it behind an explicit warning); ops can hard-disable with "0".
+# A remote marketplace runs third-party plugin CODE on this machine. Days 1-3
+# containment keeps it off on fresh installs; an operator must opt in explicitly.
 MARKETPLACE_ALLOW_REMOTE = os.getenv(
-    "MARKETPLACE_ALLOW_REMOTE", "1").strip().lower() in ("1", "true", "yes")
+    "MARKETPLACE_ALLOW_REMOTE", "0").strip().lower() in ("1", "true", "yes")
 MARKETPLACE_CLONE_TIMEOUT_SEC = int(os.getenv("MARKETPLACE_CLONE_TIMEOUT_SEC", "90"))
 MARKETPLACE_MAX_SOURCE_BYTES = int(os.getenv("MARKETPLACE_MAX_SOURCE_MB", "40")) * 1024 * 1024
 # Ceiling on how many repository sources can be registered (bounds aggregate disk use).
@@ -116,12 +116,13 @@ DEFAULT_SETTINGS = {"model": AGENT_MODEL,
                     "searxng_url": os.getenv("SEARXNG_URL", ""),
                     # Code-execution engine for the `code_execution` tool:
                     #   "auto"   — Docker's isolated sandbox when available, else a jailed
-                    #              local run on this device (resource-limited). [default]
-                    #   "docker" — Docker only (feature unavailable without a container runtime).
+                    #              local run on this device (resource-limited).
+                    #   "docker" — Docker only (feature unavailable without a container
+                    #              runtime). [default during containment]
                     #   "local"  — always run locally on this device (no container).
                     #   "off"    — code execution disabled.
                     # Every run is still gated by the HITL approval prompt.
-                    "code_execution": os.getenv("CODE_EXECUTION_MODE", "auto"),
+                    "code_execution": os.getenv("CODE_EXECUTION_MODE", "docker"),
                     # How much the agent asks before acting (HITL autonomy):
                     #   "strict" — ask before EVERY tool (approve each step)
                     #   "ask"    — ask before sensitive actions only (code/shell/files/DB) [default]
@@ -202,9 +203,24 @@ AUDIT_LOG_BACKUPS = int(os.getenv("AUDIT_LOG_BACKUPS", "5"))
 ALLOW_WRITES = os.getenv("AJ360_ALLOW_WRITES", "false").strip().lower() in ("1", "true", "yes")
 
 # --- interactive tool permissions (HITL) ---
-# auto = no prompts (default), ask = prompt for sensitive tools, strict = prompt for all.
-PERMISSION_MODE = os.getenv("PERMISSION_MODE", "auto").strip().lower()
+# auto = no prompts, ask = prompt for sensitive tools (default), strict = prompt for all.
+PERMISSION_MODE = os.getenv("PERMISSION_MODE", "ask").strip().lower()
 PERMISSION_TIMEOUT_SEC = int(os.getenv("PERMISSION_TIMEOUT_SEC", "300"))
+
+# --- containment capability switches (all require explicit operator opt-in) ---
+STDIO_MCP_ENABLED = os.getenv(
+    "OCD_ENABLE_STDIO_MCP", "0").strip().lower() in ("1", "true", "yes")
+HOST_EXECUTION_ENABLED = os.getenv(
+    "OCD_ALLOW_HOST_EXEC", "0").strip().lower() in ("1", "true", "yes")
+SCHEDULER_ENABLED = os.getenv(
+    "SCHEDULER_ENABLED", "0").strip().lower() in ("1", "true", "yes")
+
+# Temporary edge backstops. The reverse proxy enforces matching limits for the
+# Compose stack; these process-level limits keep direct/local launches bounded too.
+MAX_REQUEST_BYTES = max(1, int(os.getenv(
+    "OCD_MAX_REQUEST_BYTES", str(32 * 1024 * 1024))))
+MAX_CONCURRENT_REQUESTS = max(1, int(os.getenv(
+    "OCD_MAX_CONCURRENT_REQUESTS", "32")))
 
 # --- autonomy guardrails (bound runaway / autonomous spend) ---
 # The EFFORT step cap bounds a single turn's main loop; these bound the two amplifiers

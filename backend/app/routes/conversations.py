@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 from ocd_core import conversations
 
-from ..deps import current_user
+from ..deps import current_user, require_workspace_role
 from ..schemas import (
     BranchBody,
     ConversationCreate,
@@ -22,7 +22,8 @@ def list_convs(pid: str, user: str = Depends(current_user)) -> list[dict]:
 
 
 @router.post("/projects/{pid}/conversations")
-def create_conv(pid: str, body: ConversationCreate, user: str = Depends(current_user)) -> dict:
+def create_conv(pid: str, body: ConversationCreate,
+                user: str = Depends(require_workspace_role("member"))) -> dict:
     return conversations.create_conversation(pid, body.first_message)
 
 
@@ -35,7 +36,8 @@ def get_conv(pid: str, cid: str, user: str = Depends(current_user)) -> dict:
 
 
 @router.put("/projects/{pid}/conversations/{cid}")
-def save_conv(pid: str, cid: str, body: ConversationSave, user: str = Depends(current_user)) -> dict:
+def save_conv(pid: str, cid: str, body: ConversationSave,
+              user: str = Depends(require_workspace_role("member"))) -> dict:
     try:
         return conversations.save_conversation(
             pid, cid, [m.model_dump() for m in body.messages], body.title,
@@ -46,7 +48,8 @@ def save_conv(pid: str, cid: str, body: ConversationSave, user: str = Depends(cu
 
 
 @router.patch("/projects/{pid}/conversations/{cid}")
-def patch_conv(pid: str, cid: str, body: ConversationPatch, user: str = Depends(current_user)) -> dict:
+def patch_conv(pid: str, cid: str, body: ConversationPatch,
+               user: str = Depends(require_workspace_role("member"))) -> dict:
     if body.title is not None:
         conversations.set_conversation_title(pid, cid, body.title)
     if body.pinned is not None:
@@ -55,18 +58,21 @@ def patch_conv(pid: str, cid: str, body: ConversationPatch, user: str = Depends(
 
 
 @router.delete("/projects/{pid}/conversations/{cid}")
-def delete_conv(pid: str, cid: str, user: str = Depends(current_user)) -> dict:
+def delete_conv(pid: str, cid: str,
+                user: str = Depends(require_workspace_role("admin"))) -> dict:
     conversations.delete_conversation(pid, cid)
     return {"ok": True}
 
 
 @router.post("/projects/{pid}/conversations/{cid}/move")
-def move_conv(pid: str, cid: str, body: MoveBody, user: str = Depends(current_user)) -> dict:
+def move_conv(pid: str, cid: str, body: MoveBody,
+              user: str = Depends(require_workspace_role("member"))) -> dict:
     return {"ok": conversations.move_conversation(pid, cid, body.dst_project_id)}
 
 
 @router.post("/projects/{pid}/conversations/{cid}/branch")
-def branch_conv(pid: str, cid: str, body: BranchBody, user: str = Depends(current_user)) -> dict:
+def branch_conv(pid: str, cid: str, body: BranchBody,
+                user: str = Depends(require_workspace_role("member"))) -> dict:
     """Fork the conversation at a message; returns the new branch conversation."""
     branch = conversations.branch_conversation(pid, cid, body.at_index)
     if branch is None:
@@ -92,5 +98,6 @@ def search_convs(q: str, limit: int = 50, user: str = Depends(current_user)) -> 
 
 
 @router.post("/conversations/title")
-def conversation_title(body: TitleRequest, user: str = Depends(current_user)) -> dict:
+def conversation_title(body: TitleRequest,
+                       user: str = Depends(require_workspace_role("member"))) -> dict:
     return {"title": conversations.generate_conversation_title(body.first_message)}

@@ -56,6 +56,7 @@ def _bundle_bytes() -> bytes:
 def isolate(monkeypatch, tmp_path):
     monkeypatch.setattr(integrations, "EXTENSIONS_DIR", tmp_path / "extensions")
     monkeypatch.setattr(integrations, "MCP_FILE", tmp_path / "mcp_servers.json")
+    monkeypatch.setattr(integrations.config, "STDIO_MCP_ENABLED", True)
     yield
     for s in integrations._load_mcp_servers():
         try:

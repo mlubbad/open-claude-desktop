@@ -11,10 +11,8 @@ is meant to run as a ``127.0.0.1`` sidecar behind the desktop shell. So the corr
 non-breaking fix is:
 
 * Default the bind host to loopback (``127.0.0.1``).
-* **Refuse to start** if the process is bound to a non-loopback interface while auth
-  is disabled — unless the operator explicitly opts in with
-  ``OCD_ALLOW_INSECURE_NETWORK=1`` (a loud, deliberate escape hatch for trusted-network
-  dev). Exposing the service to a network now *forces* configuring auth.
+* **Refuse to start** if the process is bound to a non-loopback interface or tenancy
+  is enabled while authentication is disabled. No environment flag bypasses this.
 
 This turns "default = open RCE on any interface" into "default = loopback-only (safe
 for local-first) OR you must authenticate". All helpers are pure and unit-tested.
@@ -24,12 +22,12 @@ from __future__ import annotations
 import ipaddress
 import os
 
-from . import auth
+from . import auth, tenancy
 
 # The env var the run command / uvicorn invocation should honor for the bind host.
 BIND_HOST_ENV = "OCD_BIND_HOST"
 DEFAULT_BIND_HOST = "127.0.0.1"
-# Deliberate, documented opt-in to run open (no auth) on a non-loopback interface.
+# Development-mode launch-freeze carveout. It does not bypass authentication.
 ALLOW_INSECURE_ENV = "OCD_ALLOW_INSECURE_NETWORK"
 
 # Hostnames that are always treated as loopback without a DNS lookup.
@@ -62,17 +60,23 @@ def is_loopback(host: str) -> bool:
 
 
 def allow_insecure_network() -> bool:
-    """True iff the operator explicitly opted into running open on a network."""
+    """Return the development launch-carveout flag (never an auth bypass)."""
     return os.getenv(ALLOW_INSECURE_ENV, "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def authentication_required(host: str | None = None) -> bool:
+    """Authentication is mandatory for tenancy or any non-loopback binding."""
+    host = bind_host() if host is None else host
+    return tenancy.enforcing() or not is_loopback(host)
 
 
 def binding_is_safe(host: str | None = None) -> bool:
     """Whether it is safe to serve on ``host`` given the current auth configuration.
 
-    Safe when: bound to loopback, OR auth is enabled, OR the insecure opt-in is set.
+    Loopback single-user mode may remain unauthenticated. Every other mode requires auth.
     """
     host = bind_host() if host is None else host
-    return is_loopback(host) or auth.auth_enabled() or allow_insecure_network()
+    return not authentication_required(host) or auth.auth_enabled()
 
 
 def unsafe_binding_reason(host: str | None = None) -> str | None:
@@ -80,12 +84,17 @@ def unsafe_binding_reason(host: str | None = None) -> str | None:
     host = bind_host() if host is None else host
     if binding_is_safe(host):
         return None
+    requirements = []
+    if tenancy.enforcing():
+        requirements.append("multi-tenant mode is enabled")
+    if not is_loopback(host):
+        requirements.append(f"the bind host '{host}' is non-loopback")
+    context = " and ".join(requirements)
     return (
-        f"Refusing to start: bound to non-loopback host '{host}' with authentication "
-        f"disabled. A network-reachable deployment must configure auth "
-        f"(APP_USERNAME / APP_PASSWORD / APP_AUTH_SECRET). To bind loopback-only set "
-        f"{BIND_HOST_ENV}=127.0.0.1 (the default), or, to run open on a trusted "
-        f"network anyway, set {ALLOW_INSECURE_ENV}=1."
+        f"Refusing to start because {context} while authentication is disabled. "
+        "Authentication is mandatory in this mode; configure APP_USERNAME, "
+        "APP_PASSWORD, and APP_AUTH_SECRET. For unauthenticated local development, "
+        f"disable tenancy and bind {BIND_HOST_ENV}=127.0.0.1."
     )
 
 

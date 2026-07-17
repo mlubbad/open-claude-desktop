@@ -26,6 +26,8 @@ from urllib.parse import parse_qs, urlsplit
 from mcp.client.auth import OAuthClientProvider
 from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
 
+from . import egress
+
 from . import secrets
 
 DEFAULT_SCOPES = "openid profile"
@@ -117,6 +119,7 @@ def build_oauth_provider(
 ) -> OAuthClientProvider:
     """Construct the SDK OAuth provider (an ``httpx.Auth``) for one MCP server, wired to
     keychain storage. Pass the result as ``auth=`` to ``streamablehttp_client``."""
+    egress.assert_public_url(server_url)
     return OAuthClientProvider(
         server_url=server_url,
         client_metadata=build_client_metadata(redirect_uri, scopes),
@@ -144,6 +147,7 @@ def background_provider(sid: str, server_url: str) -> OAuthClientProvider:
     """An OAuth provider for non-interactive use (discovery / tool calls). It attaches a
     stored token and refreshes it silently; if interactive re-auth is unavoidable it
     raises ReauthorizationRequired instead of trying to pop a browser on the backend."""
+    egress.assert_public_url(server_url)
     return OAuthClientProvider(
         server_url=server_url,
         client_metadata=build_client_metadata("http://127.0.0.1/callback"),
@@ -163,6 +167,7 @@ def open_in_browser(url: str) -> None:
 def make_redirect_handler(open_url: Callable[[str], None]) -> Callable[[str], Awaitable[None]]:
     """An async redirect_handler that opens the authorization URL via ``open_url``."""
     async def _redirect(url: str) -> None:
+        egress.assert_public_url(url)
         open_url(url)
     return _redirect
 
@@ -178,6 +183,7 @@ def interactive_provider(
     """An OAuth provider for the interactive authorize flow: its redirect_handler opens
     the authorization URL in the browser and its callback_handler awaits the code from a
     loopback listener. ``redirect_uri`` must match the one the listener is serving."""
+    egress.assert_public_url(server_url)
     return OAuthClientProvider(
         server_url=server_url,
         client_metadata=build_client_metadata(redirect_uri),

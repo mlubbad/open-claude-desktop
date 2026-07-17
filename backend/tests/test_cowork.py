@@ -205,8 +205,8 @@ def test_manual_approval_wires_a_turn_id(client, monkeypatch):
     # The full autonomous toolset incl. the code/file tools is on for background work.
     assert captured["code_exec"] and captured["bash"] and captured["text_editor"]
 
-    client.post("/cowork", json={"goal": "browse it", "model": "m"})  # default skip
-    assert captured["permission_mode"] == "auto" and captured["turn_id"] is None
+    client.post("/cowork", json={"goal": "browse it", "model": "m"})  # default manual
+    assert captured["permission_mode"] == "ask" and captured["turn_id"]
 
 
 def test_clear_route(client):

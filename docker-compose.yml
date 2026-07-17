@@ -6,11 +6,11 @@
 # `upgrade head` on backend startup. The React/Tauri client (Phase 3) ships
 # separately; run the transitional Reflex frontend locally (see README).
 #
-# The backend port is published on HOST loopback only (127.0.0.1). Inside the
-# container the server binds 0.0.0.0, so OCD_ALLOW_INSECURE_NETWORK=1 is set to
-# satisfy the fail-closed network guard. For a real network/self-hosted
-# deployment, configure auth (APP_USERNAME / APP_PASSWORD / APP_AUTH_SECRET)
-# instead of the insecure opt-in.
+# Only the temporary containment proxy is published on HOST loopback. The backend
+# remains private to the Compose network. Because it binds 0.0.0.0 inside the
+# container, APP_USERNAME / APP_PASSWORD / APP_AUTH_SECRET are mandatory in .env;
+# OCD_ALLOW_INSECURE_NETWORK is only a launch-freeze development classification and
+# no longer bypasses authentication.
 
 services:
   postgres:
@@ -40,12 +40,20 @@ services:
       - path: .env
         required: false
     environment:
+      # This stack is a loopback-published DEVELOPMENT environment, never a hosted
+      # deployment. The launch guard requires this explicit classification because the
+      # backend binds 0.0.0.0 inside its container.
+      OCD_DEPLOYMENT_MODE: "development"
       # Reach Postgres over the compose network (psycopg driver, `ocd` role/db).
       DATABASE_URL: postgresql+psycopg://ocd:ocd@postgres:5432/ocd
-      # Dev-only: container binds 0.0.0.0 but the host publishes loopback-only.
+      OCD_DB_FALLBACK: "0"
+      OCD_MAX_REQUEST_BYTES: "33554432"
+      OCD_MAX_CONCURRENT_REQUESTS: "32"
+      OCD_MAX_UPLOAD_BYTES: "26214400"
+      # Dev-only launch-freeze carveout; authentication is still mandatory.
       OCD_ALLOW_INSECURE_NETWORK: "1"
-    ports:
-      - "127.0.0.1:8000:8000"
+    expose:
+      - "8000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -56,6 +64,17 @@ services:
     #     - /path/to/sa-key.json:/creds.json:ro
     #   environment:
     #     GOOGLE_APPLICATION_CREDENTIALS: /creds.json
+
+  proxy:
+    image: nginx:1.27-alpine
+    container_name: ocd-containment-proxy
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8000:8080"
+    volumes:
+      - ./deploy/nginx/containment.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - backend
 
 volumes:
   ocd_pgdata:

@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import uuid
 
+from sqlalchemy import update
 from sqlmodel import select
 
 from . import config, tenancy, util
@@ -88,21 +89,42 @@ def save_conversation(project_id: str, conv_id: str, messages: list[dict],
             now = utcnow()
             c = Conversation(id=conv_id, project_id=project_id,
                              title=title or "Conversation", pinned=False,
-                             transcript=[], version=1, created_at=now, updated_at=now)
+                             transcript=list(messages)[-config.CONV_MAX_MESSAGES:],
+                             version=1, created_at=now, updated_at=now)
             tenancy.stamp(c)  # new row → tag with the current workspace when enforcing
-        else:
-            # Upsert can't degrade to a not-found create (the id already exists), so a
-            # cross-workspace hit is denied outright rather than silently overwritten.
-            tenancy.require_owned(c.workspace_id)
-            if expected_version is not None and (c.version or 1) != expected_version:
-                raise ConversationConflict(c.version or 1)
-            c.version = (c.version or 1) + 1
-        c.transcript = list(messages)[-config.CONV_MAX_MESSAGES:]
+            s.add(c)
+            return _to_dict(c)
+
+        # Upsert can't degrade to a not-found create (the id already exists), so a
+        # cross-workspace hit is denied outright rather than silently overwritten.
+        tenancy.require_owned(c.workspace_id)
+        values = {
+            "transcript": list(messages)[-config.CONV_MAX_MESSAGES:],
+            "updated_at": utcnow(),
+            "version": Conversation.version + 1,
+        }
         if title:
-            c.title = title
-        c.updated_at = utcnow()
-        s.add(c)
-        return _to_dict(c)
+            values["title"] = title
+        statement = update(Conversation).where(
+            Conversation.id == conv_id,
+            Conversation.project_id == project_id,
+        )
+        scope = tenancy.scope_clause(Conversation.workspace_id)
+        if scope is not None:
+            statement = statement.where(scope)
+        if expected_version is not None:
+            # The comparison and write occur in ONE SQL statement. A second writer
+            # cannot slip between a Python-side version check and the UPDATE.
+            statement = statement.where(Conversation.version == expected_version)
+        result = s.exec(statement.values(**values))
+        if result.rowcount != 1:
+            current = s.get(Conversation, conv_id)
+            if current is None or not tenancy.owns(current.workspace_id):
+                raise ConversationConflict(0)
+            raise ConversationConflict(current.version or 1)
+        s.expire_all()
+        saved = s.get(Conversation, conv_id)
+        return _to_dict(saved)
 
 
 def set_conversation_title(project_id: str, conv_id: str, title: str):

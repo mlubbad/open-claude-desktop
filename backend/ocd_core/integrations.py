@@ -14,7 +14,17 @@ import shutil
 import zipfile
 from pathlib import Path
 
-from . import bigquery, chroma, config, jsonstore, knowledge, llm, mcp_registry
+from . import (
+    bigquery,
+    chroma,
+    config,
+    jsonstore,
+    knowledge,
+    llm,
+    mcp_registry,
+    tenancy,
+    workspace_store,
+)
 
 SKILLS_DIR = Path(os.getenv("SKILLS_DIR", str(config.REPO_ROOT / "skills")))
 
@@ -107,10 +117,15 @@ CONNECTORS_FILE = config.REPO_ROOT / "connectors.json"
 
 
 def _load_user_connectors() -> list[dict]:
+    if tenancy.enforcing():
+        return workspace_store.load_integrations("connector")
     return jsonstore.load_json(CONNECTORS_FILE, [])
 
 
 def _save_user_connectors(items: list[dict]):
+    if tenancy.enforcing():
+        workspace_store.save_integrations("connector", items)
+        return
     jsonstore.save_json(CONNECTORS_FILE, items)
 
 
@@ -158,17 +173,20 @@ def add_connector(name: str, base_url: str, header_key: str = "",
     return item
 
 
-def remove_connector(cid: str):
-    for it in _load_user_connectors():
+def remove_connector(cid: str) -> bool:
+    items = _load_user_connectors()
+    found = any(it["id"] == cid for it in items)
+    for it in items:
         if it["id"] == cid and it.get("has_secret"):
             from . import secrets
             secrets.get_secret_store().delete(_connector_secret_key(cid))
-    _save_user_connectors([i for i in _load_user_connectors() if i["id"] != cid])
+    _save_user_connectors([i for i in items if i["id"] != cid])
+    return found
 
 
 def _http_get(url: str, headers: dict, timeout: int = 15):
-    import httpx
-    return httpx.get(url, headers=headers, timeout=timeout, follow_redirects=True)
+    from . import egress
+    return egress.safe_get(url, headers=headers, timeout=timeout)
 
 
 class ConnectorBlocked(Exception):
@@ -186,33 +204,18 @@ def _safe_outbound_get(url: str, headers: dict, auth_header: str = "",
     cross-origin redirect so a hostile endpoint can't harvest the user's API key by
     bouncing the request elsewhere.
     """
-    from urllib.parse import urljoin, urlparse
+    from . import egress
 
-    import httpx
-    cur = (url or "").strip()
-    hdrs = dict(headers)
-    with httpx.Client(timeout=timeout, follow_redirects=False) as client:
-        for _ in range(max_redirects + 1):
-            p = urlparse(cur)
-            if p.scheme not in ("http", "https") or not p.netloc:
-                raise ConnectorBlocked("unsupported URL scheme (http/https only)")
-            if _blocked_host(p.hostname or ""):
-                raise ConnectorBlocked("target host is private/internal and blocked")
-            r = client.get(cur, headers=hdrs)
-            if r.status_code in (301, 302, 303, 307, 308) and r.headers.get("location"):
-                nxt = urljoin(cur, r.headers["location"])
-                np = urlparse(nxt)
-                # Compare the full ORIGIN (scheme + host + port), not just the hostname:
-                # an https→http downgrade or a port change to the same host is still
-                # cross-origin and must NOT keep carrying the user's API key.
-                cur_origin = (p.scheme, p.hostname, p.port)
-                nxt_origin = (np.scheme, np.hostname, np.port)
-                if auth_header and nxt_origin != cur_origin:
-                    hdrs.pop(auth_header, None)  # never leak the key cross-origin
-                cur = nxt
-                continue
-            return r
-    raise ConnectorBlocked("too many redirects")
+    try:
+        return egress.safe_get(
+            url,
+            headers=headers,
+            timeout=timeout,
+            max_redirects=max_redirects,
+            sensitive_headers=(auth_header,),
+        )
+    except egress.EgressBlocked as exc:
+        raise ConnectorBlocked(str(exc)) from exc
 
 
 def test_connector(cid: str) -> str:
@@ -331,6 +334,8 @@ _MCP_CACHE: dict = {"mtime": None, "text": ""}
 
 
 def _load_mcp_servers() -> list[dict]:
+    if tenancy.enforcing():
+        return workspace_store.load_integrations("mcp")
     try:
         mtime = MCP_FILE.stat().st_mtime_ns
     except OSError:
@@ -349,6 +354,9 @@ def _load_mcp_servers() -> list[dict]:
 
 
 def _save_mcp_servers(items: list[dict]):
+    if tenancy.enforcing():
+        workspace_store.save_integrations("mcp", items)
+        return
     jsonstore.save_json(MCP_FILE, items)
 
 
@@ -433,6 +441,11 @@ def add_mcp_server(name: str, command: str = "", args: list[str] | None = None, 
     """Register an MCP server (stdio command OR a remote Streamable-HTTP/SSE url) and
     cache its tool specs. A remote auth token is stored in the OS keychain, never in
     mcp_servers.json. Discovery happens now so the tool list assembles synchronously."""
+    if not url.strip():
+        _require_stdio_mcp_enabled()
+    else:
+        from . import egress
+        egress.assert_public_url(url)
     sid = _slug(name)
     items = [s for s in _load_mcp_servers() if s["id"] != sid]
     if url.strip():
@@ -473,6 +486,8 @@ def add_oauth_mcp_server(name: str, url: str, transport: str = "http") -> dict:
     """Register a remote MCP server that authenticates via OAuth 2.1. Discovery is
     deferred until the user completes the interactive authorize (``authorize_mcp_oauth``),
     since it requires a browser round-trip. The server starts in an 'unauthorized' state."""
+    from . import egress
+    egress.assert_public_url(url)
     sid = _slug(name)
     items = [s for s in _load_mcp_servers() if s["id"] != sid]
     item = {"id": sid, "name": name.strip() or sid,
@@ -498,7 +513,7 @@ def authorize_mcp_oauth(sid: str, open_url=None) -> dict:
     """
     import asyncio
 
-    from . import mcp_oauth
+    from . import egress, mcp_oauth
     s = _find_mcp(sid)
     if not s or not s.get("url") or s.get("auth_mode") != "oauth":
         raise ValueError("Not an OAuth MCP server.")
@@ -520,11 +535,19 @@ def authorize_mcp_oauth(sid: str, open_url=None) -> dict:
                 if (s.get("transport") or "http").lower() == "sse":
                     from mcp.client.sse import sse_client
                     read, write = await stack.enter_async_context(
-                        sse_client(s["url"], auth=provider))
+                        sse_client(
+                            s["url"],
+                            auth=provider,
+                            httpx_client_factory=egress.mcp_httpx_client_factory,
+                        ))
                 else:
                     from mcp.client.streamable_http import streamablehttp_client
                     read, write, _ = await stack.enter_async_context(
-                        streamablehttp_client(s["url"], auth=provider))
+                        streamablehttp_client(
+                            s["url"],
+                            auth=provider,
+                            httpx_client_factory=egress.mcp_httpx_client_factory,
+                        ))
                 session = await stack.enter_async_context(ClientSession(read, write))
                 await session.initialize()  # triggers the OAuth flow on a 401
                 resp = await session.list_tools()
@@ -562,6 +585,20 @@ def authorize_mcp_oauth(sid: str, open_url=None) -> dict:
 # --------------------------------------------------------------------------- #
 class McpbError(Exception):
     """Raised when a .mcpb/.dxt bundle is malformed, unsafe, or missing config."""
+
+
+def _is_stdio_mcp(server: dict) -> bool:
+    """Return whether a persisted server executes a child process on this host."""
+    return not server.get("url") and server.get("transport", "stdio") == "stdio"
+
+
+def _require_stdio_mcp_enabled(server: dict | None = None) -> None:
+    """Fail before a disabled stdio MCP can install, spawn, reconnect, or dispatch."""
+    if not config.STDIO_MCP_ENABLED and (server is None or _is_stdio_mcp(server)):
+        raise McpbError(
+            "stdio MCP is disabled during containment; set OCD_ENABLE_STDIO_MCP=1 "
+            "only in a trusted local environment"
+        )
 
 
 _MCPB_VAR = re.compile(r"\$\{([^}]+)\}")
@@ -679,6 +716,7 @@ def install_mcpb(path: str | Path, user_values: dict | None = None) -> dict:
     (${__dirname}, ${user_config.*}), then registers it via ``add_mcp_server`` so
     its tools become available to the agent. Returns the persisted server record.
     """
+    _require_stdio_mcp_enabled()
     src = Path(path)
     if not src.is_file():
         raise McpbError(f"bundle not found: {src}")
@@ -836,6 +874,7 @@ def update_mcpb(sid: str, user_values: dict | None = None) -> dict:
     under any newly provided values — so an update that adds a required field fails
     with the same "missing required user_config" error the install UI already
     prompts for, and everything else updates with one click."""
+    _require_stdio_mcp_enabled()
     import tempfile
     info = check_mcpb_update(sid)
     if not info.get("latest"):
@@ -886,8 +925,9 @@ def update_mcpb(sid: str, user_values: dict | None = None) -> dict:
     return item
 
 
-def remove_mcp_server(sid: str):
+def remove_mcp_server(sid: str) -> bool:
     items = _load_mcp_servers()
+    found = any(s["id"] == sid for s in items)
     for s in items:
         if s["id"] == sid:
             mcp_registry.registry.drop(_resolve_cfg(s))  # terminate the persistent session
@@ -910,6 +950,7 @@ def remove_mcp_server(sid: str):
                     if EXTENSIONS_DIR.resolve() in d.parents:
                         shutil.rmtree(d, ignore_errors=True)
     _save_mcp_servers([s for s in items if s["id"] != sid])
+    return found
 
 
 def refresh_mcp_server(sid: str) -> dict:
@@ -919,6 +960,7 @@ def refresh_mcp_server(sid: str) -> dict:
     items = _load_mcp_servers()
     for s in items:
         if s["id"] == sid:
+            _require_stdio_mcp_enabled(s)
             try:
                 mcp_registry.registry.drop(_resolve_cfg(s))  # respawn with fresh state
                 s["tools"] = mcp_registry.registry.discover(
@@ -949,6 +991,8 @@ def mcp_resources(sid: str) -> list[dict]:
     s = _find_mcp(sid)
     if not s:
         return []
+    if _is_stdio_mcp(s) and not config.STDIO_MCP_ENABLED:
+        return []
     with contextlib.suppress(Exception):
         return mcp_registry.registry.list_resources(_resolve_cfg(s))
     return []
@@ -958,6 +1002,7 @@ def mcp_read_resource(sid: str, uri: str) -> str:
     s = _find_mcp(sid)
     if not s:
         return ""
+    _require_stdio_mcp_enabled(s)
     return mcp_registry.registry.read_resource(_resolve_cfg(s), uri)
 
 
@@ -965,6 +1010,8 @@ def mcp_prompts(sid: str) -> list[dict]:
     """List an MCP server's prompts ([] if it declares none / doesn't support them)."""
     s = _find_mcp(sid)
     if not s:
+        return []
+    if _is_stdio_mcp(s) and not config.STDIO_MCP_ENABLED:
         return []
     with contextlib.suppress(Exception):
         return mcp_registry.registry.list_prompts(_resolve_cfg(s))
@@ -975,6 +1022,7 @@ def mcp_get_prompt(sid: str, name: str, args: dict | None = None) -> dict:
     s = _find_mcp(sid)
     if not s:
         return {"messages": []}
+    _require_stdio_mcp_enabled(s)
     return mcp_registry.registry.get_prompt(_resolve_cfg(s), name, args or {})
 
 
@@ -1058,6 +1106,8 @@ def mcp_tools(enabled_ids: list[str]) -> list[dict]:
     for s in _load_mcp_servers():
         if s["id"] not in enabled_ids:
             continue
+        if _is_stdio_mcp(s) and not config.STDIO_MCP_ENABLED:
+            continue
         disabled = set(s.get("disabled_tools", []))
         for t in s.get("tools", []):
             if t.get("name") in disabled:
@@ -1135,6 +1185,9 @@ def call_mcp(full_name: str, args: dict) -> str:
     for s in _load_mcp_servers():
         prefix = f"mcp_{s['id']}_"
         if full_name.startswith(prefix):
+            if _is_stdio_mcp(s) and not config.STDIO_MCP_ENABLED:
+                return ("stdio MCP is disabled during containment; set "
+                        "OCD_ENABLE_STDIO_MCP=1 only in a trusted local environment")
             tool = full_name[len(prefix):]
             spec = next((t for t in s.get("tools", []) if t["name"] == tool), None)
             if spec is not None:
@@ -1592,8 +1645,8 @@ _IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}
 
 def _code_execution_mode() -> str:
     from . import settings
-    m = (settings.get_settings().get("code_execution") or "auto").strip().lower()
-    return m if m in config.CODE_EXECUTION_MODES else "auto"
+    m = (settings.get_settings().get("code_execution") or "docker").strip().lower()
+    return m if m in config.CODE_EXECUTION_MODES else "docker"
 
 
 def safe_project(project: str | None) -> str:
@@ -1900,14 +1953,16 @@ def execute_code(code: str, project: str | None = None, on_output=None) -> dict:
     if mode in ("docker", "auto") and has_docker:
         engine = "docker"
     elif mode in ("local", "auto"):
-        # Host (non-container) execution is the local-desktop default and is HITL-gated.
-        # A hardened / network-exposed deploy sets OCD_NO_HOST_EXEC=1 to forbid it: better
-        # to fail than run model-authored code on the host with no sandbox.
-        if os.getenv("OCD_NO_HOST_EXEC", "").strip().lower() in ("1", "true", "yes"):
+        # Host execution is a separate capability from the UI mode: selecting local/auto
+        # cannot bypass the containment default. OCD_NO_HOST_EXEC remains a legacy hard
+        # deny even when the positive opt-in is present.
+        hard_disabled = os.getenv(
+            "OCD_NO_HOST_EXEC", "").strip().lower() in ("1", "true", "yes")
+        if not config.HOST_EXECUTION_ENABLED or hard_disabled:
             return {"ok": False, "return_code": 126, "engine": "host-disabled", "stdout": "",
-                    "stderr": ("Host code execution is disabled (OCD_NO_HOST_EXEC). Install "
-                               "Docker for sandboxed execution, or run in a trusted local "
-                               "environment."),
+                    "stderr": ("Host code execution is disabled. Install Docker for "
+                               "sandboxed execution, or explicitly set OCD_ALLOW_HOST_EXEC=1 "
+                               "only in a trusted local environment."),
                     "files": [], "timed_out": False}
         engine = "local"
     else:  # mode == "docker" and no docker available
@@ -2142,9 +2197,16 @@ def _parse_repo(url: str):
     url = (url or "").strip().rstrip("/")
     m = re.search(r"github\.com[:/]+([^/]+)/([^/]+?)(?:\.git)?$", url)
     if m:
-        return m.group(1), m.group(2)
+        owner, repo = m.group(1), m.group(2)
+        if re.fullmatch(r"[A-Za-z0-9_.-]+", owner) and re.fullmatch(
+            r"[A-Za-z0-9_.-]+", repo
+        ):
+            return owner, repo
+        return None, None
     parts = url.split("/")
-    if len(parts) == 2:
+    if len(parts) == 2 and all(
+        re.fullmatch(r"[A-Za-z0-9_.-]+", part) for part in parts
+    ):
         return parts[0], parts[1]
     return None, None
 
@@ -2158,39 +2220,50 @@ def import_github_repo(repo_url: str, project_id: str) -> tuple[int, str]:
     if not owner or not repo:
         return 0, "Could not parse a github owner/repo from that URL."
     try:
-        import httpx
-        with httpx.Client(timeout=30, headers={"User-Agent": _UA,
-                          "Accept": "application/vnd.github+json"}) as client:
-            info = client.get(f"{_GH_API}/repos/{owner}/{repo}")
-            if info.status_code != 200:
-                return 0, f"Repo not found or private ({info.status_code})."
-            branch = info.json().get("default_branch", "main")
-            tree = client.get(
-                f"{_GH_API}/repos/{owner}/{repo}/git/trees/{branch}?recursive=1")
-            if tree.status_code != 200:
-                return 0, f"Could not list files ({tree.status_code})."
-            items = tree.json().get("tree", [])
-            paths = [it["path"] for it in items
-                     if it.get("type") == "blob"
-                     and Path(it["path"]).suffix.lower() in _TEXT_SUFFIXES
-                     and it.get("size", 0) <= _GH_MAX_BYTES][:_GH_MAX_FILES]
+        from urllib.parse import quote
 
-            count = 0
-            for path in paths:
-                raw = client.get(
-                    f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{path}")
-                if raw.status_code != 200:
-                    continue
-                safe = f"gh_{owner}_{repo}_" + path.replace("/", "_")
-                try:
-                    # Route the write through the blob store (local dir or S3 bucket),
-                    # then ingest from the returned real path.
-                    dest = knowledge.save_uploaded_file(
-                        project_id, safe[:180], raw.text.encode("utf-8"))
-                    knowledge.ingest_file_to_kb(project_id, dest)
-                    count += 1
-                except Exception:
-                    continue
+        headers = {
+            "User-Agent": _UA,
+            "Accept": "application/vnd.github+json",
+        }
+        info = _http_get(f"{_GH_API}/repos/{owner}/{repo}", headers, timeout=30)
+        if info.status_code != 200:
+            return 0, f"Repo not found or private ({info.status_code})."
+        branch = str(info.json().get("default_branch", "main"))
+        tree = _http_get(
+            f"{_GH_API}/repos/{owner}/{repo}/git/trees/{quote(branch, safe='')}?recursive=1",
+            headers,
+            timeout=30,
+        )
+        if tree.status_code != 200:
+            return 0, f"Could not list files ({tree.status_code})."
+        items = tree.json().get("tree", [])
+        paths = [it["path"] for it in items
+                 if it.get("type") == "blob"
+                 and Path(it["path"]).suffix.lower() in _TEXT_SUFFIXES
+                 and it.get("size", 0) <= _GH_MAX_BYTES][:_GH_MAX_FILES]
+
+        count = 0
+        for path in paths:
+            encoded_path = "/".join(quote(part, safe="") for part in path.split("/"))
+            raw = _http_get(
+                "https://raw.githubusercontent.com/"
+                f"{owner}/{repo}/{quote(branch, safe='')}/{encoded_path}",
+                {"User-Agent": _UA},
+                timeout=30,
+            )
+            if raw.status_code != 200:
+                continue
+            safe = f"gh_{owner}_{repo}_" + path.replace("/", "_")
+            try:
+                # Route the write through the blob store (local dir or S3 bucket),
+                # then ingest from the returned real path.
+                dest = knowledge.save_uploaded_file(
+                    project_id, safe[:180], raw.text.encode("utf-8"))
+                knowledge.ingest_file_to_kb(project_id, dest)
+                count += 1
+            except Exception:
+                continue
         return count, ""
     except Exception as e:
         return 0, str(e)[:160]

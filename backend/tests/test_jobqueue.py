@@ -67,7 +67,7 @@ def test_sql_enqueue_claim_complete(db, monkeypatch):
     assert q.pending_count() == 0            # no longer queued
     # A second worker finds nothing to claim.
     assert q.claim("worker-2", lease_seconds=60, now=_t()) is None
-    q.complete(job.id)
+    assert q.complete(job.id, "worker-1", job.lease_token) is True
 
 
 def test_sql_run_at_delays_claim(db, monkeypatch):
@@ -117,8 +117,10 @@ def test_sql_heartbeat_extends_only_for_owner(db, monkeypatch):
     q = jobqueue.get_job_queue()
     q.enqueue("echo", {}, run_at=_t())
     job = q.claim("owner", lease_seconds=30, now=_t())
-    assert q.heartbeat(job.id, "owner", 30, now=_t(20)) is True
-    assert q.heartbeat(job.id, "someone-else", 30, now=_t(20)) is False
+    assert q.heartbeat(job.id, "owner", job.lease_token, 30, now=_t(20)) is True
+    assert q.heartbeat(
+        job.id, "someone-else", job.lease_token, 30, now=_t(20)
+    ) is False
     # With the lease pushed out to t+50, it is NOT reclaimable at t+40.
     assert q.reclaim_expired(now=_t(40)) == 0
 
@@ -128,7 +130,7 @@ def test_sql_fail_without_retry_marks_failed(db, monkeypatch):
     q = jobqueue.get_job_queue()
     q.enqueue("echo", {}, run_at=_t())
     job = q.claim("w", 30, now=_t())
-    q.fail(job.id, "boom")                    # no retry_at → terminal
+    q.fail(job.id, "w", job.lease_token, "boom")  # no retry_at → terminal
     assert q.pending_count() == 0
     assert q.reclaim_expired(now=_t(999)) == 0  # failed jobs aren't reclaimed
 
@@ -138,7 +140,7 @@ def test_sql_fail_with_retry_requeues(db, monkeypatch):
     q = jobqueue.get_job_queue()
     q.enqueue("echo", {}, run_at=_t())
     job = q.claim("w", 30, now=_t())
-    q.fail(job.id, "transient", retry_at=_t(5))
+    q.fail(job.id, "w", job.lease_token, "transient", retry_at=_t(5))
     assert q.pending_count() == 1
     assert q.claim("w", 30, now=_t(10)) is not None
 

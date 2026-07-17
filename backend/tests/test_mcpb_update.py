@@ -65,6 +65,7 @@ def isolate(monkeypatch, tmp_path):
     here — test_mcpb.py covers the real end-to-end install)."""
     monkeypatch.setattr(integrations, "EXTENSIONS_DIR", tmp_path / "extensions")
     monkeypatch.setattr(integrations, "MCP_FILE", tmp_path / "mcp_servers.json")
+    monkeypatch.setattr(integrations.config, "STDIO_MCP_ENABLED", True)
 
     def fake_add(name, command="", args=None, *, url="", transport="", env=None,
                  headers=None, auth_token=""):

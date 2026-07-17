@@ -5,11 +5,18 @@ import tempfile
 from pathlib import Path
 
 from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, UploadFile
-from ocd_core import auth_flows, connector_directory, integrations, marketplace, skills
+from ocd_core import (
+    auth_flows,
+    connector_directory,
+    integrations,
+    knowledge,
+    marketplace,
+    skills,
+)
 from ocd_core.integrations import McpbError
 from pydantic import BaseModel
 
-from ..deps import current_user
+from ..deps import current_user, require_workspace_role
 from ..schemas import GithubImportRequest
 
 router = APIRouter()
@@ -62,7 +69,8 @@ def marketplace_sources(user: str = Depends(current_user)) -> dict:
 
 
 @router.post("/marketplace/sources")
-def marketplace_add_source(body: SourceBody, user: str = Depends(current_user)) -> dict:
+def marketplace_add_source(body: SourceBody,
+                           user: str = Depends(require_workspace_role("admin"))) -> dict:
     """Sync a plugin marketplace from a git URL. Runs third-party plugin code on install,
     so it is gated on MARKETPLACE_ALLOW_REMOTE and is an explicit, warned user action."""
     if not marketplace.remote_allowed():
@@ -74,15 +82,21 @@ def marketplace_add_source(body: SourceBody, user: str = Depends(current_user)) 
 
 
 @router.delete("/marketplace/sources/{sid}")
-def marketplace_remove_source(sid: str, user: str = Depends(current_user)) -> dict:
+def marketplace_remove_source(sid: str,
+                              user: str = Depends(require_workspace_role("admin"))) -> dict:
     res = marketplace.remove_source(sid)
     if not res.get("ok"):
-        raise HTTPException(status_code=400, detail=res.get("detail", "could not remove source"))
+        status_code = 404 if res.get("detail") == "unknown source" else 400
+        raise HTTPException(
+            status_code=status_code,
+            detail=res.get("detail", "could not remove source"),
+        )
     return res
 
 
 @router.post("/marketplace/install")
-def marketplace_install(body: PluginName, user: str = Depends(current_user)) -> dict:
+def marketplace_install(body: PluginName,
+                        user: str = Depends(require_workspace_role("admin"))) -> dict:
     res = marketplace.install(body.name)
     if not res.get("ok"):
         raise HTTPException(status_code=400, detail=res.get("detail", "install failed"))
@@ -90,7 +104,8 @@ def marketplace_install(body: PluginName, user: str = Depends(current_user)) -> 
 
 
 @router.post("/marketplace/uninstall")
-def marketplace_uninstall(body: PluginName, user: str = Depends(current_user)) -> dict:
+def marketplace_uninstall(body: PluginName,
+                          user: str = Depends(require_workspace_role("admin"))) -> dict:
     res = marketplace.uninstall(body.name)
     if not res.get("ok"):
         raise HTTPException(status_code=400, detail=res.get("detail", "uninstall failed"))
@@ -108,7 +123,8 @@ def list_skills(user: str = Depends(current_user)) -> list[dict]:
 
 
 @router.post("/skills")
-def import_skill(body: SkillImport, user: str = Depends(current_user)) -> dict:
+def import_skill(body: SkillImport,
+                 user: str = Depends(require_workspace_role("admin"))) -> dict:
     """Import a skill from an uploaded markdown file."""
     res = skills.import_skill(body.filename, body.content)
     if not res.get("ok"):
@@ -117,7 +133,8 @@ def import_skill(body: SkillImport, user: str = Depends(current_user)) -> dict:
 
 
 @router.post("/skills/import-zip")
-def import_skills_zip(file: UploadFile = File(...), user: str = Depends(current_user)) -> dict:
+def import_skills_zip(file: UploadFile = File(...),
+                      user: str = Depends(require_workspace_role("admin"))) -> dict:
     """Import skills from an uploaded .zip of a skill folder (canonical SKILL.md layout).
     The archive is extracted server-side and walked like a synced repository."""
     path = _spool_upload(file)
@@ -131,7 +148,8 @@ def import_skills_zip(file: UploadFile = File(...), user: str = Depends(current_
 
 
 @router.post("/skills/from-repo")
-def import_skills_from_repo(body: SourceBody, user: str = Depends(current_user)) -> dict:
+def import_skills_from_repo(body: SourceBody,
+                            user: str = Depends(require_workspace_role("admin"))) -> dict:
     """Sync skills from a git repository (one-shot copy of its markdown skill files)."""
     if not marketplace.remote_allowed():
         raise HTTPException(status_code=403, detail="remote marketplaces are disabled")
@@ -142,7 +160,7 @@ def import_skills_from_repo(body: SourceBody, user: str = Depends(current_user))
 
 
 @router.delete("/skills/{name}")
-def remove_skill(name: str, user: str = Depends(current_user)) -> dict:
+def remove_skill(name: str, user: str = Depends(require_workspace_role("admin"))) -> dict:
     res = skills.remove_skill(name)
     if not res.get("ok"):
         raise HTTPException(status_code=400, detail=res.get("detail", "could not remove"))
@@ -162,19 +180,23 @@ def list_connectors(user: str = Depends(current_user)) -> list[dict]:
 
 
 @router.post("/connectors")
-def add_connector(body: ConnectorBody, user: str = Depends(current_user)) -> dict:
+def add_connector(body: ConnectorBody,
+                  user: str = Depends(require_workspace_role("admin"))) -> dict:
     return integrations.add_connector(body.name, body.base_url,
                                       body.header_key, body.header_value)
 
 
 @router.delete("/connectors/{cid}")
-def remove_connector(cid: str, user: str = Depends(current_user)) -> dict:
-    integrations.remove_connector(cid)
+def remove_connector(cid: str,
+                     user: str = Depends(require_workspace_role("admin"))) -> dict:
+    if not integrations.remove_connector(cid):
+        raise HTTPException(status_code=404, detail="unknown connector")
     return {"ok": True}
 
 
 @router.post("/connectors/{cid}/test")
-def test_connector(cid: str, user: str = Depends(current_user)) -> dict:
+def test_connector(cid: str,
+                   user: str = Depends(require_workspace_role("admin"))) -> dict:
     return {"result": integrations.test_connector(cid)}
 
 
@@ -189,7 +211,7 @@ class ToolEnabledBody(BaseModel):
 
 @router.post("/mcp-servers/{sid}/tools/{tool_name}")
 def set_mcp_tool(sid: str, tool_name: str, body: ToolEnabledBody,
-                 user: str = Depends(current_user)) -> dict:
+                 user: str = Depends(require_workspace_role("admin"))) -> dict:
     """Enable/disable ONE tool within a connector (P1-12)."""
     server = integrations.set_mcp_tool_enabled(sid, tool_name, body.enabled)
     if server is None:
@@ -206,23 +228,33 @@ def connectors_directory(user: str = Depends(current_user)) -> list[dict]:
 
 
 @router.post("/mcp-servers")
-def add_mcp(body: McpBody, user: str = Depends(current_user)) -> dict:
-    return integrations.add_mcp_server(
-        body.name, body.command, body.args, url=body.url, transport=body.transport,
-        env=body.env, headers=body.headers, auth_token=body.auth_token)
+def add_mcp(body: McpBody,
+            user: str = Depends(require_workspace_role("admin"))) -> dict:
+    try:
+        return integrations.add_mcp_server(
+            body.name, body.command, body.args, url=body.url, transport=body.transport,
+            env=body.env, headers=body.headers, auth_token=body.auth_token)
+    except McpbError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
 
 
 @router.delete("/mcp-servers/{sid}")
-def remove_mcp(sid: str, user: str = Depends(current_user)) -> dict:
-    integrations.remove_mcp_server(sid)
+def remove_mcp(sid: str,
+               user: str = Depends(require_workspace_role("admin"))) -> dict:
+    if not integrations.remove_mcp_server(sid):
+        raise HTTPException(status_code=404, detail="unknown MCP server")
     return {"ok": True}
 
 
 @router.post("/mcp-servers/{sid}/refresh")
-def refresh_mcp(sid: str, user: str = Depends(current_user)) -> dict:
+def refresh_mcp(sid: str,
+                user: str = Depends(require_workspace_role("admin"))) -> dict:
     """Re-connect a server from scratch — the error card's Retry button. Recovers a
     first-run timeout (package/image now cached) or a fixed PATH without re-adding."""
-    res = integrations.refresh_mcp_server(sid)
+    try:
+        res = integrations.refresh_mcp_server(sid)
+    except McpbError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
     if not res:
         raise HTTPException(status_code=404, detail="unknown MCP server")
     return res
@@ -246,7 +278,7 @@ class McpUpdateBody(BaseModel):
 
 @router.post("/mcp-servers/{sid}/update")
 def apply_mcp_update(sid: str, body: McpUpdateBody | None = None,
-                     user: str = Depends(current_user)) -> dict:
+                     user: str = Depends(require_workspace_role("admin"))) -> dict:
     """Download the newest release bundle and reinstall the extension in place."""
     try:
         return integrations.update_mcpb(sid, body.values if body else {})
@@ -293,13 +325,15 @@ class OAuthServerBody(BaseModel):
 
 
 @router.post("/mcp-servers/oauth")
-def add_oauth_mcp(body: OAuthServerBody, user: str = Depends(current_user)) -> dict:
+def add_oauth_mcp(body: OAuthServerBody,
+                  user: str = Depends(require_workspace_role("admin"))) -> dict:
     """Register a remote MCP server that authenticates via OAuth 2.1 (authorize later)."""
     return integrations.add_oauth_mcp_server(body.name, body.url, body.transport)
 
 
 @router.post("/mcp-servers/{sid}/authorize")
-def authorize_mcp(sid: str, user: str = Depends(current_user)) -> dict:
+def authorize_mcp(sid: str,
+                  user: str = Depends(require_workspace_role("admin"))) -> dict:
     """Run the interactive OAuth 2.1 authorize for a connector (opens the browser)."""
     try:
         return integrations.authorize_mcp_oauth(sid)
@@ -309,18 +343,32 @@ def authorize_mcp(sid: str, user: str = Depends(current_user)) -> dict:
 
 def _spool_upload(file: UploadFile) -> Path:
     """Persist an uploaded bundle to a temp file so the installer can open it as a
-    real zip. Caller is responsible for unlinking it."""
+    real zip. Stream under the shared upload cap; caller unlinks successful spools."""
     suffix = Path(file.filename or "bundle.mcpb").suffix or ".mcpb"
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+    path = Path(tmp.name)
     try:
-        tmp.write(file.file.read())
-    finally:
+        total = 0
+        while chunk := file.file.read(64 * 1024):
+            total += len(chunk)
+            if total > knowledge.MAX_UPLOAD_BYTES:
+                raise HTTPException(
+                    status_code=413,
+                    detail=("upload exceeds the "
+                            f"{knowledge.MAX_UPLOAD_BYTES // (1024 * 1024)} MB limit"),
+                )
+            tmp.write(chunk)
+    except Exception:
         tmp.close()
-    return Path(tmp.name)
+        path.unlink(missing_ok=True)
+        raise
+    tmp.close()
+    return path
 
 
 @router.post("/mcp-servers/inspect")
-def inspect_mcpb(file: UploadFile = File(...), user: str = Depends(current_user)) -> dict:
+def inspect_mcpb(file: UploadFile = File(...),
+                 user: str = Depends(require_workspace_role("admin"))) -> dict:
     """Read a .mcpb/.dxt bundle's manifest (name, version, description, user_config)
     WITHOUT installing it — lets the UI collect required user_config up front."""
     path = _spool_upload(file)
@@ -334,7 +382,7 @@ def inspect_mcpb(file: UploadFile = File(...), user: str = Depends(current_user)
 
 @router.post("/mcp-servers/install")
 def install_mcpb(file: UploadFile = File(...), user_config: str = Form("{}"),
-                 user: str = Depends(current_user)) -> dict:
+                 user: str = Depends(require_workspace_role("admin"))) -> dict:
     """One-click install: unpack a .mcpb/.dxt bundle and register its MCP server.
     ``user_config`` is a JSON object of values for the manifest's user_config."""
     try:
@@ -353,6 +401,7 @@ def install_mcpb(file: UploadFile = File(...), user_config: str = Form("{}"),
 
 
 @router.post("/connectors/github")
-def import_github(body: GithubImportRequest, user: str = Depends(current_user)) -> dict:
+def import_github(body: GithubImportRequest,
+                  user: str = Depends(require_workspace_role("admin"))) -> dict:
     count, message = integrations.import_github_repo(body.repo_url, body.project_id)
     return {"chunks": count, "message": message}

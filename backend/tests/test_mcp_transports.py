@@ -5,8 +5,17 @@ import socket
 import threading
 import time
 
+import pytest
 from ocd_core import mcp_registry
 from ocd_core.mcp_registry import _server_key, _stdio_env, _transport_of
+
+
+@pytest.fixture(autouse=True)
+def _allow_test_loopback(monkeypatch):
+    """The in-process fixture is loopback; production MCP egress blocks it."""
+    from ocd_core import egress
+
+    monkeypatch.setattr(egress, "assert_public_url", lambda url, **_kwargs: url)
 
 
 def test_transport_of():

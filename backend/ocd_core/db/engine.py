@@ -79,9 +79,8 @@ def _build_engine(url: str):
     return create_engine(url, pool_pre_ping=True)
 
 
-# When a configured (non-SQLite) DB is unreachable, we fall back to this URL so the
-# app keeps working locally instead of 500-ing on every request. Set once by
-# ensure_reachable(); get_engine() honours it thereafter.
+# When an operator explicitly opts into degraded local operation, an unreachable
+# configured DB can fall back to this URL. Strict startup is the default.
 _fallback_url: str | None = None
 
 
@@ -108,19 +107,16 @@ def active_database_url() -> str:
 
 def ensure_reachable() -> str | None:
     """Probe the configured database once; if it's a non-SQLite URL that can't be
-    reached, fall back to the local SQLite default so persistence never hard-fails.
+    reached, abort startup unless local fallback was explicitly enabled.
 
-    Returns the fallback URL if a fallback happened, else None. Opt out by setting
-    OCD_DB_FALLBACK=0 (a strict server deployment that should fail loudly instead).
-    Local-first by default: a desktop user with a stale Postgres URL still gets a
-    working app.
+    Returns the fallback URL if a fallback happened, else None. The default is
+    OCD_DB_FALLBACK=0 because silently switching databases can split or lose customer
+    data. OCD_DB_FALLBACK=1 is a local-development recovery option only.
     """
     global _fallback_url
     url = database_url()
     if url.startswith("sqlite"):
         return None  # SQLite can't have an auth/network failure to fall back from
-    if os.getenv("OCD_DB_FALLBACK", "1").strip().lower() in ("0", "false", "no"):
-        return None
     try:
         eng = _build_engine(url)
         with eng.connect():
@@ -128,16 +124,23 @@ def ensure_reachable() -> str | None:
         eng.dispose()
         return None
     except Exception as e:  # unreachable / auth failure / driver missing
-        import logging
-        reset_engine()                       # clears _engine + any prior fallback
-        _fallback_url = DEFAULT_DATABASE_URL  # next get_engine() builds local SQLite
-        logging.getLogger("ocd").warning(
-            "Database %s is unreachable (%s). Falling back to local SQLite at %s so the "
-            "app keeps working. Fix DATABASE_URL or unset it to silence this; set "
-            "OCD_DB_FALLBACK=0 to fail instead.",
-            url.split("@")[-1], str(e).splitlines()[0][:200], DEFAULT_DATABASE_URL,
-        )
-        return _fallback_url
+        reset_engine()  # clears _engine + any prior fallback
+        fallback_enabled = os.getenv(
+            "OCD_DB_FALLBACK", "0").strip().lower() in ("1", "true", "yes", "on")
+        if fallback_enabled:
+            import logging
+            _fallback_url = DEFAULT_DATABASE_URL  # next get_engine() builds local SQLite
+            logging.getLogger("ocd").warning(
+                "Database %s is unreachable (%s). OCD_DB_FALLBACK=1 permits degraded "
+                "local SQLite operation at %s.",
+                url.split("@")[-1], str(e).splitlines()[0][:200], DEFAULT_DATABASE_URL,
+            )
+            return _fallback_url
+        target = url.split("@")[-1]
+        raise RuntimeError(
+            f"Configured database {target} is unreachable; startup aborted. Fix "
+            "DATABASE_URL. OCD_DB_FALLBACK=1 is an explicit local-only degraded mode."
+        ) from e
 
 
 def reset_engine() -> None:
@@ -220,33 +223,25 @@ def backup_sqlite_before_migration():
 def ensure_columns() -> None:
     from sqlalchemy import inspect, text
     eng = get_engine()
-    try:
-        insp = inspect(eng)
-        tables = set(insp.get_table_names())
-        # Collect what's missing FIRST so we only back up + ALTER when a migration is
-        # actually needed (this runs on every startup; a no-op must stay cheap).
-        pending = []  # (table, name, ddl)
-        for table, cols in _ADDED_COLUMNS.items():
-            if table not in tables:
-                continue
-            existing = {c["name"] for c in insp.get_columns(table)}
-            pending += [(table, name, ddl) for name, ddl in cols.items()
-                        if name not in existing]
-        if not pending:
-            return
-        try:
-            backup_sqlite_before_migration()  # existing data at risk → snapshot it first
-        except Exception as e:  # a failed backup means no recovery point — do NOT ALTER
-            import logging
-            logging.getLogger(__name__).warning(
-                "skipping schema migration — pre-migration backup failed (data preserved): %s", e)
-            return
-        with eng.begin() as conn:
-            for table, name, ddl in pending:
-                conn.execute(text(f'ALTER TABLE "{table}" ADD COLUMN {name} {ddl}'))
-    except Exception as e:  # never let a best-effort migration break startup
-        import logging
-        logging.getLogger(__name__).warning("ensure_columns skipped: %s", e)
+    insp = inspect(eng)
+    tables = set(insp.get_table_names())
+    # Collect what's missing FIRST so we only back up + ALTER when a migration is
+    # actually needed (this runs on every startup; a no-op must stay cheap).
+    pending = []  # (table, name, ddl)
+    for table, cols in _ADDED_COLUMNS.items():
+        if table not in tables:
+            continue
+        existing = {c["name"] for c in insp.get_columns(table)}
+        pending += [(table, name, ddl) for name, ddl in cols.items()
+                    if name not in existing]
+    if not pending:
+        return
+    # Backup and ALTER errors are startup failures. Continuing with an unknown or
+    # partially migrated schema creates harder-to-recover corruption later.
+    backup_sqlite_before_migration()
+    with eng.begin() as conn:
+        for table, name, ddl in pending:
+            conn.execute(text(f'ALTER TABLE "{table}" ADD COLUMN {name} {ddl}'))
 
 
 @contextmanager

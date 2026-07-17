@@ -27,6 +27,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import update
+from sqlmodel import select
 
 from . import tenancy
 from .db import engine
@@ -72,6 +73,7 @@ class ClaimedJob:
     workspace: str | None
     attempts: int
     max_attempts: int
+    lease_token: str
 
 
 # --------------------------------------------------------------------------- #
@@ -93,16 +95,17 @@ class JobQueue(ABC):
         """Atomically take one due job under a lease. None when nothing is ready."""
 
     @abstractmethod
-    def heartbeat(self, job_id: str, worker_id: str, lease_seconds: int,
+    def heartbeat(self, job_id: str, worker_id: str, lease_token: str, lease_seconds: int,
                   now: datetime | None = None) -> bool:
         """Extend the lease on a job this worker still owns. False if it lost ownership."""
 
     @abstractmethod
-    def complete(self, job_id: str) -> None: ...
+    def complete(self, job_id: str, worker_id: str, lease_token: str) -> bool:
+        """Finish only the running attempt holding the current fenced lease."""
 
     @abstractmethod
-    def fail(self, job_id: str, error: str, *, retry_at: datetime | None = None,
-             now: datetime | None = None) -> None:
+    def fail(self, job_id: str, worker_id: str, lease_token: str, error: str, *,
+             retry_at: datetime | None = None, now: datetime | None = None) -> bool:
         """Record a failure. Requeues (until max_attempts) when ``retry_at`` is given,
         else marks the job failed."""
 
@@ -131,14 +134,14 @@ class InProcessJobQueue(JobQueue):
     def claim(self, worker_id, lease_seconds, now=None):
         return None
 
-    def heartbeat(self, job_id, worker_id, lease_seconds, now=None):
+    def heartbeat(self, job_id, worker_id, lease_token, lease_seconds, now=None):
         return False
 
-    def complete(self, job_id):
-        pass
+    def complete(self, job_id, worker_id, lease_token):
+        return False
 
-    def fail(self, job_id, error, *, retry_at=None, now=None):
-        pass
+    def fail(self, job_id, worker_id, lease_token, error, *, retry_at=None, now=None):
+        return False
 
     def reclaim_expired(self, now=None):
         return 0
@@ -170,9 +173,9 @@ class SqlJobQueue(JobQueue):
             return None
 
     def claim(self, worker_id, lease_seconds, now=None):
-        from sqlmodel import select
         now = now or _utcnow()
         lease = now + timedelta(seconds=lease_seconds)
+        lease_token = uuid.uuid4().hex
         with engine.session() as s:
             # Oldest ready job first. The claim is made atomic by the conditional UPDATE
             # below (WHERE status='queued'), so even if two workers select the same row,
@@ -185,49 +188,76 @@ class SqlJobQueue(JobQueue):
             res = s.exec(
                 update(Job).where(Job.id == row.id, Job.status == "queued").values(
                     status="running", worker_id=worker_id, lease_expires_at=lease,
+                    lease_token=lease_token,
                     attempts=Job.attempts + 1, updated_at=now))
             if res.rowcount != 1:
                 return None  # lost the race
             claimed = s.get(Job, row.id)
             return ClaimedJob(id=claimed.id, kind=claimed.kind, payload=dict(claimed.payload or {}),
                               workspace=claimed.workspace_id, attempts=claimed.attempts,
-                              max_attempts=claimed.max_attempts)
+                              max_attempts=claimed.max_attempts,
+                              lease_token=claimed.lease_token)
 
-    def heartbeat(self, job_id, worker_id, lease_seconds, now=None):
+    def heartbeat(self, job_id, worker_id, lease_token, lease_seconds, now=None):
         now = now or _utcnow()
         lease = now + timedelta(seconds=lease_seconds)
         with engine.session() as s:
             res = s.exec(
                 update(Job).where(Job.id == job_id, Job.worker_id == worker_id,
-                                  Job.status == "running").values(
+                                  Job.lease_token == lease_token,
+                                  Job.status == "running",
+                                  Job.lease_expires_at >= now).values(
                     lease_expires_at=lease, updated_at=now))
             return res.rowcount == 1
 
-    def complete(self, job_id):
+    def complete(self, job_id, worker_id, lease_token):
         now = _utcnow()
         with engine.session() as s:
-            s.exec(update(Job).where(Job.id == job_id).values(
-                status="done", worker_id=None, lease_expires_at=None, updated_at=now))
+            result = s.exec(
+                update(Job).where(
+                    Job.id == job_id,
+                    Job.status == "running",
+                    Job.worker_id == worker_id,
+                    Job.lease_token == lease_token,
+                ).values(
+                    status="done",
+                    worker_id=None,
+                    lease_token=None,
+                    lease_expires_at=None,
+                    updated_at=now,
+                )
+            )
+            return result.rowcount == 1
 
-    def fail(self, job_id, error, *, retry_at=None, now=None):
+    def fail(self, job_id, worker_id, lease_token, error, *, retry_at=None, now=None):
         now = now or _utcnow()
         with engine.session() as s:
-            job = s.get(Job, job_id)
+            job = s.exec(
+                select(Job).where(
+                    Job.id == job_id,
+                    Job.status == "running",
+                    Job.worker_id == worker_id,
+                    Job.lease_token == lease_token,
+                )
+            ).first()
             if job is None:
-                return
+                return False
             requeue = retry_at is not None and job.attempts < job.max_attempts
             if requeue:
                 job.status = "queued"
                 job.run_at = retry_at
                 job.worker_id = None
+                job.lease_token = None
                 job.lease_expires_at = None
             else:
                 job.status = "failed"
                 job.worker_id = None
+                job.lease_token = None
                 job.lease_expires_at = None
             job.last_error = (error or "")[:1000]
             job.updated_at = now
             s.add(job)
+            return True
 
     def reclaim_expired(self, now=None):
         now = now or _utcnow()
@@ -238,12 +268,14 @@ class SqlJobQueue(JobQueue):
                 update(Job).where(Job.status == "running", Job.lease_expires_at < now,
                                   Job.attempts >= Job.max_attempts).values(
                     status="failed", worker_id=None, lease_expires_at=None,
+                    lease_token=None,
                     last_error="lease expired (worker presumed dead); attempts exhausted",
                     updated_at=now))
             # Otherwise return to the queue for another worker to claim.
             res_requeue = s.exec(
                 update(Job).where(Job.status == "running", Job.lease_expires_at < now).values(
-                    status="queued", worker_id=None, lease_expires_at=None, updated_at=now))
+                    status="queued", worker_id=None, lease_token=None,
+                    lease_expires_at=None, updated_at=now))
             touched = (res_fail.rowcount or 0) + (res_requeue.rowcount or 0)
         return touched
 
@@ -315,11 +347,45 @@ async def run_worker(worker_id: str | None = None, *, lease_seconds: int = 120,
                 continue  # tests: don't sleep, just advance
             await asyncio.sleep(poll_seconds)
             continue
+        stop_heartbeat = asyncio.Event()
+        lost_lease = False
+
+        async def _heartbeat() -> None:
+            nonlocal lost_lease
+            interval = max(0.01, min(float(lease_seconds) / 3, 30.0))
+            while not stop_heartbeat.is_set():
+                try:
+                    await asyncio.wait_for(stop_heartbeat.wait(), timeout=interval)
+                    return
+                except TimeoutError:
+                    pass
+                owned = await asyncio.to_thread(
+                    q.heartbeat,
+                    job.id,
+                    worker_id,
+                    job.lease_token,
+                    lease_seconds,
+                )
+                if not owned:
+                    lost_lease = True
+                    return
+
+        heartbeat_task = asyncio.create_task(_heartbeat())
         try:
-            dispatch(job.kind, job.payload, job.workspace)
-            q.complete(job.id)
-            ran += 1
+            await asyncio.to_thread(dispatch, job.kind, job.payload, job.workspace)
+            if not lost_lease and q.complete(job.id, worker_id, job.lease_token):
+                ran += 1
         except Exception as e:  # noqa: BLE001 - one bad job must not kill the worker
             # Back off then requeue (until attempts are exhausted, when fail() gives up).
-            q.fail(job.id, str(e), retry_at=_utcnow() + timedelta(seconds=30))
+            q.fail(
+                job.id,
+                worker_id,
+                job.lease_token,
+                str(e),
+                retry_at=_utcnow() + timedelta(seconds=30),
+            )
+        finally:
+            stop_heartbeat.set()
+            with contextlib.suppress(Exception):
+                await heartbeat_task
     return ran

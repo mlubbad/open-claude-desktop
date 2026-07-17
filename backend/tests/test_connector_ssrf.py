@@ -115,7 +115,14 @@ def test_web_fetch_caps_the_body(monkeypatch):
 
 def test_safe_outbound_get_strips_auth_on_scheme_downgrade(monkeypatch):
     import httpx
+    from ocd_core import egress
+
     monkeypatch.setattr(I, "_blocked_host", lambda h: False)
+    monkeypatch.setattr(
+        egress,
+        "_resolved_addresses",
+        lambda *_args: {egress.ipaddress.ip_address("8.8.8.8")},
+    )
     seen = []
 
     class R:

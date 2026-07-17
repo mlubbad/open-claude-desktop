@@ -68,10 +68,29 @@ def test_public_bind_with_auth_is_allowed(monkeypatch):
     ng.assert_safe_binding()  # must not raise
 
 
-def test_public_bind_with_explicit_insecure_optin(monkeypatch):
+def test_insecure_optin_cannot_bypass_authentication(monkeypatch):
     _disable_auth(monkeypatch)
     monkeypatch.setenv("OCD_BIND_HOST", "0.0.0.0")
     monkeypatch.setenv("OCD_ALLOW_INSECURE_NETWORK", "1")
     ng = _fresh()
+    assert ng.binding_is_safe() is False
+    with pytest.raises(RuntimeError, match="authentication"):
+        ng.assert_safe_binding()
+
+
+def test_multi_tenant_loopback_requires_authentication(monkeypatch):
+    _disable_auth(monkeypatch)
+    monkeypatch.setenv("OCD_BIND_HOST", "127.0.0.1")
+    monkeypatch.setenv("OCD_MULTI_TENANT", "1")
+    ng = _fresh()
+    assert ng.binding_is_safe() is False
+    assert "multi-tenant" in (ng.unsafe_binding_reason() or "")
+
+
+def test_multi_tenant_loopback_with_auth_is_allowed(monkeypatch):
+    _enable_auth(monkeypatch)
+    monkeypatch.setenv("OCD_BIND_HOST", "127.0.0.1")
+    monkeypatch.setenv("OCD_MULTI_TENANT", "1")
+    ng = _fresh()
     assert ng.binding_is_safe() is True
-    ng.assert_safe_binding()  # must not raise
+    ng.assert_safe_binding()

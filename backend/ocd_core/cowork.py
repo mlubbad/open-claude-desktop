@@ -32,7 +32,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
-from . import config, jsonstore, tenancy
+from . import config, jsonstore, tenancy, workspace_store
 
 # Bound a single task's stored transcript so one runaway task can't grow the store
 # without limit; the head is kept (the goal + early plan) plus the recent tail.
@@ -181,6 +181,11 @@ class CoworkManager:
     def _save(self) -> None:
         # Newest first, and cap the number of retained tasks so the store is bounded.
         ordered = sorted(self._tasks.values(), key=lambda t: t.created_at, reverse=True)
+        if tenancy.enforcing():
+            for task in ordered[:200]:
+                if tenancy.owns(task.workspace):
+                    workspace_store.upsert_cowork(task.persisted())
+            return
         jsonstore.save_json(self._store_path, [t.persisted() for t in ordered[:200]])
 
     # -- lifecycle ---------------------------------------------------------- #
@@ -234,10 +239,16 @@ class CoworkManager:
         return task
 
     def list(self) -> list[dict]:
+        if tenancy.enforcing():
+            return [Task.from_persisted(item).summary()
+                    for item in workspace_store.list_cowork()]
         return [t.summary() for t in sorted(self._tasks.values(),
                                             key=lambda t: t.created_at, reverse=True)]
 
     def get(self, task_id: str) -> dict | None:
+        if tenancy.enforcing():
+            item = workspace_store.get_cowork(task_id)
+            return Task.from_persisted(item).detail() if item else None
         t = self._tasks.get(task_id)
         return t.detail() if t else None
 
@@ -257,7 +268,8 @@ class CoworkManager:
 
     def cancel(self, task_id: str) -> bool:
         t = self._tasks.get(task_id)
-        if not t or t.status != "running" or t.handle is None:
+        if (not t or not tenancy.owns(t.workspace)
+                or t.status != "running" or t.handle is None):
             return False
         t.handle.cancel()
         return True
@@ -265,6 +277,15 @@ class CoworkManager:
     def clear_finished(self) -> int:
         """Drop tasks that are no longer running (the 'Clear active' action). Returns
         how many were removed."""
+        if tenancy.enforcing():
+            finished = [item["id"] for item in workspace_store.list_cowork()
+                        if item.get("status") != "running"]
+            for tid in finished:
+                workspace_store.delete_cowork(tid)
+                task = self._tasks.get(tid)
+                if task and tenancy.owns(task.workspace):
+                    del self._tasks[tid]
+            return len(finished)
         finished = [tid for tid, t in self._tasks.items() if t.status != "running"]
         for tid in finished:
             del self._tasks[tid]

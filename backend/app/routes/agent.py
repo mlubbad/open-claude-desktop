@@ -17,7 +17,7 @@ from ocd_core import (
 )
 from sse_starlette.sse import EventSourceResponse
 
-from ..deps import current_user
+from ..deps import current_user, require_workspace_role
 from ..schemas import AgentTurnRequest, PermissionReply
 from ..sse import format_event
 
@@ -77,7 +77,7 @@ async def agent_turn(req: AgentTurnRequest, user: str = Depends(current_user)):
 
 @router.post("/agent/turn/{turn_id}/permission")
 async def agent_turn_permission(turn_id: str, reply: PermissionReply,
-                                user: str = Depends(current_user)) -> dict:
+                                user: str = Depends(require_workspace_role("member"))) -> dict:
     """Resolve a pending `approval_required` prompt for a running turn."""
     if reply.decision not in ("approve", "decline"):
         raise HTTPException(422, "decision must be 'approve' or 'decline'")

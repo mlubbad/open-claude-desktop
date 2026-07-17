@@ -19,6 +19,8 @@ from __future__ import annotations
 
 import asyncio
 
+from . import tenancy
+
 # Read-only information tools never need approval, even in ``ask`` mode.
 SAFE_TOOLS = frozenset({
     "search_schema", "search_project_knowledge", "search_past_chats", "web_search",
@@ -66,33 +68,108 @@ def requires_approval(name: str, mode: str | None, args: dict | None = None) -> 
 
 
 class PermissionRegistry:
-    """Maps (turn_id, tool_call_id) → a Future the reply endpoint resolves."""
+    """Maps workspace/turn/tool-call identities to pending decisions."""
 
     def __init__(self) -> None:
-        self._pending: dict[tuple[str, str], asyncio.Future] = {}
+        self._pending: dict[tuple[str, str, str], asyncio.Future] = {}
+        self._metadata: dict[tuple[str, str, str], tuple[str, dict]] = {}
 
-    async def wait(self, turn_id: str, tc_id: str, timeout: float) -> bool:
+    @staticmethod
+    def _workspace() -> str:
+        if tenancy.enforcing():
+            return tenancy.current_workspace()
+        return tenancy.LOCAL_WORKSPACE
+
+    @staticmethod
+    def _record_id(turn_id: str, tc_id: str) -> str:
+        return f"{turn_id}:{tc_id}"
+
+    def describe(
+        self, turn_id: str, tc_id: str, *, tool_name: str, args: dict | None
+    ) -> None:
+        """Attach auditable context while keeping the historic wait API mockable."""
+        self._metadata[(self._workspace(), turn_id, tc_id)] = (
+            tool_name,
+            dict(args or {}),
+        )
+
+    @staticmethod
+    def _persist(
+        workspace: str,
+        turn_id: str,
+        tc_id: str,
+        status: str,
+        *,
+        tool_name: str = "",
+        args: dict | None = None,
+    ) -> None:
+        if not tenancy.enforcing():
+            return
+        from . import workspace_store
+
+        with tenancy.use_workspace(workspace):
+            previous = workspace_store.get_approval(
+                PermissionRegistry._record_id(turn_id, tc_id)
+            ) or {}
+            workspace_store.upsert_approval({
+                **previous,
+                "id": PermissionRegistry._record_id(turn_id, tc_id),
+                "turn_id": turn_id,
+                "tool_call_id": tc_id,
+                "tool_name": tool_name or str(previous.get("tool_name") or ""),
+                "args": dict(args or previous.get("args") or {}),
+                "status": status,
+            })
+
+    async def wait(
+        self,
+        turn_id: str,
+        tc_id: str,
+        timeout: float,
+        *,
+        tool_name: str = "",
+        args: dict | None = None,
+    ) -> bool:
         """Await the user's decision. Times out fail-closed (declined)."""
+        workspace = self._workspace()
         loop = asyncio.get_running_loop()
         fut: asyncio.Future = loop.create_future()
-        self._pending[(turn_id, tc_id)] = fut
+        key = (workspace, turn_id, tc_id)
+        prepared_name, prepared_args = self._metadata.pop(key, ("", {}))
+        tool_name = tool_name or prepared_name
+        args = args or prepared_args
+        self._pending[key] = fut
+        self._persist(
+            workspace, turn_id, tc_id, "pending", tool_name=tool_name, args=args
+        )
         try:
             return bool(await asyncio.wait_for(fut, timeout))
         except TimeoutError:
+            self._persist(workspace, turn_id, tc_id, "expired")
             return False
         finally:
-            self._pending.pop((turn_id, tc_id), None)
+            self._pending.pop(key, None)
+            self._metadata.pop(key, None)
 
     def resolve(self, turn_id: str, tc_id: str, approved: bool) -> bool:
         """Deliver a decision into a suspended turn. Returns True if one was waiting."""
-        fut = self._pending.get((turn_id, tc_id))
+        workspace = self._workspace()
+        fut = self._pending.get((workspace, turn_id, tc_id))
         if fut is not None and not fut.done():
+            self._persist(
+                workspace, turn_id, tc_id, "approved" if approved else "declined"
+            )
             fut.set_result(bool(approved))
             return True
         return False
 
     def pending(self, turn_id: str) -> list[str]:
-        return [tc for (t, tc) in self._pending if t == turn_id]
+        workspace = self._workspace()
+        return [
+            tc
+            for (candidate_workspace, candidate_turn, tc) in self._pending
+            if candidate_workspace == workspace and candidate_turn == turn_id
+        ]
 
 
 registry = PermissionRegistry()

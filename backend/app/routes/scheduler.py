@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from ocd_core import scheduler
 from pydantic import BaseModel
 
-from ..deps import current_user
+from ..deps import current_user, require_workspace_role
 
 router = APIRouter()
 
@@ -32,7 +32,8 @@ def list_schedules(user: str = Depends(current_user)) -> list[dict]:
 
 
 @router.post("/schedules")
-def add_schedule(body: ScheduleBody, user: str = Depends(current_user)) -> dict:
+def add_schedule(body: ScheduleBody,
+                 user: str = Depends(require_workspace_role("member"))) -> dict:
     if not body.goal.strip():
         raise HTTPException(status_code=400, detail="goal is required")
     if body.kind == "interval" and not (body.every_seconds and body.every_seconds > 0):
@@ -48,14 +49,15 @@ def add_schedule(body: ScheduleBody, user: str = Depends(current_user)) -> dict:
 
 
 @router.delete("/schedules/{sid}")
-def remove_schedule(sid: str, user: str = Depends(current_user)) -> dict:
+def remove_schedule(sid: str, user: str = Depends(require_workspace_role("admin"))) -> dict:
     if not scheduler.service.remove(sid):
         raise HTTPException(status_code=404, detail="no such schedule")
     return {"ok": True}
 
 
 @router.post("/schedules/{sid}/enabled")
-def set_enabled(sid: str, body: EnabledBody, user: str = Depends(current_user)) -> dict:
+def set_enabled(sid: str, body: EnabledBody,
+                user: str = Depends(require_workspace_role("member"))) -> dict:
     res = scheduler.service.set_enabled(sid, body.enabled)
     if res is None:
         raise HTTPException(status_code=404, detail="no such schedule")

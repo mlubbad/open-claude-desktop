@@ -74,6 +74,7 @@ def isolate(monkeypatch, tmp_path):
     touch the repo tree or a developer's real connectors."""
     monkeypatch.setattr(integrations, "EXTENSIONS_DIR", tmp_path / "extensions")
     monkeypatch.setattr(integrations, "MCP_FILE", tmp_path / "mcp_servers.json")
+    monkeypatch.setattr(integrations.config, "STDIO_MCP_ENABLED", True)
     yield tmp_path
     # Tear down any spawned MCP sessions so subprocesses don't leak between tests.
     for s in integrations._load_mcp_servers():

@@ -8,6 +8,18 @@ from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 from ocd_core import mcp_oauth, secrets
 
 
+@pytest.fixture(autouse=True)
+def _public_example_hosts(monkeypatch):
+    """Unit examples use reserved hostnames; egress behavior has focused tests."""
+    from ocd_core import egress
+
+    monkeypatch.setattr(
+        egress,
+        "_resolved_addresses",
+        lambda *_args: {egress.ipaddress.ip_address("8.8.8.8")},
+    )
+
+
 @pytest.fixture
 def mem_store(monkeypatch):
     """Force the in-memory secret store so tests never touch a real keychain."""

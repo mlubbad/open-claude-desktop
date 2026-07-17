@@ -75,6 +75,7 @@ def test_call_mcp_coerces_before_dispatch(monkeypatch):
                   {"name": "Click",
                    "inputSchema": _schema(loc={"type": "array"},
                                           double={"type": "boolean"})}]}
+    monkeypatch.setattr(integrations.config, "STDIO_MCP_ENABLED", True)
     monkeypatch.setattr(integrations, "_load_mcp_servers", lambda: [server])
     monkeypatch.setattr(integrations, "_resolve_cfg", lambda s: s)
     seen = {}

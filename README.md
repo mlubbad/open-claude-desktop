@@ -5,6 +5,11 @@ Chat, Projects, Knowledge, MCP connectors, Plugins, Skills, and an agentic tool-
 reasoning loop. The one deliberate difference from Claude Desktop: **you bring your own
 models and keys** — open/hosted models of your choice, not a single vendor.
 
+> **Hosted/public launch is FROZEN.** Local loopback desktop development remains
+> supported, but hosted, public-network, multi-tenant operation and public release
+> publishing are blocked by a source-controlled policy. See
+> [`docs/launch-freeze.md`](docs/launch-freeze.md).
+
 > **Status.** The codebase is transitioning from its origin as a BigQuery analytics
 > agent ("AJ360") into the general-purpose, model-agnostic clone described in
 > [`docs/superpowers/specs/2026-07-02-claude-desktop-clone-architecture.md`](docs/superpowers/specs/2026-07-02-claude-desktop-clone-architecture.md).
@@ -37,8 +42,15 @@ desktop app, and a self-hosted server are all thin frontends over one engine.
 ## Security posture (local-first)
 
 - **Fail-closed networking.** The backend binds `127.0.0.1` by default and *refuses to
-  start* on a non-loopback interface unless authentication is configured (or the
-  explicit `OCD_ALLOW_INSECURE_NETWORK=1` dev opt-in is set). See `ocd_core/netguard.py`.
+  start* on a non-loopback interface during the hosted/public launch freeze. The
+  explicit development-only Compose carve-out is documented in `launchguard.py`; the
+  older insecure-network opt-in alone cannot bypass the freeze or authentication.
+- **Containment defaults.** Authentication is mandatory for tenancy/non-loopback
+  binding. Remote marketplaces, stdio MCP, host execution, and scheduled autonomous
+  work default off; Cowork is manual and sensitive tools use `ask`. Database and
+  migration failures abort startup instead of silently falling back or continuing.
+- **Bounded ingress.** Direct launches enforce body/concurrency caps; Compose routes
+  through a temporary Nginx policy with request, connection, rate, and upload limits.
 - **Secrets in the OS keychain.** Connector credentials (and, from Phase 1, provider API
   keys) are stored via `keyring` with an encrypted-file fallback — never plaintext in
   tracked files. See `ocd_core/secrets.py`.
@@ -79,8 +91,9 @@ cd desktop && npm install && npm run dev
 With `DATABASE_URL=sqlite:///./ocd.db` (the default in `.env.example`) the schema is
 created automatically on first start — no database to set up. For a packaged native
 window instead of the browser, use `cd desktop && npm run tauri dev` (needs Rust + the
-platform WebView libs). Postgres is optional: `docker compose up -d` brings one up and
-the backend uses it when `DATABASE_URL` is unset.
+platform WebView libs). Postgres is optional: before `docker compose up -d`, configure
+`APP_USERNAME`, `APP_PASSWORD`, and `APP_AUTH_SECRET` in `.env`; Compose binds the
+backend non-loopback on its private network and therefore fails closed without them.
 
 BigQuery (optional) authenticates via Application Default Credentials
 (`gcloud auth application-default login`) or Workload Identity — never a committed key.

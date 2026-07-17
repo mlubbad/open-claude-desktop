@@ -29,10 +29,9 @@ COPY skills ./skills
 
 EXPOSE 8000
 
-# The container binds all interfaces; port mapping should restrict host exposure
-# to loopback (see docker-compose.yml). OCD_ALLOW_INSECURE_NETWORK is required
-# because binding 0.0.0.0 with auth disabled otherwise fails closed (netguard).
+# The container binds all interfaces, so netguard requires authentication even when
+# port mapping restricts host exposure to loopback (see docker-compose.yml).
 ENV OCD_BIND_HOST=0.0.0.0
 # alembic resolves script_location relative to CWD, so upgrade from backend/;
-# uvicorn imports the installed `app` package so its CWD is irrelevant.
-CMD ["sh", "-c", "(cd backend && alembic upgrade head) || true; uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+# abort the container if migration fails, then replace the shell with uvicorn.
+CMD ["sh", "-c", "set -e; cd backend; alembic upgrade head; exec uvicorn app.main:app --host 0.0.0.0 --port 8000"]

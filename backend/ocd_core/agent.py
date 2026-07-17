@@ -1515,6 +1515,9 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
             if plan_mode and name == "exit_plan_mode":
                 yield {"type": "approval_required", "turn_id": turn_id, "id": tc.id,
                        "name": name, "input": _tool_input(name, args)}
+                permissions.registry.describe(
+                    turn_id, tc.id, tool_name=name, args=args
+                )
                 approved = await permissions.registry.wait(
                     turn_id, tc.id, config.PERMISSION_TIMEOUT_SEC)
                 if approved:
@@ -1549,6 +1552,9 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
             if gate_on and permissions.requires_approval(name, perm_mode, args):
                 yield {"type": "approval_required", "turn_id": turn_id, "id": tc.id,
                        "name": name, "input": _tool_input(name, args)}
+                permissions.registry.describe(
+                    turn_id, tc.id, tool_name=name, args=args
+                )
                 approved = await permissions.registry.wait(
                     turn_id, tc.id, config.PERMISSION_TIMEOUT_SEC)
                 if not approved:

@@ -23,6 +23,8 @@ import os
 import tempfile
 import threading
 
+from . import egress
+
 _DEFAULT_TIMEOUT = float(__import__("os").getenv("MCP_CALL_TIMEOUT_SEC", "60"))
 
 
@@ -151,6 +153,7 @@ class MCPRegistry:
         errfile = None
         try:
             if transport == "http":
+                egress.assert_public_url(cfg["url"])
                 # streamablehttp_client accepts headers= directly (the newer
                 # streamable_http_client takes a pre-built httpx client instead).
                 # An OAuth 2.1 provider (httpx.Auth) rides in via cfg["auth_provider"];
@@ -158,14 +161,19 @@ class MCPRegistry:
                 from mcp.client.streamable_http import streamablehttp_client
                 read, write, _ = await stack.enter_async_context(
                     streamablehttp_client(cfg["url"], headers=cfg.get("headers") or None,
-                                          auth=cfg.get("auth_provider")))
+                                          auth=cfg.get("auth_provider"),
+                                          httpx_client_factory=(
+                                              egress.mcp_httpx_client_factory
+                                          )))
             elif transport == "sse":
+                egress.assert_public_url(cfg["url"])
                 # Same OAuth 2.1 provider ride-along as the http branch — previously
                 # only Streamable-HTTP connectors could authenticate.
                 from mcp.client.sse import sse_client
                 read, write = await stack.enter_async_context(
                     sse_client(cfg["url"], headers=cfg.get("headers") or None,
-                               auth=cfg.get("auth_provider")))
+                               auth=cfg.get("auth_provider"),
+                               httpx_client_factory=egress.mcp_httpx_client_factory))
             else:
                 from mcp import StdioServerParameters
                 from mcp.client.stdio import stdio_client

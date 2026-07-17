@@ -14,13 +14,17 @@ dependencies = [
   "openai",
   # The one exception: Claude goes through the NATIVE Messages API adapter
   # (ocd_core.llm.anthropic_native) for prompt caching + extended thinking.
-  "anthropic",
+  "anthropic>=0.117.0",
   "google-cloud-bigquery",
   "google-auth",
   "chromadb",
   "pandas",
   "pdfplumber",
-  "mcp",
+  # mcp.client.auth (OAuthClientProvider) is used by ocd_core.mcp_oauth and only
+  # exists in recent mcp — the venv's old 1.8.1 broke test collection. Verified on
+  # 1.28.1. NOTE: the incidental `markitdown-mcp` alpha pins mcp~=1.8 and must be
+  # dropped or updated, or it will refuse this floor.
+  "mcp>=1.28.0",
   "python-dotenv",
   "sqlmodel",
   "alembic",

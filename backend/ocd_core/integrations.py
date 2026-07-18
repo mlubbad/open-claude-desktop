@@ -1193,7 +1193,18 @@ def call_mcp(full_name: str, args: dict) -> str:
             if spec is not None:
                 try:
                     coerced = coerce_args_to_schema(args or {}, spec.get("inputSchema") or {})
-                    return _tag_auth_failure(mcp_registry.registry.call(_resolve_cfg(s), tool, coerced))
+                    # The agent controls `coerced` (the tool call arguments) --
+                    # redact known secret shapes out of it right before it's
+                    # sent, so an injected prompt can't smuggle a key out
+                    # through an MCP tool call. The server cfg (_resolve_cfg,
+                    # carrying auth headers/env from the keychain) is NEVER
+                    # touched -- only this agent-supplied payload.
+                    from . import egress_redact, observability
+                    redacted, redaction_count = egress_redact.redact_obj(coerced)
+                    if redaction_count:
+                        observability.audit({"event": "egress_redaction", "tool": "mcp",
+                                             "count": redaction_count})
+                    return _tag_auth_failure(mcp_registry.registry.call(_resolve_cfg(s), tool, redacted))
                 except Exception as e:
                     return _tag_auth_failure(f"MCP '{s['id']}' call failed: {str(e)[:200]}")
     return f"MCP tool '{full_name}' not found."
@@ -1314,7 +1325,14 @@ def _search_config() -> tuple[str, str]:
 
 def _ddg_html_results(query: str, n: int) -> list[dict]:
     try:
-        from . import egress
+        from . import egress, egress_redact, observability
+        # The query is agent-controlled -- redact known secret shapes before it
+        # goes out, even though DDG is a fixed, trusted host (defense-in-depth
+        # against prompt-injection exfil).
+        query, redaction_count = egress_redact.redact_secrets(query)
+        if redaction_count:
+            observability.audit({"event": "egress_redaction", "tool": "web_search",
+                                 "count": redaction_count})
         with egress.pinned_client(timeout=15, follow_redirects=False) as client:
             resp = client.post(_DDG_URL, data={"q": query}, headers={"User-Agent": _UA})
         return _parse_ddg_html(resp.text, n)
@@ -1337,6 +1355,14 @@ def _searxng_results(query: str, n: int, base_url: str) -> list[dict]:
     if urlparse(base).scheme not in ("http", "https"):
         return []
     try:
+        from . import egress_redact, observability
+        # The query is agent-controlled even though base_url is trusted config --
+        # redact known secret shapes before it goes out (defense-in-depth against
+        # prompt-injection exfil).
+        query, redaction_count = egress_redact.redact_secrets(query)
+        if redaction_count:
+            observability.audit({"event": "egress_redaction", "tool": "web_search",
+                                 "count": redaction_count})
         import httpx
         with httpx.Client(timeout=15, follow_redirects=False) as client:
             resp = client.get(f"{base}/search",
@@ -1559,9 +1585,9 @@ def web_fetch(url: str, approved_hosts: set[str] | None = None) -> tuple[str, li
     with `approved_hosts=None` (direct / non-agent callers) redirect-approval is
     off; SSRF re-validation and DNS pinning still apply on every hop regardless."""
     import time as _t
-    from urllib.parse import urljoin, urlparse
+    from urllib.parse import urljoin, urlparse, urlsplit, urlunsplit
 
-    from . import egress, observability
+    from . import egress, egress_redact, observability
     url = (url or "").strip()
     if not url:
         return "web_fetch_tool_error: invalid_input", []
@@ -1577,6 +1603,20 @@ def web_fetch(url: str, approved_hosts: set[str] | None = None) -> tuple[str, li
     except egress.EgressBlocked:
         observability.audit({"event": "egress_blocked", "tool": "web_fetch", "url": url})
         return "web_fetch_tool_error: url_not_allowed (private/internal host blocked)", []
+
+    # Defense-in-depth against prompt-injection exfil: the agent controls this
+    # URL (and thus its query string), so strip any recognizable secret shape
+    # out of the query before it's ever dialed. Only the INITIAL agent-supplied
+    # URL is redacted here -- redirect hops (re-validated per-hop below) come
+    # from the remote server's response, not the agent, so they aren't
+    # agent-controlled content.
+    sp = urlsplit(url)
+    red_query, redaction_count = egress_redact.redact_secrets(sp.query)
+    if redaction_count:
+        url = urlunsplit((sp.scheme, sp.netloc, sp.path, red_query, sp.fragment))
+        observability.audit({"event": "egress_redaction", "tool": "web_fetch",
+                             "count": redaction_count})
+
     cached = _FETCH_CACHE.get(url)
     if cached and (_t.time() - cached[0] < 900):
         return cached[1], cached[2]

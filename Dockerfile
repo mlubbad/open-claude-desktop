@@ -9,7 +9,10 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /app
 
 COPY requirements.txt ./
-RUN pip install -r requirements.txt
+# requirements.txt is a complete pinned freeze, so install with --no-deps and let
+# pip skip re-resolution. A fresh resolve fails: zhipuai pins PyJWT<2.9 while
+# chainlit/mcp declare a newer PyJWT -- the pinned set installs fine together.
+RUN pip install --no-deps -r requirements.txt
 
 COPY . .
 

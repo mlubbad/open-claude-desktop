@@ -37,6 +37,14 @@ services:
     # Reach Postgres over the compose network (overrides .env's localhost).
     environment:
       DATABASE_URL: postgresql+asyncpg://chainlit:${POSTGRES_PASSWORD:-changeme}@postgres:5432/chainlit
+      # Keep runtime data on a durable volume so it survives container replacement
+      # (conversations live in Postgres above; these are the KB/vectors/files/logs).
+      CHROMA_PATH: /data/chroma_db
+      PROJECTS_DIR: /data/projects
+      KNOWLEDGE_DIR: /data/knowledge
+      AUDIT_LOG: /data/logs/agent_audit.jsonl
+    volumes:
+      - ocd_data:/data
     ports:
       - "8000:8000"
     depends_on:
@@ -51,3 +59,4 @@ services:
 
 volumes:
   aj360_pgdata:
+  ocd_data:

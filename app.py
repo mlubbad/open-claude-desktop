@@ -139,7 +139,7 @@ MAX_COLS_PER_CARD = 200
 MAX_STORED_ROWS = 5000
 QUERY_TIMEOUT_SEC = 300
 MEMORY_TURNS = 12
-AUDIT_LOG = "./logs/agent_audit.jsonl"
+AUDIT_LOG = os.getenv("AUDIT_LOG", "./logs/agent_audit.jsonl")
 PDF_MAX_PAGES = 50
 _HELPER_SENTINEL = "__HELPER__"
 
@@ -286,7 +286,7 @@ def get_bq_client():
 # --------------------------------------------------------------------------- #
 #  ChromaDB Collections
 # --------------------------------------------------------------------------- #
-chroma = chromadb.PersistentClient(path="./chroma_db")
+chroma = chromadb.PersistentClient(path=os.getenv("CHROMA_PATH", "./chroma_db"))
 schema_catalog = chroma.get_or_create_collection("schema_catalog")
 kb_documents = chroma.get_or_create_collection("kb_documents")
 

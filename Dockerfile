@@ -16,6 +16,9 @@ RUN useradd --create-home --uid 10001 appuser
 
 WORKDIR /app
 RUN chown appuser:appuser /app
+# Durable data dir; mount a volume here in production (see docker-compose.yml).
+# Owned by appuser so a fresh named volume inherits writable ownership on mount.
+RUN mkdir -p /data && chown appuser:appuser /data
 
 COPY requirements.txt ./
 # requirements.txt is a complete pinned freeze, so install with --no-deps and let

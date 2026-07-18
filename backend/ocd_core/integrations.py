@@ -143,8 +143,22 @@ def remove_connector(cid: str):
 
 
 def _http_get(url: str, headers: dict, timeout: int = 15):
+    """SSRF-guarded GET for user REST connectors: http/https only, private/internal
+    hosts blocked before the request and re-checked after redirects (parity with
+    web_fetch). Raises ValueError on a disallowed URL/host."""
+    from urllib.parse import urlparse
+
     import httpx
-    return httpx.get(url, headers=headers, timeout=timeout, follow_redirects=True)
+    p = urlparse((url or "").strip())
+    if p.scheme not in ("http", "https") or not p.netloc:
+        raise ValueError("connector url must be http(s)")
+    if _blocked_host(p.hostname or ""):
+        raise ValueError("blocked host (private/internal address)")
+    r = httpx.get(url, headers=headers, timeout=timeout, follow_redirects=True)
+    final = urlparse(str(r.url)).hostname or ""
+    if final and final != (p.hostname or "") and _blocked_host(final):
+        raise ValueError("redirected to blocked host")
+    return r
 
 
 def test_connector(cid: str) -> str:
@@ -541,6 +555,12 @@ _FETCH_CACHE: dict = {}
 # execution that bypasses the run_python container sandbox.
 _BASH_ALLOW = {"ls", "cat", "echo", "pwd", "grep", "find", "wc", "head", "tail",
                "type", "dir", "date", "whoami", "sort", "uniq", "cut"}
+# Absolute paths would let an allowlisted reader (cat/find/ls/dir/...) escape the
+# sandbox cwd: POSIX "/...", home "~...", Windows drive "C:\..."/"C:/...", or UNC
+# "\\host". Matched at a token boundary so mid-token slashes (subdir/, https://)
+# and grep patterns are unaffected. Combined with the ".." block => confined to
+# the sandbox working directory.
+_ABS_PATH_RE = re.compile(r"(^|\s)([/~]|[A-Za-z]:[\\/]|\\\\)")
 
 
 def _ensure_dir(p: Path):
@@ -690,6 +710,9 @@ def run_bash(command: str, restart: bool = False) -> str:
                                       "$(", "${", "..", "\n")):
         return ("Rejected: pipes, redirects, chaining, and path traversal are not "
                 "allowed in the sandbox. Run one simple allowlisted command.")
+    if _ABS_PATH_RE.search(command):
+        return ("Rejected: absolute paths are not allowed in the sandbox. Use paths "
+                "relative to the sandbox working directory.")
     try:
         parts = shlex.split(command)
     except Exception:

@@ -69,6 +69,12 @@ class EgressApprovalRegistry:
     def approve(self, project_key: str | None, host: str) -> None:
         self._approved.setdefault(self._key(project_key), set()).add(host)
 
+    def approved_hosts(self, project_key: str | None) -> set[str]:
+        """A snapshot copy of the project's approved hosts -- passed into
+        web_fetch so it can re-gate redirect hops without touching this shared
+        registry from the tool's worker thread."""
+        return set(self._approved.get(self._key(project_key), ()))
+
     def reset(self) -> None:
         self._approved.clear()
 

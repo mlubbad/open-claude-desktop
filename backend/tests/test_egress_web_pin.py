@@ -234,3 +234,96 @@ def test_web_fetch_dns_failure_reads_as_unreachable_not_blocked(monkeypatch):
     assert "url_not_accessible" in out       # unreachable, not forbidden
     assert "url_not_allowed" not in out
     assert sources == []
+
+
+# ---------------------------------------------------------------------------
+# Redirect-approval (F2): first-contact domain approval OK's the INITIAL host;
+# web_fetch is handed the project's approved-host set and must refuse a redirect
+# to a host NOT in it (rather than follow it silently). approved_hosts=None
+# (direct/non-agent callers) leaves redirect-approval off. SSRF + pinning still
+# apply on every hop regardless.
+# ---------------------------------------------------------------------------
+
+
+class _RedirectResp:
+    def __init__(self, status, headers, body=b""):
+        self.status_code = status
+        self.headers = headers
+        self._body = body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def iter_bytes(self):
+        yield self._body
+
+
+def _fake_redirect_client(monkeypatch, route):
+    """Install a fake pinned_client whose stream() delegates to route(url), plus
+    a no-op assert_public_url so the test exercises only redirect-approval."""
+    monkeypatch.setattr(egress, "assert_public_url", lambda u, **k: u)
+
+    class _Client:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def stream(self, method, url, headers=None):
+            return route(url)
+
+    monkeypatch.setattr(egress, "pinned_client", lambda **k: _Client())
+
+
+def test_web_fetch_refuses_redirect_to_an_unapproved_host(monkeypatch):
+    def route(url):
+        if "good.example" in url:
+            return _RedirectResp(302, {"location": "https://evil.example/collect?data=secret"})
+        return _RedirectResp(200, {"content-type": "text/html"}, b"<html>x</html>")
+
+    _fake_redirect_client(monkeypatch, route)
+    integrations._FETCH_CACHE.clear()
+    out, sources = integrations.web_fetch("https://good.example/x", {"good.example"})
+    assert "redirect_to_unapproved_host" in out
+    assert "evil.example" in out        # names the host so the agent can re-fetch/re-gate
+    assert sources == []
+
+
+def test_web_fetch_follows_redirect_to_another_approved_host(monkeypatch):
+    def route(url):
+        if "good.example" in url:
+            return _RedirectResp(302, {"location": "https://cdn.example/asset"})
+        return _RedirectResp(200, {"content-type": "text/html"}, b"<html><title>Y</title>ok</html>")
+
+    _fake_redirect_client(monkeypatch, route)
+    integrations._FETCH_CACHE.clear()
+    out, _ = integrations.web_fetch("https://good.example/x", {"good.example", "cdn.example"})
+    assert out.startswith("Fetched")
+
+
+def test_web_fetch_allows_same_host_redirect(monkeypatch):
+    def route(url):
+        if url.endswith("/x"):
+            return _RedirectResp(302, {"location": "https://good.example/final"})
+        return _RedirectResp(200, {"content-type": "text/html"}, b"<html>ok</html>")
+
+    _fake_redirect_client(monkeypatch, route)
+    integrations._FETCH_CACHE.clear()
+    out, _ = integrations.web_fetch("https://good.example/x", {"good.example"})
+    assert out.startswith("Fetched")
+
+
+def test_web_fetch_without_approval_context_still_follows_redirects(monkeypatch):
+    def route(url):
+        if "good.example" in url:
+            return _RedirectResp(302, {"location": "https://other.example/p"})
+        return _RedirectResp(200, {"content-type": "text/html"}, b"<html>ok</html>")
+
+    _fake_redirect_client(monkeypatch, route)
+    integrations._FETCH_CACHE.clear()
+    out, _ = integrations.web_fetch("https://good.example/x")  # approved_hosts=None
+    assert out.startswith("Fetched")     # redirect-approval off -> followed

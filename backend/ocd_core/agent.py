@@ -963,8 +963,11 @@ async def _run_one_tool(name, args, tc_id, active_project, goal, top_k,
 
         if name == "web_fetch":
             from . import integrations
+            # Pass the project's approved hosts so web_fetch can re-gate redirect
+            # hops (the first-contact gate only OK'd the original host).
+            approved = egress_policy.registry.approved_hosts(active_project)
             result, sources = await asyncio.to_thread(
-                integrations.web_fetch, args.get("url", ""))
+                integrations.web_fetch, args.get("url", ""), approved)
             ok = not result.startswith("web_fetch_tool_error")
             out = {"id": tc_id, "name": name, "ok": ok, "result": result,
                    "summary": result.split("\n\n")[0][:300]}

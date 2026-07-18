@@ -1536,7 +1536,7 @@ def _html_to_text(html_src: str) -> str:
 _WEB_FETCH_MAX_BYTES = int(os.getenv("OCD_WEB_FETCH_MAX_BYTES", str(5 * 1024 * 1024)))
 
 
-def web_fetch(url: str) -> tuple[str, list[dict]]:
+def web_fetch(url: str, approved_hosts: set[str] | None = None) -> tuple[str, list[dict]]:
     """Fetch one URL → (cleaned text for the model, source card list). http/https
     only, private/internal hosts blocked, HTML/text/JSON only.
 
@@ -1552,10 +1552,12 @@ def web_fetch(url: str) -> tuple[str, list[dict]]:
     old _blocked_host-only check: an agent-supplied https://host:8443/... URL is
     now refused.
 
-    Note: first-contact DOMAIN approval (egress_policy, in the agent loop) gates
-    the INITIAL host only. Redirect hops are re-checked for SSRF here but are not
-    re-gated for approval, so an approved host with an open redirect can reach an
-    unapproved one -- see egress_policy's known-limitation note (tracked follow-up)."""
+    `approved_hosts` closes the redirect side of first-contact DOMAIN approval
+    (egress_policy): the agent loop gates the INITIAL host, then passes the
+    project's approved-host snapshot here so a redirect to a host NOT in that set
+    is refused (the agent must re-issue web_fetch on it, which re-gates). Called
+    with `approved_hosts=None` (direct / non-agent callers) redirect-approval is
+    off; SSRF re-validation and DNS pinning still apply on every hop regardless."""
     import time as _t
     from urllib.parse import urljoin, urlparse
 
@@ -1583,15 +1585,30 @@ def web_fetch(url: str) -> tuple[str, list[dict]]:
         ctype = ""
         with egress.pinned_client(timeout=15, follow_redirects=False) as client:
             cur = url
+            hop = 0
             for _ in range(5):
                 pp = urlparse(cur)
                 if pp.scheme not in ("http", "https") or not pp.netloc:
                     return "web_fetch_tool_error: invalid_input", []
                 egress.assert_public_url(cur)  # re-validated every hop; raises -> caught below
+                # Redirect hops (hop>0) must ALSO target an approved host -- the
+                # first-contact gate only OK'd the original host. Refuse an
+                # unapproved cross-host redirect instead of following it silently;
+                # the agent can re-issue web_fetch on it to get it gated. SSRF is
+                # checked first (above), so a private-IP redirect still reads as
+                # url_not_allowed, not this.
+                if approved_hosts is not None and hop > 0:
+                    hop_host = (pp.hostname or "").lower().rstrip(".")
+                    if hop_host not in approved_hosts:
+                        return (f"web_fetch_tool_error: redirect_to_unapproved_host "
+                                f"({hop_host}) -- the page redirected to {cur} . Call "
+                                f"web_fetch on that URL to review and approve reaching "
+                                f"{hop_host}.", [])
                 with client.stream("GET", cur, headers={"User-Agent": _UA}) as r:
                     loc = r.headers.get("location")
                     if r.status_code in (301, 302, 303, 307, 308) and loc:
                         cur = urljoin(cur, loc)  # re-validated at the top of the next loop
+                        hop += 1
                         continue
                     ctype = (r.headers.get("content-type") or "").lower()
                     if not any(c in ctype for c in ("text/html", "text/plain", "application/json",

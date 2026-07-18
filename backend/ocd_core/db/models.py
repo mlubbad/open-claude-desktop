@@ -1,14 +1,14 @@
 """SQLModel tables for ocd_core persistence (Phase 2): Project, Conversation."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import JSON, Column
 from sqlmodel import Field, SQLModel
 
 
 def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class Project(SQLModel, table=True):

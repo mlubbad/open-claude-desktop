@@ -46,35 +46,33 @@ Setup
     chainlit run app.py
 """
 
-import os
-import re
-import json
-import time
-import uuid
-import base64
 import asyncio
-import logging
-import logging.handlers
-import tempfile
-import threading
+import base64
 import concurrent.futures
 import hashlib
 import hmac
+import json
+import logging
+import logging.handlers
+import os
+import re
 import sys as _sys
-from datetime import datetime, timezone
+import tempfile
+import threading
+import time
+import uuid
+from datetime import UTC, datetime
 from pathlib import Path
 
-from dotenv import load_dotenv
 import chainlit as cl
-from chainlit.input_widget import Switch, Select
-
+import chromadb
+import google.auth
 import pandas as pd
 import pdfplumber
-
-import chromadb
+from chainlit.input_widget import Select, Switch
+from dotenv import load_dotenv
 from google.cloud import bigquery
 from google.cloud.bigquery import QueryJobConfig
-import google.auth
 from zhipuai import ZhipuAI
 
 try:
@@ -185,7 +183,7 @@ _logger.addHandler(_sh)
 
 def _observe(event: str, **fields):
     """Emit a structured log record to stderr. Non-blocking, best-effort."""
-    record = {"event": event, "ts": datetime.now(timezone.utc).isoformat(), **fields}
+    record = {"event": event, "ts": datetime.now(UTC).isoformat(), **fields}
     _logger.info(json.dumps(record, default=str))
 
 
@@ -211,7 +209,7 @@ def audit(event: dict):
     """Append an event to the rotating audit trail (JSONL). Thread-safe via the
     logging handler's internal lock."""
     try:
-        event = {"ts": datetime.now(timezone.utc).isoformat(), **event}
+        event = {"ts": datetime.now(UTC).isoformat(), **event}
         _audit_logger.info(json.dumps(event, default=str))
     except Exception as e:
         print(f"[AUDIT] write failed: {e} | event={event.get('event')}",
@@ -298,10 +296,16 @@ GENERIC_COLS = {
 }
 # Read-only SQL guard — single source of truth shared with the Reflex app.
 from ocd_core.netguard import (  # noqa: E402
-    allow_unauthenticated, effective_bind_host, require_authenticated_binding)
+    allow_unauthenticated,
+    effective_bind_host,
+    require_authenticated_binding,
+)
 from ocd_core.sql_guard import (  # noqa: E402
-    BANNED_ALIASES, check_banned_aliases, is_mutation, tables_out_of_scope)
-
+    BANNED_ALIASES,
+    check_banned_aliases,
+    is_mutation,
+    tables_out_of_scope,
+)
 
 # --------------------------------------------------------------------------- #
 #  Projects Module — Thread-Safe (Issue #3)
@@ -359,7 +363,7 @@ def create_project(name: str) -> dict:
     project_meta = {
         "id": project_id,
         "name": name,
-        "created_at": datetime.now(timezone.utc).isoformat()
+        "created_at": datetime.now(UTC).isoformat()
     }
     projects.append(project_meta)
     _save_registry(projects)
@@ -644,7 +648,7 @@ def _ingest_wiki_sync():
                 ids.append(f"wiki:{rel}:{i}:{k}")
                 docs.append(sub)
                 metas.append({"source": rel, "type": "wiki", "chunk_index": i,
-                              "updated": datetime.now(timezone.utc).isoformat()})
+                              "updated": datetime.now(UTC).isoformat()})
         if ids:
             for b in range(0, len(ids), 100):
                 kb_documents.upsert(ids=ids[b:b + 100], documents=docs[b:b + 100],
@@ -662,7 +666,7 @@ def _append_finding_to_wiki(finding: str, category: str = "data_issues") -> str:
     path = KNOWLEDGE_DIR / f"{category}.md"
     if not path.exists():
         path.write_text(f"# {category.replace('_', ' ').title()}\n\n", encoding="utf-8")
-    ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    ts = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
     entry = f"\n\n### Finding — {ts}\n{finding}\n- **Discovered by**: Agent (auto-logged)\n"
     path.write_text(path.read_text(encoding="utf-8") + entry, encoding="utf-8")
     try:
@@ -850,7 +854,7 @@ async def search_schema(question: str, top_k: int = 6) -> str:
             if docs.get("documents") and docs["documents"][0]:
                 wiki_hits, doc_hits = [], []
                 metas = docs.get("metadatas", [[]])[0]
-                for doc, meta in zip(docs["documents"][0], metas):
+                for doc, meta in zip(docs["documents"][0], metas, strict=False):
                     if meta.get("type") == "wiki" or meta.get("source", "").endswith(".md"):
                         wiki_hits.append(doc)
                     else:
@@ -1123,19 +1127,25 @@ def _render_chart(rows, spec):
 
     fig, ax = plt.subplots(figsize=(9, 5))
     if ctype == "bar":
-        ax.bar(range(len(g)), g[y]); ax.set_xticks(range(len(g)))
-        ax.set_xticklabels(labels, rotation=45, ha="right"); ax.set_ylabel(y)
+        ax.bar(range(len(g)), g[y])
+        ax.set_xticks(range(len(g)))
+        ax.set_xticklabels(labels, rotation=45, ha="right")
+        ax.set_ylabel(y)
     elif ctype == "line":
-        ax.plot(range(len(g)), g[y], marker="o"); ax.set_xticks(range(len(g)))
-        ax.set_xticklabels(labels, rotation=45, ha="right"); ax.set_ylabel(y)
+        ax.plot(range(len(g)), g[y], marker="o")
+        ax.set_xticks(range(len(g)))
+        ax.set_xticklabels(labels, rotation=45, ha="right")
+        ax.set_ylabel(y)
     elif ctype == "scatter":
         ax.scatter(pd.to_numeric(g[x], errors="coerce"), g[y])
-        ax.set_xlabel(x); ax.set_ylabel(y)
+        ax.set_xlabel(x)
+        ax.set_ylabel(y)
     elif ctype == "pie":
         ax.pie(g[y], labels=labels, autopct="%1.1f%%")
     elif ctype == "hist":
         ax.hist(series, bins=int(spec.get("bins", 30)))
-        ax.set_xlabel(x); ax.set_ylabel("frequency")
+        ax.set_xlabel(x)
+        ax.set_ylabel("frequency")
     else:
         raise ValueError(f"unsupported chart_type '{ctype}'")
     ax.set_title(title or f"{ctype} of {y or x}")
@@ -1174,7 +1184,7 @@ def extract_text_from_file(file_path: str, mime_type: str) -> str:
             "Sample rows:\n" + df.head(20).to_string(index=False),
             "Numeric summary:\n" + df.describe(include="all").to_string(),
         ])
-    with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+    with open(file_path, encoding="utf-8", errors="ignore") as f:
         return f.read()
 
 
@@ -1719,7 +1729,8 @@ async def on_retry(action: cl.Action):
 # --------------------------------------------------------------------------- #
 #  Projects UI — Native Modal Popup (Claude Desktop Style)
 # --------------------------------------------------------------------------- #
-from chainlit.input_widget import TextInput, Switch, Select
+from chainlit.input_widget import TextInput  # noqa: E402
+
 
 def _format_project_date(iso_str: str) -> str:
     # NOTE: %-d is not portable (fails on Windows), so format the day manually.
@@ -1752,12 +1763,12 @@ def _relative_time(value) -> str:
         if isinstance(value, str):
             dt = datetime.fromisoformat(value.replace('Z', '+00:00'))
         elif isinstance(value, (int, float)):
-            dt = datetime.fromtimestamp(value, tz=timezone.utc)
+            dt = datetime.fromtimestamp(value, tz=UTC)
         else:
             dt = value
         if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        secs = (datetime.now(timezone.utc) - dt).total_seconds()
+            dt = dt.replace(tzinfo=UTC)
+        secs = (datetime.now(UTC) - dt).total_seconds()
         if secs < 0:
             return "just now"
         if secs < 60:
@@ -1841,7 +1852,7 @@ async def _recent_project_tasks(project_id: str, limit: int = 7) -> list:
     try:
         # Hard time-box: a slow/hanging data layer must never block the render.
         return await asyncio.wait_for(_fetch(), timeout=3.0)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         _observe("project_tasks_timeout", project=project_id)
         return []
     except Exception as e:
@@ -1958,7 +1969,7 @@ async def render_project_detail(project_id: str):
             fg, bg = _FILE_BADGE_COLORS.get(badge, ("#374151", "#f3f4f6"))
             if ext in _TEXT_EXTS:
                 try:
-                    with open(f, "r", encoding="utf-8", errors="ignore") as fh:
+                    with open(f, encoding="utf-8", errors="ignore") as fh:
                         meta = f"{sum(1 for _ in fh)} lines"
                 except Exception:
                     meta = (f"{size // 1024} KB" if size < 1024 * 1024
@@ -2157,8 +2168,8 @@ async def on_upload_files(action):
 @cl.action_callback("create_project")
 async def on_create_project(action):
     current_settings = cl.user_session.get("chat_settings") or {}
-    
-    # Build a modal form that includes project creation fields 
+
+    # Build a modal form that includes project creation fields
     # AND preserves the existing chat settings so they aren't lost
     widgets = [
         TextInput(id="project_name", label="Name your project", placeholder="Hero Slides Analysis", initial=""),
@@ -2167,29 +2178,29 @@ async def on_create_project(action):
         Select(id="reasoning_level", label="Reasoning Level", values=["High", "Max"], initial=current_settings.get("reasoning_level", "High")),
         Select(id="search_mode", label="Search Mode", values=["Search", "Advanced Search"], initial=current_settings.get("search_mode", "Search"))
     ]
-    
+
     # Display the modal (this blocks until the user saves or cancels)
     form_result = await cl.ChatSettings(widgets).send()
-    
+
     # Save the chat settings regardless of whether they created a project
     if form_result:
         cl.user_session.set("chat_settings", form_result)
-    
+
     if not form_result or not form_result.get("project_name"):
         if form_result is None:
             await cl.Message(content="Project creation cancelled.").send()
         return
-        
+
     name = form_result["project_name"].strip()
     description = form_result.get("project_description", "").strip()
-    
+
     project = create_project(name)
     if description:
         save_project_instructions(project["id"], description)
-        
+
     cl.user_session.set("active_project", project["id"])
     cl.user_session.set("memory", [])  # Isolate memory for the new project
-    
+
     await cl.Message(content=f"✅ Project **{name}** created and activated!\n\n💡 *To switch between projects easily in the future, click the **New Chat** button in the sidebar and select this project.*").send()
 
 
@@ -2222,19 +2233,19 @@ async def on_edit_project_select(action):
     project_id = action.payload.get("project_id")
     if not project_id:
         return
-        
+
     current_instr = get_project_instructions(project_id)
     current_settings = cl.user_session.get("chat_settings") or {}
-    
+
     widgets = [
         TextInput(id="instructions", label=f"Edit Instructions for {project_id}", multi_line=True, initial=current_instr),
         Switch(id="deep_think", label="Deep Think", initial=current_settings.get("deep_think", False)),
         Select(id="reasoning_level", label="Reasoning Level", values=["High", "Max"], initial=current_settings.get("reasoning_level", "High")),
         Select(id="search_mode", label="Search Mode", values=["Search", "Advanced Search"], initial=current_settings.get("search_mode", "Search"))
     ]
-    
+
     form_result = await cl.ChatSettings(widgets).send()
-    
+
     if form_result:
         cl.user_session.set("chat_settings", form_result)
         new_instr = form_result.get("instructions", "").strip()
@@ -2282,7 +2293,7 @@ async def on_delete_project_select(action):
 #  Chainlit Handlers (Update on_message section)
 # --------------------------------------------------------------------------- #
 @cl.on_message
-async def on_message(message: cl.Message):
+async def on_message(message: cl.Message):  # noqa: F811  (duplicate; Chainlit registers the last)
     global _skills
     if not _skills:
         try:
@@ -2527,7 +2538,7 @@ async def chat_profiles(user=None):
         profiles.append(
             cl.ChatProfile(
                 name=f"🗂️ {p['name']}",
-                markdown_description=f"**Project Context**\nIsolated KB & Custom Instructions."
+                markdown_description="**Project Context**\nIsolated KB & Custom Instructions."
             )
         )
     return profiles
@@ -2576,7 +2587,7 @@ async def starters():
 #  Chainlit Handlers (Update on_message section)
 # --------------------------------------------------------------------------- #
 @cl.on_message
-async def on_message(message: cl.Message):
+async def on_message(message: cl.Message):  # noqa: F811  (duplicate; Chainlit registers the last)
     global _skills
     if not _skills:
         try:
@@ -2730,7 +2741,7 @@ async def on_message(message: cl.Message):
 
     # 2. Auto-trigger: word-boundary keyword match or uploaded-filename match
     if not matched_skill:
-        for name, skill in _skills.items():
+        for _name, skill in _skills.items():
             if skill.auto and (skill.matches_text(goal)
                                or skill.matches_files(message.elements)):
                 matched_skill = skill
@@ -2760,7 +2771,7 @@ async def on_message(message: cl.Message):
         active_project = cl.user_session.get("active_project")
         if active_project:
             async with cl.Step(name="Learning files to Project KB 🗂️📚") as step:
-                total = await ingest_to_project(active_project, message.elements, step)
+                await ingest_to_project(active_project, message.elements, step)
                 step.output = (f"✅ Saved {len(message.elements)} file(s) "
                                f"to project knowledge base.")
                 await step.update()

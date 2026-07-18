@@ -6,17 +6,12 @@ asyncio.to_thread). Keeps the composer's "+" menu features out of core.py.
 """
 from __future__ import annotations
 
+import json
 import os
 import re
-import json
 from pathlib import Path
 
-from . import config
-from . import bigquery
-from . import chroma
-from . import knowledge
-from . import llm
-from . import mcp_registry
+from . import bigquery, chroma, config, knowledge, llm, mcp_registry
 
 SKILLS_DIR = Path(os.getenv("SKILLS_DIR", str(config.REPO_ROOT / "skills")))
 
@@ -32,12 +27,6 @@ SKILLS_DIR = Path(os.getenv("SKILLS_DIR", str(config.REPO_ROOT / "skills")))
 #  The returned dicts are a superset of the old ones (they additionally carry
 #  file_triggers + references), which is backward-compatible for callers.
 # --------------------------------------------------------------------------- #
-from .skills import (  # noqa: E402
-    split_frontmatter as _split_frontmatter,
-    list_skills,
-    get_skill,
-    matching_skill,
-)
 
 
 # --------------------------------------------------------------------------- #
@@ -158,7 +147,7 @@ def add_connector(name: str, base_url: str, header_key: str = "",
                   header_value: str = "") -> dict:
     items = _load_user_connectors()
     cid = _slug(name)
-    n, base = cid, cid
+    base = cid
     i = 2
     while any(it["id"] == cid for it in items):
         cid = f"{base}_{i}"
@@ -449,7 +438,7 @@ _UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
 
 def _clean_ddg_url(href: str) -> str:
     """DDG HTML results wrap targets in /l/?uddg=<encoded>. Unwrap to the real URL."""
-    from urllib.parse import urlparse, parse_qs, unquote
+    from urllib.parse import parse_qs, unquote, urlparse
     href = (href or "").strip()
     if href.startswith("//"):
         href = "https:" + href
@@ -536,9 +525,9 @@ def _research_subqueries(topic: str, n: int) -> list[str]:
                        f"Give exactly {n} distinct web-search queries (one per line, "
                        f"no numbering, no quotes) that together research this topic "
                        f"from different angles:\n{topic}"}])
-        lines = [re.sub(r"^[\-\d\.\)\s•]+", "", l).strip()
-                 for l in (resp.choices[0].message.content or "").splitlines()]
-        subs = [l for l in lines if l][:n]
+        lines = [re.sub(r"^[\-\d\.\)\s•]+", "", ln).strip()
+                 for ln in (resp.choices[0].message.content or "").splitlines()]
+        subs = [ln for ln in lines if ln][:n]
         if subs:
             return subs
     except Exception:
@@ -639,8 +628,8 @@ def _html_to_text(html_src: str) -> str:
 
 # ---- web_fetch (default ON, read-only, SSRF-guarded) ---- #
 def _blocked_host(host: str) -> bool:
-    import socket
     import ipaddress
+    import socket
     if not host:
         return True
     try:
@@ -661,8 +650,8 @@ def _blocked_host(host: str) -> bool:
 def web_fetch(url: str) -> tuple[str, list[dict]]:
     """Fetch one URL → (cleaned text for the model, source card list). http/https
     only, private/internal hosts blocked, HTML/text/JSON only."""
-    from urllib.parse import urlparse
     import time as _t
+    from urllib.parse import urlparse
     url = (url or "").strip()
     if not url:
         return "web_fetch_tool_error: invalid_input", []
@@ -709,9 +698,8 @@ def run_python(code: str) -> str:
     """Run a Python snippet in a best-effort sandbox: Docker --network none if
     available, else `python -I` in an ephemeral temp dir with a scrubbed env +
     30s timeout. Returns return_code/stdout/stderr (Windows: reduced isolation)."""
-    import subprocess
-    import sys
     import shutil
+    import subprocess
     import tempfile
     _ensure_dir(SANDBOX_ROOT)
     workdir = tempfile.mkdtemp(prefix="code_", dir=str(SANDBOX_ROOT))
@@ -738,8 +726,8 @@ def run_python(code: str) -> str:
 
 # ---- bash (default OFF, allowlisted + cwd-jailed) ---- #
 def run_bash(command: str, restart: bool = False) -> str:
-    import subprocess
     import shlex
+    import subprocess
     _ensure_dir(SANDBOX_ROOT)
     if restart:
         return "Bash session restarted."
@@ -774,7 +762,7 @@ def run_bash(command: str, restart: bool = False) -> str:
 
 
 # ---- shared path jail for text_editor / memory ---- #
-def _jail_path(root: Path, path: str) -> "Path | None":
+def _jail_path(root: Path, path: str) -> Path | None:
     _ensure_dir(root)
     raw = (path or "").strip().replace("\\", "/").lstrip("/")
     for prefix in ("memories/", "workspace/"):

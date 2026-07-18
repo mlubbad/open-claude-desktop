@@ -4,7 +4,6 @@ Pure, stdlib-only helpers used by app.py to refuse serving an unauthenticated
 app on a non-loopback interface (e.g. the Docker default `--host 0.0.0.0`).
 """
 import pytest
-
 from ocd_core import netguard as n
 
 

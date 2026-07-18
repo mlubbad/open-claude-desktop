@@ -29,6 +29,7 @@ def test_protected_route_requires_valid_token(monkeypatch):
     monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_SECRET", "sec")
     monkeypatch.setenv("APP_AUTH_SECRET", "s")
     from ocd_core import auth
+
     from backend.app.main import app
     c = TestClient(app)
     assert c.get("/settings").status_code == 401                     # no token

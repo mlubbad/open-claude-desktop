@@ -69,16 +69,16 @@ jobs:
           timeout 180 docker run --rm -e ZHIPU_API_KEY=dummy open-claude-desktop:ci \
             python -c "import app; print('smoke: app.py import OK')"
 
-  # Advisory until the legacy tree is driven to zero lint findings.
+  # Blocking: the tree is lint-clean. ruff is pinned so a new release can't add
+  # rules that fail the gate out from under a green PR.
   lint:
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
       - uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b  # v5.3.0
         with:
           python-version: "3.12"
-      - run: pip install ruff
+      - run: pip install ruff==0.15.20
       - run: ruff check . --output-format=github
 
   secrets:

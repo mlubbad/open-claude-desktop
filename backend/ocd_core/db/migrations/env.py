@@ -1,8 +1,9 @@
 from logging.config import fileConfig
-from alembic import context
-from sqlmodel import SQLModel
+
 import ocd_core.db.models  # noqa: F401  register tables on the metadata
+from alembic import context
 from ocd_core.db.engine import database_url
+from sqlmodel import SQLModel
 
 config = context.config
 if config.config_file_name is not None:

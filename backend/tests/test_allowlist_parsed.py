@@ -31,7 +31,9 @@ def test_execute_sql_blocks_off_allowlist(monkeypatch, db):
     from ocd_core.db.engine import session
     from ocd_core.db.models import Project
     with session() as s:
-        p = s.get(Project, "scoped"); p.allowlist = ["aj360.events"]; s.add(p)
+        p = s.get(Project, "scoped")
+        p.allowlist = ["aj360.events"]
+        s.add(p)
     monkeypatch.setattr(bigquery, "_dry_run",
                         lambda sql: (True, "SELECT", 10, ["aj360.users"], None))
     out = bigquery.execute_sql("SELECT * FROM aj360.users", active_project="scoped")

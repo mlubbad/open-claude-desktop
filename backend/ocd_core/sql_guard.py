@@ -83,7 +83,7 @@ def datasets_out_of_scope(referenced_tables, allowed_datasets) -> list:
     return out
 
 
-def check_banned_aliases(sql: str) -> "str | None":
+def check_banned_aliases(sql: str) -> str | None:
     """Return an error string if the SQL uses a BigQuery reserved word as an
     alias (via ``AS x`` or a parenthesis alias), else None."""
     aliases = set()

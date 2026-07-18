@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from .engine import session
@@ -100,8 +100,9 @@ def migrate_filesystem_to_db(projects_dir) -> dict:
 
 def _main() -> int:
     import shutil
+
     from ocd_core.config import PROJECTS_DIR  # only here, to avoid eager config reads
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     backup = PROJECTS_DIR.parent / f"projects.backup-{stamp}"
     if PROJECTS_DIR.exists():
         shutil.copytree(PROJECTS_DIR, backup)

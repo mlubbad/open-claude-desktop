@@ -16,9 +16,8 @@ def test_zhipuai_exposes_v2_client_class():
 
 
 def test_get_llm_client_builds_v2_client(monkeypatch):
-    from zhipuai import ZhipuAI
-
     from ocd_core import llm
+    from zhipuai import ZhipuAI
 
     monkeypatch.setenv("ZHIPU_API_KEY", "test-id.test-secret")
     llm._llm_client = None  # reset the lazy singleton between cases

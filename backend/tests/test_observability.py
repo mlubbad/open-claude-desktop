@@ -7,7 +7,8 @@ from ocd_core import observability as obs
 def test_rate_limit_sliding_window():
     rl = obs.RateLimiter(limit=2, window_sec=60)
     clock = [1000.0]
-    now = lambda: clock[0]
+    def now():
+        return clock[0]
     assert rl.check("u1", now=now) is True   # 1
     assert rl.check("u1", now=now) is True   # 2
     assert rl.check("u1", now=now) is False  # blocked

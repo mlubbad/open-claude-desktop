@@ -9,7 +9,6 @@ import subprocess
 
 import httpx
 import pytest
-
 from ocd_core import integrations
 
 

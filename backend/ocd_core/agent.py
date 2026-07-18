@@ -38,12 +38,12 @@ Effort levels (Low/Medium/High/Max) control the depth of multi-turn thinking:
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 import types
-import asyncio
 
-from . import config, sql_guard, schema_catalog, bigquery, util
+from . import bigquery, config, schema_catalog, sql_guard, util
 from .llm import get_llm_client
 
 TOOLS = [
@@ -224,7 +224,7 @@ def _system_prompt(project_instructions: str = "", skill_instructions: str = "",
     return sp
 
 
-import re as _re
+import re as _re  # noqa: E402
 
 _LABEL_RE = _re.compile(
     r"^\s*(?:#{1,6}\s*)?(?:\*\*)?\s*"
@@ -685,7 +685,7 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
 
         # Feed every tool result back to the model, one message per tool_call_id.
         by_id = {o["id"]: o for o in outcomes}
-        for (i, n, a) in calls:
+        for (i, _n, _a) in calls:
             messages.append({"role": "tool", "tool_call_id": i,
                              "content": by_id[i]["result"]})
 

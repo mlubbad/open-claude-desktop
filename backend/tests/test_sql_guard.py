@@ -48,6 +48,33 @@ def test_tables_out_of_scope():
     assert g.tables_out_of_scope([Tbl("other", "ds_ok", "t")], allowed) != []
 
 
+def test_datasets_out_of_scope():
+    # Unconditional dataset-scope guard over the dry-run's parsed "dataset.table"
+    # string refs (what ocd_core.bigquery._dry_run returns) against a bare list of
+    # allowed dataset names (config.CATALOG_DATASETS).
+    allowed = ["aj360", "aj360_platform"]
+
+    # In-scope references pass (case-insensitive on the dataset).
+    assert g.datasets_out_of_scope(["aj360.events"], allowed) == []
+    assert g.datasets_out_of_scope(["aj360_platform.users", "aj360.x"], allowed) == []
+    assert g.datasets_out_of_scope(["AJ360.Events"], allowed) == []
+
+    # Only the off-scope reference is flagged.
+    assert g.datasets_out_of_scope(["secret_ds.pii", "aj360.ok"], allowed) == ["secret_ds.pii"]
+
+    # A query that references no tables (e.g. SELECT 1) reads no data -> in scope.
+    # Parity with tables_out_of_scope, which also returns [] for empty refs.
+    assert g.datasets_out_of_scope([], allowed) == []
+    assert g.datasets_out_of_scope(None, allowed) == []
+
+    # No scope configured -> unrestricted.
+    assert g.datasets_out_of_scope(["secret_ds.pii"], []) == []
+
+    # Fully-qualified project.dataset.table: the dataset is the middle component.
+    assert g.datasets_out_of_scope(["proj.aj360.events"], allowed) == []
+    assert g.datasets_out_of_scope(["proj.secret_ds.t"], allowed) == ["proj.secret_ds.t"]
+
+
 if __name__ == "__main__":
     funcs = [v for k, v in sorted(globals().items())
              if k.startswith("test_") and callable(v)]

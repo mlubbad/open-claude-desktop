@@ -69,3 +69,39 @@ def test_dry_run_validation_failure_is_surfaced(bq, monkeypatch):
     assert out["ok"] is False
     assert out["error"] == "Syntax error"
     assert out["agent_text"].startswith("VALIDATION FAILED")
+
+
+def test_out_of_scope_select_rejected_without_project(bq, monkeypatch):
+    # Dataset scope is enforced UNCONDITIONALLY -- even with no active_project.
+    # A SELECT over a dataset outside config.CATALOG_DATASETS is rejected before
+    # the client is ever constructed.
+    monkeypatch.setattr(bq, "_dry_run",
+                        lambda sql: (True, "SELECT", 10, ["secret_ds.pii"], None))
+    monkeypatch.setattr(bq, "get_bq_client", _boom_client)
+    out = bq.execute_sql("SELECT * FROM secret_ds.pii")  # no project passed
+    assert out["ok"] is False
+    assert out["error"] == "scope"
+    assert "secret_ds.pii" in out["agent_text"]
+
+
+def test_in_scope_select_passes_scope_check(bq, monkeypatch):
+    # An in-scope dataset must NOT be rejected by the scope guard. Force a huge
+    # estimate so it stops at the cost gate -- proving the scope check let it
+    # through (reaching a LATER gate) rather than rejecting up front.
+    monkeypatch.setattr(
+        bq, "_dry_run",
+        lambda sql: (True, "SELECT", bq.config.MAX_BYTES_BILLED + 1, ["aj360.events"], None))
+    monkeypatch.setattr(bq, "get_bq_client", _boom_client)
+    out = bq.execute_sql("SELECT * FROM aj360.events")
+    assert out["ok"] is False
+    assert out["error"] == "cost"  # reached the cost gate => scope allowed it
+
+
+def test_no_table_refs_not_scope_rejected(bq, monkeypatch):
+    # SELECT 1 references no tables (reads no data) -> not a scope rejection.
+    monkeypatch.setattr(
+        bq, "_dry_run",
+        lambda sql: (True, "SELECT", bq.config.MAX_BYTES_BILLED + 1, [], None))
+    monkeypatch.setattr(bq, "get_bq_client", _boom_client)
+    out = bq.execute_sql("SELECT 1")
+    assert out["error"] == "cost"  # empty refs are in-scope => reaches cost gate

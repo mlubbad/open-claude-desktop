@@ -4,6 +4,7 @@
 Pure, framework-agnostic helpers that keep the agent's generated SQL safe:
   * is_mutation          — read-only-by-default classification (fail-safe)
   * tables_out_of_scope  — dataset-scope enforcement on parsed referenced_tables
+  * datasets_out_of_scope— dataset-scope enforcement on parsed "dataset.table" ids
   * tables_off_allowlist — per-project table allowlist (parsed referenced_tables)
   * check_banned_aliases — reject BigQuery reserved words used as bare aliases
 """
@@ -56,6 +57,30 @@ def tables_off_allowlist(referenced_tables: list[str], allowlist: list[str]) -> 
     if not refs:
         return True  # allowlist in force but refs couldn't be resolved -> deny (fail-safe)
     return any(r not in allowed for r in refs)
+
+
+def datasets_out_of_scope(referenced_tables, allowed_datasets) -> list:
+    """Referenced tables whose dataset falls outside the allowed set.
+
+    ``referenced_tables`` are qualified ids ("dataset.table" or, when project-
+    qualified, "project.dataset.table") parsed from the BigQuery dry-run -- the
+    exact strings ``ocd_core.bigquery._dry_run`` returns. ``allowed_datasets`` is
+    the permitted dataset names (e.g. ``config.CATALOG_DATASETS``); matching is
+    case-insensitive on the dataset component.
+
+    An empty ``allowed_datasets`` means no scope is configured => unrestricted.
+    A query that references no tables (e.g. ``SELECT 1``) reads no data and is in
+    scope => ``[]`` (parity with ``tables_out_of_scope``)."""
+    allowed = {d.strip().lower() for d in (allowed_datasets or []) if str(d).strip()}
+    if not allowed:
+        return []
+    out = []
+    for r in (referenced_tables or []):
+        parts = str(r).split(".")
+        dataset = parts[-2].lower() if len(parts) >= 2 else parts[0].lower()
+        if dataset not in allowed:
+            out.append(r)
+    return out
 
 
 def check_banned_aliases(sql: str) -> "str | None":

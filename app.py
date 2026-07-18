@@ -298,6 +298,8 @@ GENERIC_COLS = {
 # Read-only SQL guard — single source of truth shared with the Reflex app.
 from ocd_core.sql_guard import (  # noqa: E402
     BANNED_ALIASES, check_banned_aliases, is_mutation, tables_out_of_scope)
+# Per-turn "now" stamp for the system prompt — shared with the backend agent.
+from ocd_core.util import temporal_context  # noqa: E402
 
 
 # --------------------------------------------------------------------------- #
@@ -1539,6 +1541,8 @@ async def run_agent(goal: str, memory: list, settings: dict, step,
     if deep:
         sys_prompt += ("\n\nThink step by step before each tool call. "
                        "Verify a key aggregate with a second method when it matters.")
+    # Always last: fresh per turn, and the static prefix stays cache-stable.
+    sys_prompt += "\n\n" + temporal_context()
 
     messages = [{"role": "system", "content": sys_prompt},
                 *memory, {"role": "user", "content": goal}]

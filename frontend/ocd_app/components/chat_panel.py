@@ -135,12 +135,9 @@ def _thinking_block(m: rx.Var, idx: rx.Var) -> rx.Component:
 def _source_row(s: rx.Var) -> rx.Component:
     return rx.link(
         rx.hstack(
-            rx.cond(
-                s["favicon"] != "",
-                rx.image(src=s["favicon"], width="16px", height="16px",
-                         border_radius="3px", flex_shrink="0"),
-                rx.icon("globe", size=16, color="var(--gray-9)"),
-            ),
+            # Favicons come from web results (untrusted URLs); a remote <img> would
+            # beacon the viewer's IP/UA to that host, so render a static icon instead.
+            rx.icon("globe", size=16, color="var(--gray-9)"),
             rx.vstack(
                 rx.text(s["title"], size="2", weight="medium", no_of_lines=1,
                         color="var(--gray-12)"),

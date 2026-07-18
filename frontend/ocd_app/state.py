@@ -934,7 +934,7 @@ class AppState(rx.State):
         self._close_thinking()
         self._think_start = time.monotonic()
         self._think_elapsed = int(elapsed or 0)
-        self.messages.append({"role": "assistant", "content": content,
+        self.messages.append({"role": "assistant", "content": fmt.sanitize_markdown(content),
                               "kind": "thinking", "phase": phase,
                               "done": "0", "label": ""})
 
@@ -982,10 +982,11 @@ class AppState(rx.State):
             if not (self.messages and self.messages[-1].get("kind") == "final"):
                 self.messages.append({"role": "assistant", "content": "",
                                       "kind": "final"})
-            self.messages[-1]["content"] = self.messages[-1]["content"] + text
+            self.messages[-1]["content"] = fmt.sanitize_markdown(
+                self.messages[-1]["content"] + text)
         else:  # "think"
             blk = self._open_think_block()
-            blk["content"] = blk["content"] + text
+            blk["content"] = fmt.sanitize_markdown(blk["content"] + text)
         self.messages = self.messages  # nudge reactivity
 
     def _answer_to_think(self, phase: str, elapsed: int):
@@ -1155,12 +1156,14 @@ class AppState(rx.State):
                 elif t == "table":
                     cap = f"**{ev['total']} rows · {fmt.fmt_bytes(ev['bytes'])} scanned**"
                     md = _rows_to_markdown(ev["columns"], ev["rows"])
-                    self.messages.append({"role": "tool", "content": f"{cap}\n\n{md}",
-                                          "kind": "table"})
+                    self.messages.append(
+                        {"role": "tool", "content": fmt.sanitize_markdown(f"{cap}\n\n{md}"),
+                         "kind": "table"})
                 elif t == "final":
                     self._close_thinking(int(ev.get("verify_elapsed", 0) or 0))
-                    self.messages.append({"role": "assistant", "content": ev["text"],
-                                          "kind": "final"})
+                    self.messages.append(
+                        {"role": "assistant", "content": fmt.sanitize_markdown(ev["text"]),
+                         "kind": "final"})
                 elif t == "error":
                     self._close_thinking()
                     if _looks_like_reauth(ev["text"]):

@@ -105,14 +105,19 @@ def test_vision_model_gets_images_as_multimodal_parts(monkeypatch):
                           effort="Low", images=[uri]))
     user = next(m for m in captured["messages"] if m["role"] == "user")
     assert isinstance(user["content"], list)
-    assert user["content"][0] == {"type": "text", "text": "what is in this picture?"}
+    part = user["content"][0]
+    assert part["type"] == "text"
+    assert "<temporal_context>" in part["text"]   # per-turn clock stamp rides along
+    assert part["text"].rstrip().endswith("what is in this picture?")
     assert user["content"][1] == {"type": "image_url", "image_url": {"url": uri}}
 
     captured2: dict = {}
     _wire(monkeypatch, captured2)
     _drive(agent.run_turn("plain", [], None, "gpt-4o", effort="Low"))
     user2 = next(m for m in captured2["messages"] if m["role"] == "user")
-    assert user2["content"] == "plain"
+    assert isinstance(user2["content"], str)
+    assert "<temporal_context>" in user2["content"]
+    assert user2["content"].rstrip().endswith("plain")
 
 
 def test_text_only_model_gets_images_described_as_text(monkeypatch):

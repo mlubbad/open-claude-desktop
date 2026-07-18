@@ -296,6 +296,8 @@ GENERIC_COLS = {
     "device", "category", "title", "description", "label", "url", "hour", "day",
 }
 # Read-only SQL guard — single source of truth shared with the Reflex app.
+from ocd_core.netguard import (  # noqa: E402
+    effective_bind_host, require_authenticated_binding)
 from ocd_core.sql_guard import (  # noqa: E402
     BANNED_ALIASES, check_banned_aliases, is_mutation, tables_out_of_scope)
 
@@ -2356,9 +2358,18 @@ if APP_USERNAME and APP_PASSWORD:
             return cl.User(identifier=username, metadata={"role": "owner"})
         return None
 else:
+    # Fail closed: refuse to serve WITHOUT authentication on a non-loopback bind
+    # (e.g. the Docker default `--host 0.0.0.0`), which would expose the agent and
+    # its BigQuery access to the network. Loopback binds and an explicit opt-out
+    # (OCD_ALLOW_UNAUTHENTICATED=true, for operators fronting their own auth) are OK.
+    _allow_unauth = os.getenv("OCD_ALLOW_UNAUTHENTICATED", "").strip().lower() in ("1", "true", "yes")
+    _bind_host = effective_bind_host()
+    require_authenticated_binding(
+        auth_configured=False, host=_bind_host, allow_unauthenticated=_allow_unauth)
     _reason = "APP_USERNAME empty" if not APP_USERNAME else "APP_PASSWORD empty"
-    print(f"[AUTH] WARNING: password auth NOT active ({_reason}). "
-          f"Set both in .env to enable login.", file=_sys.stderr)
+    print(f"[AUTH] WARNING: serving WITHOUT authentication ({_reason}); bound to "
+          f"{_bind_host}. Set APP_USERNAME and APP_PASSWORD to enable login.",
+          file=_sys.stderr)
 
 
 if DATABASE_URL:

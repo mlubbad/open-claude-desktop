@@ -11,6 +11,7 @@ so the address that is checked is always the address that is used.
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import socket
 
 import httpcore
@@ -274,3 +275,36 @@ def test_pinned_sync_transport_fails_closed_on_a_proxy_pool():
 def test_pinned_async_transport_fails_closed_on_a_proxy_pool():
     with pytest.raises(egress.EgressBlocked):
         egress._PinnedAsyncHTTPTransport(proxy="http://127.0.0.1:9999")
+
+
+# ---------------------------------------------------------------------------
+# IPv4-mapped IPv6 must not smuggle a custom-blocked v4 range past _blocked_ip.
+# Python's own is_private/is_reserved don't flag CGNAT (100.64/10), so it's only
+# caught by the custom _BLOCKED_V4 list -- which used to be gated on
+# isinstance(addr, IPv4Address), skipping the ::ffff:x.x.x.x mapped form. A
+# rebinding resolver could answer with ::ffff:100.64.0.1 to reach CGNAT space.
+# ---------------------------------------------------------------------------
+
+
+def test_blocked_ip_catches_ipv4_mapped_custom_v4_ranges():
+    # CGNAT via its mapped form: the regression case.
+    assert egress._blocked_ip(ipaddress.ip_address("::ffff:100.64.0.1")) is True
+    assert egress._blocked_ip(ipaddress.ip_address("100.64.0.1")) is True
+    # Loopback/metadata mapped forms stay blocked (were already, via built-ins).
+    assert egress._blocked_ip(ipaddress.ip_address("::ffff:127.0.0.1")) is True
+    assert egress._blocked_ip(ipaddress.ip_address("::ffff:169.254.169.254")) is True
+    # A genuinely public address -- bare or mapped -- is still allowed.
+    assert egress._blocked_ip(ipaddress.ip_address("::ffff:8.8.8.8")) is False
+    assert egress._blocked_ip(ipaddress.ip_address("8.8.8.8")) is False
+    assert egress._blocked_ip(ipaddress.ip_address("2001:4860:4860::8888")) is False
+
+
+def test_resolve_ips_blocks_mapped_cgnat_rebind(monkeypatch):
+    # End-to-end through the connect-time resolver: a ::ffff:100.64.x answer is
+    # rejected, so the pinned transport never dials it.
+    monkeypatch.setattr(
+        socket, "getaddrinfo",
+        lambda *a, **k: [(socket.AF_INET6, socket.SOCK_STREAM, 6, "", ("::ffff:100.64.0.1", 0, 0, 0))],
+    )
+    with pytest.raises(egress.EgressBlocked):
+        egress._resolve_ips("attacker.test", 443)

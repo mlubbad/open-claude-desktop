@@ -71,6 +71,14 @@ def _domain_matches(host: str, domain: str) -> bool:
 
 
 def _blocked_ip(address: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    # An IPv4-mapped IPv6 address (::ffff:x.x.x.x) really targets its embedded
+    # IPv4, so evaluate that instead -- otherwise the mapped form escapes the
+    # custom _BLOCKED_V4 ranges Python's own properties don't know about (e.g.
+    # CGNAT 100.64/10, which is_private/is_reserved do NOT flag), sneaking past
+    # the isinstance(IPv4Address) gate below.
+    mapped = getattr(address, "ipv4_mapped", None)
+    if mapped is not None:
+        address = mapped
     if (
         address.is_private
         or address.is_loopback

@@ -31,6 +31,7 @@ ajgc-*.json
 *serviceaccount*.json
 *-sa-*.json
 *credentials*.json
+.connector_secrets.json
 
 # local runtime config — provide via mount/env in production; don't bake a
 # developer's working copy into the image (connectors.json can hold API tokens)

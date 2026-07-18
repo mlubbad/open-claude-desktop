@@ -14,6 +14,8 @@ ajgc-*.json
 *.pem
 *.p12
 *credentials*.json
+# REST connector auth tokens (sidecar to the tracked connectors.json)
+.connector_secrets.json
 
 # ── Virtualenvs ────────────────────────────────────────────────────
 venv/

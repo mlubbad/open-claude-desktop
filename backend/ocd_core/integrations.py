@@ -117,6 +117,39 @@ def _save_user_connectors(items: list[dict]):
         pass
 
 
+# Connector auth tokens live OUTSIDE the git-tracked connectors.json, in a
+# gitignored/dockerignored sidecar keyed by connector id, resolved at call time.
+CONNECTOR_SECRETS_FILE = config.REPO_ROOT / ".connector_secrets.json"
+
+
+def _load_connector_secrets() -> dict:
+    if CONNECTOR_SECRETS_FILE.exists():
+        try:
+            d = json.loads(CONNECTOR_SECRETS_FILE.read_text(encoding="utf-8"))
+            return d if isinstance(d, dict) else {}
+        except Exception:
+            return {}
+    return {}
+
+
+def _save_connector_secrets(d: dict) -> None:
+    try:
+        CONNECTOR_SECRETS_FILE.write_text(json.dumps(d, ensure_ascii=False, indent=2),
+                                          encoding="utf-8")
+    except Exception:
+        pass
+
+
+def _connector_secret(cid: str) -> str:
+    """Auth-header value for a connector: the sidecar first, then any legacy inline
+    value on the record (back-compat for connectors added before the sidecar)."""
+    v = _load_connector_secrets().get(cid)
+    if v:
+        return v
+    u = next((x for x in _load_user_connectors() if x["id"] == cid), None)
+    return (u or {}).get("header_value", "") or ""
+
+
 def _slug(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "_", (text or "").lower()).strip("_") or "rest"
 
@@ -132,14 +165,21 @@ def add_connector(name: str, base_url: str, header_key: str = "",
         i += 1
     item = {"id": cid, "name": name.strip() or cid, "type": "rest",
             "base_url": base_url.strip().rstrip("/"),
-            "header_key": header_key.strip(), "header_value": header_value.strip()}
+            "header_key": header_key.strip()}
     items.append(item)
     _save_user_connectors(items)
+    if header_value.strip():  # secret -> gitignored sidecar, never connectors.json
+        secrets = _load_connector_secrets()
+        secrets[cid] = header_value.strip()
+        _save_connector_secrets(secrets)
     return item
 
 
 def remove_connector(cid: str):
     _save_user_connectors([i for i in _load_user_connectors() if i["id"] != cid])
+    secrets = _load_connector_secrets()
+    if secrets.pop(cid, None) is not None:
+        _save_connector_secrets(secrets)
 
 
 def _http_get(url: str, headers: dict, timeout: int = 15):
@@ -167,7 +207,7 @@ def test_connector(cid: str) -> str:
         return "Connector not found."
     headers = {"User-Agent": _UA}
     if u.get("header_key"):
-        headers[u["header_key"]] = u.get("header_value", "")
+        headers[u["header_key"]] = _connector_secret(cid)
     try:
         r = _http_get(u["base_url"], headers)
         return f"OK — HTTP {r.status_code} from {u['base_url']}"
@@ -234,7 +274,7 @@ def call_connector(cid: str, path: str) -> str:
     url = u["base_url"] + path
     headers = {"User-Agent": _UA, "Accept": "application/json, text/*"}
     if u.get("header_key"):
-        headers[u["header_key"]] = u.get("header_value", "")
+        headers[u["header_key"]] = _connector_secret(cid)
     try:
         r = _http_get(url, headers, timeout=20)
         return f"HTTP {r.status_code} {url}\n{r.text[:3000]}"

@@ -3,10 +3,19 @@
 # not built here.
 FROM python:3.12-slim
 
+# PYTHONPATH: app.py imports the ocd_core package, which lives under backend/ and
+# is not pip-installed, so backend/ must be importable at runtime.
 ENV PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1
+    PIP_NO_CACHE_DIR=1 \
+    HOME=/home/appuser \
+    PYTHONPATH=/app/backend
+
+# Unprivileged runtime user, created up front so it can own /app and write the
+# runtime data dirs (chroma_db/, logs/, projects/, ...) created under WORKDIR.
+RUN useradd --create-home --uid 10001 appuser
 
 WORKDIR /app
+RUN chown appuser:appuser /app
 
 COPY requirements.txt ./
 # requirements.txt is a complete pinned freeze, so install with --no-deps and let
@@ -14,7 +23,10 @@ COPY requirements.txt ./
 # chainlit/mcp declare a newer PyJWT -- the pinned set installs fine together.
 RUN pip install --no-deps -r requirements.txt
 
-COPY . .
+COPY --chown=appuser:appuser . .
+
+# Drop root before running the server.
+USER appuser
 
 EXPOSE 8000
 

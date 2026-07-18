@@ -11,14 +11,32 @@ venv312/
 **/__pycache__/
 *.pyc
 *.pyo
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
 
-# secrets / local env
+# secrets / local env — mirrors .gitignore's secret-shaped patterns so a locally
+# present key never gets baked into the image by `COPY . .`
 .env
 .env.*
 !.env.example
 *.key
 *.pem
+*.p12
 ajgc-*.json
+*-service-account*.json
+*serviceaccount*.json
+*-sa-*.json
+*credentials*.json
+
+# local runtime config — provide via mount/env in production; don't bake a
+# developer's working copy into the image (connectors.json can hold API tokens)
+settings.json
+connectors.json
+mcp_servers.json
 
 # runtime data stores (regenerated)
 chroma_db/
@@ -26,6 +44,7 @@ kuzu_db
 kuzu_db.wal
 logs/
 projects/
+projects.backup-*/
 knowledge/
 _sandbox/
 agent_memory/

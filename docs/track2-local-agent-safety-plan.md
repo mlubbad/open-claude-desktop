@@ -102,9 +102,25 @@
 
 </details>
 
-### Item 2c — Deterministic outbound redaction  *(detailed before we start it)*
+### Item 2c — Pattern-based outbound secret redaction  *(re-scoped 2026-07-19 after recon — awaiting go)*
 
-At the 2a chokepoint, redact from outbound body + query + non-allowlisted headers: (1) **known secret VALUES** enumerated from `secrets.get_secret_store()` — zero false positives, these are literally the user's stored keys/tokens; (2) **hardened bare-token patterns** beyond the existing keyword-anchored `_scrub_secrets` (`integrations.py:1493`): `sk-…`, AWS `AKIA…`, GitHub `ghp_…`, JWTs, PEM blocks. Redaction is logged (audit). **Explicitly dropped:** the high-entropy / verbatim-from-KB heuristic (false positives, no KB enumeration API) — revisit under Item 3's data-provenance discussion if ever.
+**Why re-scoped.** The plan wanted to redact *all stored secret VALUES* ("zero false positives") — but recon found `SecretStore` is **get-by-key only** (no `list`/`keys`/`values`; keyring backends genuinely can't enumerate), and secrets are scattered across many id-keyed builders (`_connector_secret_key`, `_mcp_auth_key`, `_tokens_key`, provider keys, …). Exhaustive value enumeration is infeasible + fragile. **But** the crown jewels — BYOK provider API keys — have *recognizable shapes*, so pattern redaction catches them with no enumeration. So 2c becomes pattern-based; the "enumerate stored values" idea is dropped as infeasible-and-unnecessary. (The entropy / KB-provenance heuristic stays dropped.)
+
+**Scope decisions (made — flag to change):**
+- **Redact, don't block.** A rare false-positive (a token-shaped string the agent legitimately needed) degrades gracefully (that substring is masked) rather than failing the whole request. Blocking a whole turn on a regex is too brittle.
+- **Only agent-controlled outbound content**, and **exempt credential headers.** The app legitimately sends the user's own keys to configured endpoints (connector auth in `Authorization`, MCP OAuth) — those live in headers we must NOT touch, or connectors/MCP break. Redact bodies + query strings (where the *agent* puts data), never the allowlisted credential headers.
+- **High-signal patterns only** (low false-positive): `sk-ant-…`, `sk-…`/`sk-proj-…` (OpenAI), `gsk_…` (Groq), `AKIA…`+secret (AWS), `gh[posru]_…` (GitHub), `AIza…` (Google), `xox[baprs]-…` (Slack), JWT (`eyJ….eyJ….…`), and PEM `PRIVATE KEY` blocks. No generic "long hex/base64" (too many false positives).
+
+**Files:** new `backend/ocd_core/egress_redact.py`; wire into `mcp_httpx_client_factory` (egress.py request hook — redact the JSON-RPC body), `web_fetch` (redact the URL query), `_ddg_html_results`/`_searxng_results` (redact the query). Reuse `observability.audit`. Tests: `backend/tests/test_egress_redact.py`.
+
+- [ ] **1. `egress_redact.py`** — `redact_secrets(text: str) -> tuple[str, int]`: replace each pattern match with `«redacted-secret»`, return (text, count). Best-effort (never raises). Unit-test each pattern + that benign text (prose, normal URLs/queries) is untouched.
+- [ ] **2. MCP bodies** — in `mcp_httpx_client_factory`'s request event hook, redact `request.content` (the JSON-RPC body carrying agent tool-args) before send; if count>0, `audit({"event":"egress_redaction","tool":"mcp","count":n})`. (Do NOT touch headers.)
+- [ ] **3. web_fetch** — redact the **query** component of each hop URL before the request (agent-controlled); keep scheme/host/path intact so the fetch still resolves. Audit if redacted.
+- [ ] **4. web_search** — redact the `query` before it goes into the DDG `data=` / SearXNG `params=`. Audit if redacted.
+- [ ] **5. Tests** (`test_egress_redact.py`) — unit patterns; a secret in an MCP tool-arg body is masked in the sent request; a secret in a web_search query / web_fetch URL is masked; a credential header is NOT masked; benign content passes through unchanged.
+- [ ] **6. Commit:** `feat(egress): redact known secret shapes from agent-controlled outbound content`
+
+*(No adversarial-verify stage — deterministic redaction, not an attack-surface boundary; spec + quality review. Caveat to document: pattern redaction is best-effort defense-in-depth on top of 2a+2b, not a guarantee — a novel/unshaped secret can still pass.)*
 
 ---
 

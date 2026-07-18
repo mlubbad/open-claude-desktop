@@ -12,6 +12,7 @@ import json
 from pathlib import Path
 
 from . import config
+from . import egress
 from . import bigquery
 from . import chroma
 from . import knowledge
@@ -122,7 +123,7 @@ def _slug(text: str) -> str:
 
 
 def add_connector(name: str, base_url: str, header_key: str = "",
-                  header_value: str = "") -> dict:
+                  header_value: str = "", allow_private: bool = False) -> dict:
     items = _load_user_connectors()
     cid = _slug(name)
     n, base = cid, cid
@@ -132,7 +133,10 @@ def add_connector(name: str, base_url: str, header_key: str = "",
         i += 1
     item = {"id": cid, "name": name.strip() or cid, "type": "rest",
             "base_url": base_url.strip().rstrip("/"),
-            "header_key": header_key.strip(), "header_value": header_value.strip()}
+            "header_key": header_key.strip(), "header_value": header_value.strip(),
+            # Opt-in: allow this connector to reach private/internal hosts. Off by
+            # default so connector fetches are SSRF-guarded like web_fetch.
+            "allow_private": bool(allow_private)}
     items.append(item)
     _save_user_connectors(items)
     return item
@@ -142,9 +146,22 @@ def remove_connector(cid: str):
     _save_user_connectors([i for i in _load_user_connectors() if i["id"] != cid])
 
 
-def _http_get(url: str, headers: dict, timeout: int = 15):
-    import httpx
-    return httpx.get(url, headers=headers, timeout=timeout, follow_redirects=True)
+def _http_get(url: str, headers: dict, timeout: int = 15,
+              allow_private: bool = False):
+    """GET a URL on behalf of a REST connector.
+
+    By default the connection is DNS-pinned and validated against
+    private/internal ranges (see :mod:`ocd_core.egress`) — closing the same
+    SSRF / DNS-rebinding hole fixed for web_fetch. A connector may opt into
+    reaching private hosts (its own internal API) with ``allow_private=True``,
+    which restores a plain, unguarded client. That opt-in is a deliberate,
+    per-connector user choice, never the default."""
+    if allow_private:
+        import httpx
+        return httpx.get(url, headers=headers, timeout=timeout,
+                         follow_redirects=True)
+    with egress.pinned_client(timeout=timeout, follow_redirects=True) as client:
+        return client.get(url, headers=headers)
 
 
 def test_connector(cid: str) -> str:
@@ -155,7 +172,8 @@ def test_connector(cid: str) -> str:
     if u.get("header_key"):
         headers[u["header_key"]] = u.get("header_value", "")
     try:
-        r = _http_get(u["base_url"], headers)
+        r = _http_get(u["base_url"], headers,
+                      allow_private=u.get("allow_private") is True)
         return f"OK — HTTP {r.status_code} from {u['base_url']}"
     except Exception as e:
         return f"Failed: {str(e)[:120]}"
@@ -222,7 +240,8 @@ def call_connector(cid: str, path: str) -> str:
     if u.get("header_key"):
         headers[u["header_key"]] = u.get("header_value", "")
     try:
-        r = _http_get(url, headers, timeout=20)
+        r = _http_get(url, headers, timeout=20,
+                      allow_private=u.get("allow_private") is True)
         return f"HTTP {r.status_code} {url}\n{r.text[:3000]}"
     except Exception as e:
         return f"Connector '{cid}' request failed: {str(e)[:160]}"
@@ -579,23 +598,12 @@ def _html_to_text(html_src: str) -> str:
 
 # ---- web_fetch (default ON, read-only, SSRF-guarded) ---- #
 def _blocked_host(host: str) -> bool:
-    import socket
-    import ipaddress
-    if not host:
-        return True
-    try:
-        infos = socket.getaddrinfo(host, None)
-    except Exception:
-        return True
-    for info in infos:
-        try:
-            addr = ipaddress.ip_address(info[4][0].split("%")[0])
-        except Exception:
-            return True
-        if (addr.is_private or addr.is_loopback or addr.is_link_local
-                or addr.is_reserved or addr.is_multicast or addr.is_unspecified):
-            return True
-    return False
+    """True if host is empty, unresolvable, or resolves to any non-public
+    address. Delegates to :func:`egress.host_is_blocked` so the IP-range policy
+    (loopback/link-local/CGNAT/metadata/... — including ranges the raw ipaddress
+    flags miss) lives in one audited place, shared with the DNS-pinned client
+    used for the actual fetch below."""
+    return egress.host_is_blocked(host)
 
 
 def web_fetch(url: str) -> tuple[str, list[dict]]:
@@ -617,9 +625,15 @@ def web_fetch(url: str) -> tuple[str, list[dict]]:
     if cached and (_t.time() - cached[0] < 900):
         return cached[1], cached[2]
     try:
-        import httpx
-        r = httpx.get(url, headers={"User-Agent": _UA}, timeout=15,
-                      follow_redirects=True)
+        # DNS-pinned client: the host is re-resolved and validated *inside* the
+        # socket connect (for the initial request and every redirect hop) and the
+        # connection is dialed to the exact validated IP. This closes the
+        # DNS-rebinding TOCTOU that a bare httpx.get(url) leaves open — there the
+        # _blocked_host pre-check and httpx's connect-time lookup are two separate
+        # resolutions an attacker can answer differently. The _blocked_host checks
+        # here remain as cheap, defense-in-depth fast-fails.
+        with egress.pinned_client(timeout=15, follow_redirects=True) as client:
+            r = client.get(url, headers={"User-Agent": _UA})
     except Exception as e:
         return f"web_fetch_tool_error: url_not_accessible ({str(e)[:120]})", []
     final = urlparse(str(r.url)).hostname or ""

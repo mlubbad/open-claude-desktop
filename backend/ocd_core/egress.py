@@ -50,6 +50,14 @@ class EgressBlocked(ValueError):
     """The destination violates the configured outbound policy."""
 
 
+class EgressUnavailable(EgressBlocked):
+    """The destination could not be resolved/reached (a transient or network
+    failure), as opposed to being refused by policy. Subclasses EgressBlocked
+    so every existing fail-closed ``except EgressBlocked`` handler still catches
+    it; callers that want to distinguish "couldn't reach it" from "policy says
+    no" (e.g. web_fetch's error messaging) catch this first."""
+
+
 def _domains(env_name: str) -> tuple[str, ...]:
     return tuple(
         value.strip().lower().rstrip(".")
@@ -84,10 +92,10 @@ def _resolved_addresses(host: str, port: int) -> set[ipaddress.IPv4Address | ipa
         try:
             answers = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
         except OSError as exc:
-            raise EgressBlocked(f"destination DNS lookup failed: {host}") from exc
+            raise EgressUnavailable(f"destination DNS lookup failed: {host}") from exc
         addresses = {ipaddress.ip_address(answer[4][0].split("%")[0]) for answer in answers}
         if not addresses:
-            raise EgressBlocked(f"destination DNS lookup returned no addresses: {host}")
+            raise EgressUnavailable(f"destination DNS lookup returned no addresses: {host}") from None
         return addresses
     return {literal}
 
@@ -273,7 +281,14 @@ def pinned_client(**kwargs) -> httpx.Client:
     """An httpx.Client whose sockets are DNS-pinned to a validated public IP
     (see _PinnedHTTPTransport). Use for agent-triggered outbound HTTP so a
     rebinding resolver can't swing the connection to a private/metadata address
-    between validation and connect."""
+    between validation and connect.
+
+    Rejects ``proxy``/``mounts``: httpx mounts those as separate, *unpinned*
+    transports that would silently bypass the pin for matching requests."""
+    if "proxy" in kwargs or "mounts" in kwargs:
+        raise EgressBlocked(
+            "pinned_client does not support proxy/mounts (they would bypass the DNS pin)"
+        )
     return httpx.Client(transport=_PinnedHTTPTransport(), **kwargs)
 
 

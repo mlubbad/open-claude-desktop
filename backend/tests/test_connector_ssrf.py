@@ -3,13 +3,6 @@ import pytest
 from ocd_core import integrations as I
 
 
-def test_blocked_host_rejects_private_and_loopback():
-    assert I._blocked_host("127.0.0.1") is True
-    assert I._blocked_host("10.0.0.1") is True
-    assert I._blocked_host("169.254.169.254") is True   # cloud metadata endpoint
-    assert I._blocked_host("") is True
-
-
 def test_safe_outbound_get_blocks_private_target():
     with pytest.raises(I.ConnectorBlocked):
         I._safe_outbound_get("http://127.0.0.1:8000/", {"User-Agent": "x"})
@@ -60,10 +53,16 @@ class _Resp:
 
 
 def test_web_fetch_revalidates_a_redirect_to_a_blocked_host(monkeypatch):
-    import httpx
-    # Only the metadata IP is "blocked"; the public first hop resolves fine (offline,
-    # _blocked_host would otherwise fail closed on every name).
-    monkeypatch.setattr(I, "_blocked_host", lambda h: "169.254" in h)
+    import socket
+
+    from ocd_core import egress
+    # Hostnames resolve to a public IP so the first hop passes assert_public_url;
+    # the redirect target is a literal metadata IP, which _blocked_ip rejects with
+    # no lookup at all -- so this stays hermetic (never touches live DNS).
+    monkeypatch.setattr(
+        socket, "getaddrinfo",
+        lambda *a, **k: [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("8.8.8.8", 0))],
+    )
 
     class C:
         def __init__(self, *a, **k):
@@ -81,15 +80,20 @@ def test_web_fetch_revalidates_a_redirect_to_a_blocked_host(monkeypatch):
                 return _Resp(302, {"location": "http://169.254.169.254/latest/"})
             return _Resp(200, {"content-type": "text/html"}, b"<html>secret</html>")
 
-    monkeypatch.setattr(httpx, "Client", C)
+    monkeypatch.setattr(egress, "pinned_client", lambda **k: C())
     I._FETCH_CACHE.clear()
     out, _ = I.web_fetch("http://example.com/start")
     assert "url_not_allowed" in out  # the redirect hop was re-checked and blocked
 
 
 def test_web_fetch_caps_the_body(monkeypatch):
-    import httpx
-    monkeypatch.setattr(I, "_blocked_host", lambda h: False)
+    import socket
+
+    from ocd_core import egress
+    monkeypatch.setattr(
+        socket, "getaddrinfo",
+        lambda *a, **k: [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("8.8.8.8", 0))],
+    )
     monkeypatch.setattr(I, "_WEB_FETCH_MAX_BYTES", 100)
     big = b"<html>" + b"a" * 5000 + b"</html>"
 
@@ -106,7 +110,7 @@ def test_web_fetch_caps_the_body(monkeypatch):
         def stream(self, _method, _url, headers=None):
             return _Resp(200, {"content-type": "text/html"}, big)
 
-    monkeypatch.setattr(httpx, "Client", C)
+    monkeypatch.setattr(egress, "pinned_client", lambda **k: C())
     I._FETCH_CACHE.clear()
     out, _ = I.web_fetch("http://example.com/big")
     assert out.startswith("Fetched")
@@ -117,7 +121,6 @@ def test_safe_outbound_get_strips_auth_on_scheme_downgrade(monkeypatch):
     import httpx
     from ocd_core import egress
 
-    monkeypatch.setattr(I, "_blocked_host", lambda h: False)
     monkeypatch.setattr(
         egress,
         "_resolved_addresses",

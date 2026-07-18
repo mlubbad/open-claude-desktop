@@ -197,12 +197,12 @@ def _safe_outbound_get(url: str, headers: dict, auth_header: str = "",
                        timeout: int = 15, max_redirects: int = 4):
     """SSRF-guarded GET for user-configured connectors (review finding H2).
 
-    Unlike ``_http_get`` this: (1) rejects non-http(s) schemes and private/internal
-    hosts via ``_blocked_host`` BEFORE connecting, (2) follows redirects MANUALLY so
-    each hop is re-validated against ``_blocked_host`` (closing the redirect-to-
-    internal SSRF), and (3) DROPS the connector's custom auth header on any
-    cross-origin redirect so a hostile endpoint can't harvest the user's API key by
-    bouncing the request elsewhere.
+    Delegates to ``egress.safe_get``, which: (1) rejects non-http(s) schemes and
+    private/internal hosts via ``assert_public_url`` BEFORE connecting and pins the
+    socket to the validated address, (2) re-validates every redirect hop manually
+    (closing the redirect-to-internal SSRF), and (3) DROPS the connector's custom
+    auth header on any cross-origin redirect so a hostile endpoint can't harvest
+    the user's API key by bouncing the request elsewhere.
     """
     from . import egress
 
@@ -1526,24 +1526,9 @@ def _html_to_text(html_src: str) -> str:
 
 
 # ---- web_fetch (default ON, read-only, SSRF-guarded) ---- #
-def _blocked_host(host: str) -> bool:
-    import ipaddress
-    import socket
-    if not host:
-        return True
-    try:
-        infos = socket.getaddrinfo(host, None)
-    except Exception:
-        return True
-    for info in infos:
-        try:
-            addr = ipaddress.ip_address(info[4][0].split("%")[0])
-        except Exception:
-            return True
-        if (addr.is_private or addr.is_loopback or addr.is_link_local
-                or addr.is_reserved or addr.is_multicast or addr.is_unspecified):
-            return True
-    return False
+# (Host validation for web_fetch is now egress.assert_public_url + the pinned
+# transport -- see web_fetch below. The old _blocked_host helper was removed as
+# dead code once both its call sites moved onto the egress path.)
 
 
 # Cap the bytes web_fetch will buffer from a single response. Prevents a huge (or
@@ -1568,6 +1553,7 @@ def web_fetch(url: str) -> tuple[str, list[dict]]:
     now refused."""
     import time as _t
     from urllib.parse import urljoin, urlparse
+
     from . import egress
     url = (url or "").strip()
     if not url:
@@ -1579,6 +1565,8 @@ def web_fetch(url: str) -> tuple[str, list[dict]]:
         return "web_fetch_tool_error: invalid_input", []
     try:
         egress.assert_public_url(url)
+    except egress.EgressUnavailable:
+        return "web_fetch_tool_error: url_not_accessible (dns lookup failed)", []
     except egress.EgressBlocked:
         return "web_fetch_tool_error: url_not_allowed (private/internal host blocked)", []
     cached = _FETCH_CACHE.get(url)
@@ -1610,9 +1598,14 @@ def web_fetch(url: str) -> tuple[str, list[dict]]:
                     break
             else:
                 return "web_fetch_tool_error: too_many_redirects", []
+    except egress.EgressUnavailable:
+        # DNS lookup failed at connect time (transient / genuinely unreachable),
+        # not a policy decision -- report it as unreachable so the agent can tell
+        # "couldn't reach it" from "forbidden".
+        return "web_fetch_tool_error: url_not_accessible (dns lookup failed)", []
     except egress.EgressBlocked:
-        # Covers both a redirect hop rejected by assert_public_url and a rebind
-        # caught by the pinned transport's own connect-time resolution.
+        # A redirect hop rejected by assert_public_url, or a rebind caught by the
+        # pinned transport's own connect-time resolution -> a real policy block.
         return "web_fetch_tool_error: url_not_allowed (private/internal host blocked)", []
     except Exception as e:
         return f"web_fetch_tool_error: url_not_accessible ({str(e)[:120]})", []

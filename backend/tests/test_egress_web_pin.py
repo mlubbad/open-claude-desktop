@@ -23,7 +23,6 @@ import socket
 
 import httpcore
 import httpx
-import pytest
 from ocd_core import egress, integrations
 
 
@@ -213,3 +212,25 @@ def test_searxng_preserves_local_self_host_and_disables_redirects(monkeypatch):
     assert captured["follow_redirects"] is False
     # Never wrapped in the pinned transport -- plain client, trusted config exception.
     assert not isinstance(captured.get("transport"), egress._PinnedHTTPTransport)
+
+
+# ---------------------------------------------------------------------------
+# web_fetch error categorization: a DNS lookup FAILURE (transient / genuinely
+# unreachable) must read as url_not_accessible, not url_not_allowed. egress
+# raises EgressUnavailable (a subclass of EgressBlocked) for lookup failures so
+# the pin's fail-closed handlers still catch it, but web_fetch can tell a
+# transiently-down legitimate site apart from a real policy block.
+# ---------------------------------------------------------------------------
+
+
+def test_web_fetch_dns_failure_reads_as_unreachable_not_blocked(monkeypatch):
+    def failing_getaddrinfo(*args, **kwargs):
+        raise OSError("Name or service not known")
+
+    monkeypatch.setattr(socket, "getaddrinfo", failing_getaddrinfo)
+    integrations._FETCH_CACHE.clear()
+    out, sources = integrations.web_fetch("https://example.com/x")
+
+    assert "url_not_accessible" in out       # unreachable, not forbidden
+    assert "url_not_allowed" not in out
+    assert sources == []

@@ -10,7 +10,7 @@ assistant's system prompt.
 """
 from __future__ import annotations
 
-from datetime import date
+from datetime import UTC, date, datetime, timedelta
 
 BASE_ASSISTANT = """You are Open Claude Desktop, a capable AI assistant that runs on \
 the user's own choice of model provider. You help with analysis, writing, coding, \
@@ -89,6 +89,46 @@ def style_section(style: str) -> str:
 
 def _labeled_section(title: str, body: str) -> str:
     return f"# {title}\n{body.strip()}"
+
+
+def temporal_context(now: datetime | None = None) -> str:
+    """Per-turn "now" block stamped onto the NEWEST user message (never stored).
+
+    Gives the model a trustworthy clock — weekday, minute-precision UTC, and the
+    server-local offset — so it can resolve relative dates and judge schedules
+    instead of guessing "now" from its training data or from timestamps that
+    happen to appear in tool results. The base prompt's daily "Today's date is X"
+    line stays as-is; this block deliberately lives OUTSIDE the system prompt:
+    the Anthropic-native path puts a cache_control breakpoint on the system
+    blocks and prompt caching is prefix-hierarchical, so a minute-granular stamp
+    there would invalidate the whole conversation cache every turn. The newest
+    user message is never part of the cached prefix, so stamping it is free.
+    `now` overrides the clock for deterministic tests; naive values mean UTC.
+    """
+    if now is None:
+        now = datetime.now(UTC)
+    elif now.tzinfo is None:
+        now = now.replace(tzinfo=UTC)
+    utc = now.astimezone(UTC)
+    local = now.astimezone()
+    minutes = int((local.utcoffset() or timedelta(0)).total_seconds() // 60)
+    sign = "+" if minutes >= 0 else "-"
+    hh, mm = divmod(abs(minutes), 60)
+    return (
+        "<temporal_context>\n"
+        f"Now: {utc.strftime('%A %Y-%m-%d %H:%M')} UTC "
+        f"(local {local.strftime('%H:%M')} UTC{sign}{hh:02d}:{mm:02d}). "
+        'Stamped when this turn started — treat it as "now".\n'
+        '- Resolve every relative date/time ("today", "yesterday", "this week") '
+        "against this stamp, and use it to judge whether scheduled events "
+        "should already have happened.\n"
+        "- Never infer the current date/time from tool results or data "
+        "timestamps — compare them AGAINST this stamp instead, and state this "
+        "as-of time when reporting freshness or schedules.\n"
+        "- If sub-minute precision matters, fetch the time live with an "
+        "available tool instead of estimating.\n"
+        "</temporal_context>"
+    )
 
 
 def build_system_prompt(

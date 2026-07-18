@@ -1258,6 +1258,16 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
         else:
             note = await asyncio.to_thread(vision.image_context, images)
             user_content = f"{goal}\n\n{note}" if goal.strip() else note
+    # Stamp the NEWEST user message with the current date/time. Injected at send
+    # time only (never stored), so prior history stays byte-identical and the
+    # system/history cache prefix survives — see prompts.temporal_context.
+    stamp = prompts.temporal_context()
+    if isinstance(user_content, list):
+        user_content = [{"type": "text",
+                         "text": f"{stamp}\n\n{user_content[0]['text']}"},
+                        *user_content[1:]]
+    else:
+        user_content = f"{stamp}\n\n{user_content}"
     messages = [{"role": "system",
                  "content": prompts.build_system_prompt(
                      extra_sections=extra_sections or None, memory=memory,

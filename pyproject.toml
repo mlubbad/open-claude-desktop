@@ -12,6 +12,13 @@ requires-python = ">=3.12"
 # Human-readable source of truth for DIRECT dependencies. Exact, reproducible
 # pins (incl. transitives) live in requirements.txt (a full pip freeze).
 dependencies = [
+    # zhipuai MUST resolve to the v2 SDK (the `ZhipuAI` class app.py imports).
+    # Do NOT pin a range here: zhipuai 2.x needs pyjwt<2.9 while mcp needs
+    # pyjwt>=2.10.1, so any honest pin makes the resolve fail — and unpinned,
+    # pip backtracks zhipuai to the broken v1.0.7. After installing, force the
+    # known-good pair from requirements.txt, exactly as CI does:
+    #   pip install --no-deps zhipuai==2.1.5.20250825 PyJWT==2.8.0
+    # (Full story in the backend/pyproject.toml dependency note.)
     "zhipuai",
     "google-cloud-bigquery",
     "google-auth",
@@ -41,6 +48,9 @@ packages = []
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 addopts = "-q"
+# app.py imports ocd_core.* from the backend package, which this root project
+# does not install — expose backend/ on sys.path for collection.
+pythonpath = ["backend"]
 
 [tool.ruff]
 line-length = 100

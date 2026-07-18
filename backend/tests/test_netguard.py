@@ -64,3 +64,15 @@ def test_guard_raises_on_public_bind_without_auth():
     with pytest.raises(RuntimeError):
         n.require_authenticated_binding(
             auth_configured=False, host="0.0.0.0", allow_unauthenticated=False)
+
+
+# --- allow_unauthenticated (shared opt-out flag) ---------------------------- #
+def test_allow_unauthenticated_reads_env(monkeypatch):
+    monkeypatch.delenv("OCD_ALLOW_UNAUTHENTICATED", raising=False)
+    assert n.allow_unauthenticated() is False
+    for v in ("1", "true", "TRUE", "yes", "Yes"):
+        monkeypatch.setenv("OCD_ALLOW_UNAUTHENTICATED", v)
+        assert n.allow_unauthenticated() is True, v
+    for v in ("0", "false", "no", ""):
+        monkeypatch.setenv("OCD_ALLOW_UNAUTHENTICATED", v)
+        assert n.allow_unauthenticated() is False, v

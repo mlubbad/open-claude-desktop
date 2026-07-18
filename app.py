@@ -297,7 +297,7 @@ GENERIC_COLS = {
 }
 # Read-only SQL guard — single source of truth shared with the Reflex app.
 from ocd_core.netguard import (  # noqa: E402
-    effective_bind_host, require_authenticated_binding)
+    allow_unauthenticated, effective_bind_host, require_authenticated_binding)
 from ocd_core.sql_guard import (  # noqa: E402
     BANNED_ALIASES, check_banned_aliases, is_mutation, tables_out_of_scope)
 
@@ -2362,7 +2362,7 @@ else:
     # (e.g. the Docker default `--host 0.0.0.0`), which would expose the agent and
     # its BigQuery access to the network. Loopback binds and an explicit opt-out
     # (OCD_ALLOW_UNAUTHENTICATED=true, for operators fronting their own auth) are OK.
-    _allow_unauth = os.getenv("OCD_ALLOW_UNAUTHENTICATED", "").strip().lower() in ("1", "true", "yes")
+    _allow_unauth = allow_unauthenticated()
     _bind_host = effective_bind_host()
     require_authenticated_binding(
         auth_configured=False, host=_bind_host, allow_unauthenticated=_allow_unauth)

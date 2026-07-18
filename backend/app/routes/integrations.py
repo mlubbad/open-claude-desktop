@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
-from ocd_core import integrations, skills
+from fastapi import APIRouter, Depends, HTTPException, status
+from ocd_core import auth, integrations, netguard, skills
 from pydantic import BaseModel
 
 from ..deps import current_user
@@ -62,6 +62,15 @@ def list_mcp(user: str = Depends(current_user)) -> list[dict]:
 
 @router.post("/mcp-servers")
 def add_mcp(body: McpBody, user: str = Depends(current_user)) -> dict:
+    # Registering a stdio MCP server spawns an arbitrary local command at discovery.
+    # Refuse that when the backend is unauthenticated -- otherwise anyone who can
+    # reach the port gets remote code execution -- unless the operator opts in.
+    if not auth.auth_enabled() and not netguard.allow_unauthenticated():
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "MCP server registration is disabled while authentication is not "
+            "configured. Configure auth, or set OCD_ALLOW_UNAUTHENTICATED=true "
+            "for trusted local use.")
     return integrations.add_mcp_server(body.name, body.command, body.args)
 
 

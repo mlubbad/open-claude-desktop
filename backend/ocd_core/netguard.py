@@ -62,3 +62,12 @@ def require_authenticated_binding(*, auth_configured: bool, host: str,
         f"OCD_ALLOW_UNAUTHENTICATED=true if this app sits behind your own "
         f"authenticating proxy."
     )
+
+
+def allow_unauthenticated(env=None) -> bool:
+    """Operator opt-in to run unauthenticated/privileged actions -- they front the
+    app with their own auth, or accept the risk on a trusted local box. Single source
+    of truth for the OCD_ALLOW_UNAUTHENTICATED flag shared by the auth-binding guard
+    and privileged endpoints (e.g. MCP server registration)."""
+    env = os.environ if env is None else env
+    return env.get("OCD_ALLOW_UNAUTHENTICATED", "").strip().lower() in ("1", "true", "yes")

@@ -53,13 +53,21 @@ jobs:
       - name: Run app tests
         run: python -m pytest tests
 
-  # The production image must build from a clean checkout (validated locally too).
+  # The production image must build from a clean checkout AND actually run.
   docker-build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
       - name: Build backend image
         run: docker build -t open-claude-desktop:ci .
+      - name: Smoke-test the image
+        # A build alone won't catch runtime blockers (e.g. a missing PYTHONPATH that
+        # stops app.py importing ocd_core). Assert non-root + a full app.py import.
+        run: |
+          docker run --rm open-claude-desktop:ci id
+          test "$(docker run --rm open-claude-desktop:ci id -u)" = "10001"
+          timeout 180 docker run --rm -e ZHIPU_API_KEY=dummy open-claude-desktop:ci \
+            python -c "import app; print('smoke: app.py import OK')"
 
   # Advisory until the legacy tree is driven to zero lint findings.
   lint:

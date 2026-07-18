@@ -4,6 +4,16 @@ The policy validates the URL, hostname, configured domain policy, and every DNS
 answer before a connection is attempted. Redirect-capable helpers re-run this
 check for each hop. Long-lived protocol clients (MCP/OAuth) use an httpx request
 hook, so discovery and redirected requests are checked too.
+
+Validating a hostname and opening a socket to it are two different DNS
+lookups unless something pins them together. A DNS-rebinding attacker can
+answer with a public address for the first (the validation) and a private or
+metadata address for the second (the actual connect), which would otherwise
+sail straight through. `_PinnedSyncBackend`/`_PinnedAsyncBackend` close that
+gap: they do their own resolve-and-validate at the moment a socket is about
+to open, and connect only to the address they just checked -- so `safe_get`
+and `mcp_httpx_client_factory` never hand httpx a bare hostname to re-resolve
+on its own.
 """
 from __future__ import annotations
 
@@ -12,6 +22,9 @@ import os
 import socket
 from collections.abc import Iterable
 from urllib.parse import urljoin, urlsplit
+
+import httpcore
+import httpx
 
 _BLOCKED_V4 = (
     ipaddress.ip_network("0.0.0.0/8"),
@@ -78,6 +91,23 @@ def _resolved_addresses(host: str, port: int) -> set[ipaddress.IPv4Address | ipa
     return {literal}
 
 
+def _resolve_ips(host: str, port: int) -> list[str]:
+    """Resolve *host* and return every answer as a validated IP string.
+
+    This is the resolution the pinned transport actually connects to. It runs
+    again at connect time and does not reuse or cache whatever
+    `assert_public_url` saw earlier, so a rebinding resolver that flips its
+    answer between "validate" and "connect" is caught right here -- this is
+    the only resolution whose result ever reaches a socket.
+    """
+    addresses = _resolved_addresses(host, port)
+    if any(_blocked_ip(address) for address in addresses):
+        raise EgressBlocked("destination resolves to a private or non-routable address")
+    if not addresses:  # pragma: no cover - _resolved_addresses already guards this
+        raise EgressBlocked(f"destination DNS lookup returned no addresses: {host}")
+    return [str(address) for address in addresses]
+
+
 def assert_public_url(url: str, *, schemes: Iterable[str] = ("https", "http")) -> str:
     """Validate and return a normalized user-controlled network URL."""
     candidate = (url or "").strip()
@@ -118,6 +148,116 @@ def assert_public_url(url: str, *, schemes: Iterable[str] = ("https", "http")) -
     return candidate
 
 
+class _PinnedSyncBackend(httpcore.SyncBackend):
+    """A `SyncBackend` that resolves and validates the host itself, then
+    connects only to the address it just checked. `connect_tcp` receives the
+    hostname (httpcore's own resolution never runs), so pinning here is what
+    keeps "the address that was validated" and "the address that gets
+    connected to" the same address, every time."""
+
+    def connect_tcp(
+        self,
+        host: str,
+        port: int,
+        timeout: float | None = None,
+        local_address: str | None = None,
+        socket_options=None,
+    ):
+        last_error: Exception | None = None
+        for ip in _resolve_ips(host, port):
+            try:
+                return super().connect_tcp(
+                    ip,
+                    port,
+                    timeout=timeout,
+                    local_address=local_address,
+                    socket_options=socket_options,
+                )
+            except (httpcore.ConnectError, httpcore.ConnectTimeout) as exc:
+                last_error = exc
+        assert last_error is not None  # _resolve_ips never returns an empty list
+        raise last_error
+
+
+class _PinnedAsyncBackend(httpcore.AnyIOBackend):
+    """Async counterpart of `_PinnedSyncBackend`."""
+
+    async def connect_tcp(
+        self,
+        host: str,
+        port: int,
+        timeout: float | None = None,
+        local_address: str | None = None,
+        socket_options=None,
+    ):
+        last_error: Exception | None = None
+        for ip in _resolve_ips(host, port):
+            try:
+                return await super().connect_tcp(
+                    ip,
+                    port,
+                    timeout=timeout,
+                    local_address=local_address,
+                    socket_options=socket_options,
+                )
+            except (httpcore.ConnectError, httpcore.ConnectTimeout) as exc:
+                last_error = exc
+        assert last_error is not None
+        raise last_error
+
+
+def _pinned_pool_kwargs(pool) -> dict:
+    """Copy the config httpx already built into `pool` (its ssl_context,
+    limits, ...) so the pinned pool we swap in behaves identically except for
+    the network backend."""
+    return {
+        "ssl_context": pool._ssl_context,
+        "max_connections": pool._max_connections,
+        "max_keepalive_connections": pool._max_keepalive_connections,
+        "keepalive_expiry": pool._keepalive_expiry,
+        "http1": pool._http1,
+        "http2": pool._http2,
+        "retries": pool._retries,
+        "local_address": pool._local_address,
+        "uds": pool._uds,
+        "socket_options": pool._socket_options,
+    }
+
+
+class _PinnedHTTPTransport(httpx.HTTPTransport):
+    """`HTTPTransport` whose connection pool is pinned: every socket opens
+    only to an address `_resolve_ips` validated moments before, closing the
+    gap between `assert_public_url`'s check and httpx's own DNS lookup."""
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        pool = self._pool
+        if not isinstance(pool, httpcore.ConnectionPool):
+            # Proxied / SOCKS pools aren't supported by the pin; fail closed
+            # rather than silently serving an unpinned connection.
+            raise EgressBlocked(
+                "pinned transport does not support this transport configuration"
+            )
+        self._pool = httpcore.ConnectionPool(
+            network_backend=_PinnedSyncBackend(), **_pinned_pool_kwargs(pool)
+        )
+
+
+class _PinnedAsyncHTTPTransport(httpx.AsyncHTTPTransport):
+    """Async counterpart of `_PinnedHTTPTransport`."""
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        pool = self._pool
+        if not isinstance(pool, httpcore.AsyncConnectionPool):
+            raise EgressBlocked(
+                "pinned transport does not support this transport configuration"
+            )
+        self._pool = httpcore.AsyncConnectionPool(
+            network_backend=_PinnedAsyncBackend(), **_pinned_pool_kwargs(pool)
+        )
+
+
 def safe_get(
     url: str,
     *,
@@ -127,14 +267,14 @@ def safe_get(
     sensitive_headers: Iterable[str] = (),
 ):
     """Perform an SSRF-safe GET, validating every redirect before connecting."""
-    import httpx
-
     current = assert_public_url(url)
     current_headers = dict(headers or {})
     protected_headers = _SENSITIVE_HEADERS | {
         header.lower() for header in sensitive_headers if header
     }
-    with httpx.Client(timeout=timeout, follow_redirects=False) as client:
+    with httpx.Client(
+        timeout=timeout, follow_redirects=False, transport=_PinnedHTTPTransport()
+    ) as client:
         for _ in range(max_redirects + 1):
             response = client.get(current, headers=current_headers)
             location = response.headers.get("location")
@@ -165,7 +305,6 @@ def mcp_httpx_client_factory(headers=None, timeout=None, auth=None):
     either risk credential forwarding or require protocol-specific origin rules.
     Operators should configure the canonical MCP endpoint URL instead.
     """
-    import httpx
 
     async def validate(request: httpx.Request) -> None:
         assert_public_url(str(request.url))
@@ -176,4 +315,5 @@ def mcp_httpx_client_factory(headers=None, timeout=None, auth=None):
         auth=auth,
         follow_redirects=False,
         event_hooks={"request": [validate]},
+        transport=_PinnedAsyncHTTPTransport(),
     )

@@ -304,3 +304,36 @@ def test_auto_mode_auto_approves_and_remembers_without_prompting(monkeypatch):
     assert "approval_required" not in types
     assert "web_fetch" in executed
     assert egress_policy.registry.is_approved(project, host) is True
+
+
+def test_strict_mode_first_contact_prompts_once_not_twice(monkeypatch):
+    # Regression: web_fetch is "safe", but strict mode gates EVERY tool via the
+    # sensitive-tool gate too. The domain gate must suppress that second gate for
+    # a call it just live-approved, else the second wait() on the same tc.id
+    # finds nothing to resolve it, times out, and the tool is wrongly "Declined".
+    project = "proj-strict"
+    host = "strict.example"
+    url = f"https://{host}/x"
+    executed = []
+
+    async def _tool(name, args, tc_id, *a, **k):
+        executed.append(name)
+        return {"id": tc_id, "name": name, "ok": True, "result": "fetched", "summary": ""}
+
+    monkeypatch.setattr(agent, "_run_one_tool", _tool)
+    monkeypatch.setattr(agent, "_stream_llm", _fake_stream_one_web_fetch(url, "c1"))
+
+    async def scenario():
+        events = []
+        task = asyncio.create_task(_resolve_when_pending("t1", "c1", True))
+        async for ev in agent.run_turn("fetch it", [], project, "m", effort="Low",
+                                       web_fetch=True, turn_id="t1", permission_mode="strict"):
+            events.append(ev)
+        await task
+        return events
+
+    events = asyncio.run(scenario())
+    approvals = [e for e in events if e["type"] == "approval_required" and e["id"] == "c1"]
+    assert len(approvals) == 1  # ONE prompt (the domain gate), not two
+    assert "web_fetch" in executed  # approved -> ran; not a false decline/timeout
+    assert not any(e["type"] == "tool_error" and e.get("id") == "c1" for e in events)

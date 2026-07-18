@@ -1550,7 +1550,12 @@ def web_fetch(url: str) -> tuple[str, list[dict]]:
     assert_public_url also enforces the configured domain policy and the 80/443
     port allowlist (OCD_EGRESS_ALLOW_PORTS) -- an intentional tightening versus the
     old _blocked_host-only check: an agent-supplied https://host:8443/... URL is
-    now refused."""
+    now refused.
+
+    Note: first-contact DOMAIN approval (egress_policy, in the agent loop) gates
+    the INITIAL host only. Redirect hops are re-checked for SSRF here but are not
+    re-gated for approval, so an approved host with an open redirect can reach an
+    unapproved one -- see egress_policy's known-limitation note (tracked follow-up)."""
     import time as _t
     from urllib.parse import urljoin, urlparse
 

@@ -7,6 +7,15 @@ the existing HITL ``approval_required`` / ``permissions.registry`` flow) and
 remembers approvals PER PROJECT. Search / MCP / connectors go to fixed or
 user-configured hosts, so they are deliberately NOT gated -- ``outbound_host``
 returns ``None`` for them, which is the single place that defines the gated set.
+
+Known limitation (tracked follow-up): approval covers the **initial** host only.
+``web_fetch`` follows redirects, and a redirect to an unapproved host is still
+re-checked for SSRF (``assert_public_url`` per hop) but NOT re-gated for domain
+approval -- so an approved host carrying an open redirect can hand the request
+to a host the user never approved. Closing this needs ``web_fetch`` to re-gate
+each redirect hop against this registry (thread the project's approved set in
+and refuse an unapproved cross-host hop). Until then, the gate is a first-hop
+control, not a full egress allowlist.
 """
 from __future__ import annotations
 

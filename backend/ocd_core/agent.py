@@ -1555,6 +1555,12 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
             # web_fetch is "safe", so the sensitive-tool gate below never fires
             # for it; this is its gate.
             egress_host = egress_policy.outbound_host(name, args)
+            # True once the domain gate LIVE-prompts and gets approval for this
+            # call, so the sensitive-tool gate below won't re-prompt the same
+            # tc.id — strict/plan modes gate *every* tool (incl. "safe" ones),
+            # and a second wait() on an already-resolved tc.id would just time
+            # out and wrongly report "Declined".
+            domain_gate_prompted = False
             if egress_host is not None:
                 if egress_policy.registry.is_approved(active_project, egress_host):
                     observability.audit({"event": "egress_decision", "tool": name,
@@ -1587,10 +1593,11 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
                                        "without it or ask how to proceed.")})
                         continue
                     egress_policy.registry.approve(active_project, egress_host)
+                    domain_gate_prompted = True
             # HITL: suspend for a user decision before running a sensitive tool. Pass
             # args so a memory *mutation* (create/delete/…) is gated even though the
             # memory tool is otherwise read-only "safe".
-            if gate_on and permissions.requires_approval(name, perm_mode, args):
+            if gate_on and not domain_gate_prompted and permissions.requires_approval(name, perm_mode, args):
                 yield {"type": "approval_required", "turn_id": turn_id, "id": tc.id,
                        "name": name, "input": _tool_input(name, args)}
                 permissions.registry.describe(

@@ -1554,7 +1554,7 @@ def web_fetch(url: str) -> tuple[str, list[dict]]:
     import time as _t
     from urllib.parse import urljoin, urlparse
 
-    from . import egress
+    from . import egress, observability
     url = (url or "").strip()
     if not url:
         return "web_fetch_tool_error: invalid_input", []
@@ -1568,6 +1568,7 @@ def web_fetch(url: str) -> tuple[str, list[dict]]:
     except egress.EgressUnavailable:
         return "web_fetch_tool_error: url_not_accessible (dns lookup failed)", []
     except egress.EgressBlocked:
+        observability.audit({"event": "egress_blocked", "tool": "web_fetch", "url": url})
         return "web_fetch_tool_error: url_not_allowed (private/internal host blocked)", []
     cached = _FETCH_CACHE.get(url)
     if cached and (_t.time() - cached[0] < 900):
@@ -1606,6 +1607,7 @@ def web_fetch(url: str) -> tuple[str, list[dict]]:
     except egress.EgressBlocked:
         # A redirect hop rejected by assert_public_url, or a rebind caught by the
         # pinned transport's own connect-time resolution -> a real policy block.
+        observability.audit({"event": "egress_blocked", "tool": "web_fetch", "url": url})
         return "web_fetch_tool_error: url_not_allowed (private/internal host blocked)", []
     except Exception as e:
         return f"web_fetch_tool_error: url_not_accessible ({str(e)[:120]})", []

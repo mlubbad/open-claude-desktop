@@ -83,7 +83,9 @@ from . import (
     bigquery_tools,
     config,
     context,
+    egress_policy,
     events,
+    observability,
     permissions,
     prompts,
     schema_catalog,
@@ -1546,6 +1548,45 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
                                "anything yet. Finish researching read-only, then call "
                                "exit_plan_mode with your plan for the user to approve.")})
                 continue
+            # First-contact domain approval: web_fetch is the one tool whose
+            # destination is model-chosen, so the FIRST reach to a new host is
+            # gated on the user (and remembered per project). Search/MCP/
+            # connectors hit fixed/configured hosts -> outbound_host is None.
+            # web_fetch is "safe", so the sensitive-tool gate below never fires
+            # for it; this is its gate.
+            egress_host = egress_policy.outbound_host(name, args)
+            if egress_host is not None:
+                if egress_policy.registry.is_approved(active_project, egress_host):
+                    observability.audit({"event": "egress_decision", "tool": name,
+                        "host": egress_host, "project": active_project,
+                        "decision": "cached", "turn": turn_id})
+                elif not gate_on:
+                    # auto mode (or no turn): don't prompt, but record + audit.
+                    egress_policy.registry.approve(active_project, egress_host)
+                    observability.audit({"event": "egress_decision", "tool": name,
+                        "host": egress_host, "project": active_project,
+                        "decision": "auto", "turn": turn_id})
+                else:
+                    yield {"type": "approval_required", "turn_id": turn_id, "id": tc.id,
+                           "name": name, "input": _tool_input(name, args),
+                           "reason": f"first contact with {egress_host}"}
+                    permissions.registry.describe(
+                        turn_id, tc.id, tool_name=name, args=args)
+                    approved = await permissions.registry.wait(
+                        turn_id, tc.id, config.PERMISSION_TIMEOUT_SEC)
+                    observability.audit({"event": "egress_decision", "tool": name,
+                        "host": egress_host, "project": active_project,
+                        "decision": "approved" if approved else "denied", "turn": turn_id})
+                    if not approved:
+                        yield {"type": "tool_error", "id": tc.id, "name": name,
+                               "text": f"Not approved to reach {egress_host}."}
+                        blocked_outcomes.append({"id": tc.id, "name": name, "ok": False,
+                            "skip_breaker": True,  # a user decision, not a fixable failure
+                            "result": (f"The user did NOT approve reaching '{egress_host}'. "
+                                       "Do not retry web_fetch for that host; continue "
+                                       "without it or ask how to proceed.")})
+                        continue
+                    egress_policy.registry.approve(active_project, egress_host)
             # HITL: suspend for a user decision before running a sensitive tool. Pass
             # args so a memory *mutation* (create/delete/…) is gated even though the
             # memory tool is otherwise read-only "safe".

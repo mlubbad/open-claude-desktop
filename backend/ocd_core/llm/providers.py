@@ -119,13 +119,14 @@ _BUILTINS: tuple[Provider, ...] = (
 
 _REGISTRY: dict[str, Provider] = {p.id: p for p in _BUILTINS}
 
-# The default provider for the whole app. Defaults to zhipu for parity with the
-# pre-Phase-1 behavior; override with LLM_PROVIDER. LLM_BASE_URL / LLM_API_KEY let
-# a user point the default at any custom OpenAI-compatible endpoint.
+# The default provider for the whole app. Ships with NVIDIA NIM, whose catalog
+# fronts the GLM-5.2 flagship the app selects on first launch; override with
+# LLM_PROVIDER. LLM_BASE_URL / LLM_API_KEY let a user point the default at any
+# custom OpenAI-compatible endpoint.
 DEFAULT_PROVIDER_ID_ENV = "LLM_PROVIDER"
 CUSTOM_BASE_URL_ENV = "LLM_BASE_URL"
 CUSTOM_KEY_ENV = "LLM_API_KEY"
-_FALLBACK_DEFAULT = "zhipu"
+_FALLBACK_DEFAULT = "nvidia"
 
 
 def default_provider_id() -> str:

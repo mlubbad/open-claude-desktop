@@ -21,10 +21,10 @@ export interface ChatOptions {
 export const RESPONSE_STYLES = ["normal", "concise", "explanatory", "formal"] as const;
 
 export const DEFAULT_CHAT_OPTIONS: ChatOptions = {
-  provider: "zhipu",
-  model: "glm-4-plus",
+  provider: "nvidia",
+  model: "z-ai/glm-5.2",
   effort: "High",
-  thinking: false,
+  thinking: true,
   webSearch: false,
   research: false,
   codeExec: false,

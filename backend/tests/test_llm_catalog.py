@@ -27,3 +27,11 @@ def test_unknown_model_gets_safe_defaults():
 def test_helpers():
     assert catalog.context_window("glm-4-long") >= 1_000_000
     assert catalog.supports_reasoning("glm-4.5-air") is True
+
+
+def test_glm5_flagship_is_a_reasoner():
+    # The app's default model (z-ai/glm-5.2 on NVIDIA NIM): native thinking must
+    # engage, which agent.py gates on supports_reasoning().
+    caps = catalog.capabilities("z-ai/glm-5.2")
+    assert caps.reasoning is True and caps.tools is True
+    assert caps.context_window >= 200_000

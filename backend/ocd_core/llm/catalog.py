@@ -35,6 +35,7 @@ _RULES: tuple[tuple[str, Capabilities], ...] = (
     ("claude-sonnet-4-6", Capabilities(1_000_000, 128_000, vision=True, tools=True, reasoning=True)),
     ("claude-haiku-4", Capabilities(200_000, 64_000, vision=True, tools=True, reasoning=True)),
     ("claude", Capabilities(200_000, 64_000, vision=True, tools=True, reasoning=True)),
+    ("glm-5", Capabilities(200_000, 128_000, tools=True, reasoning=True)),
     ("glm-4v", Capabilities(8_192, 4_096, vision=True, tools=True)),
     ("glm-4-plus", Capabilities(128_000, 4_096, tools=True)),
     ("glm-4-long", Capabilities(1_000_000, 4_096, tools=True)),

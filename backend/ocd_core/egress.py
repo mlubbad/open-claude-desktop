@@ -269,6 +269,14 @@ class _PinnedAsyncHTTPTransport(httpx.AsyncHTTPTransport):
         )
 
 
+def pinned_client(**kwargs) -> httpx.Client:
+    """An httpx.Client whose sockets are DNS-pinned to a validated public IP
+    (see _PinnedHTTPTransport). Use for agent-triggered outbound HTTP so a
+    rebinding resolver can't swing the connection to a private/metadata address
+    between validation and connect."""
+    return httpx.Client(transport=_PinnedHTTPTransport(), **kwargs)
+
+
 def safe_get(
     url: str,
     *,

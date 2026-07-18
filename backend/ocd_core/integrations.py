@@ -1314,9 +1314,9 @@ def _search_config() -> tuple[str, str]:
 
 def _ddg_html_results(query: str, n: int) -> list[dict]:
     try:
-        import httpx
-        resp = httpx.post(_DDG_URL, data={"q": query}, timeout=15,
-                          headers={"User-Agent": _UA})
+        from . import egress
+        with egress.pinned_client(timeout=15, follow_redirects=False) as client:
+            resp = client.post(_DDG_URL, data={"q": query}, headers={"User-Agent": _UA})
         return _parse_ddg_html(resp.text, n)
     except Exception:
         return []
@@ -1324,17 +1324,24 @@ def _ddg_html_results(query: str, n: int) -> list[dict]:
 
 def _searxng_results(query: str, n: int, base_url: str) -> list[dict]:
     """Query a SearXNG instance's JSON API. Rejects non-http(s) URLs; localhost is fine
-    (a self-hosted instance is trusted, so it is deliberately NOT SSRF-filtered)."""
+    (a self-hosted instance is trusted, so it is deliberately NOT SSRF-filtered).
+
+    base_url is TRUSTED CONFIG (a user setting, e.g. a loopback Option-A self-host) --
+    NOT agent-controlled -- so this deliberately does NOT go through
+    egress.pinned_client()/assert_public_url() (both would reject a private/loopback
+    IP and break a legitimate local SearXNG). What IS agent-controlled is the search
+    `query`, so redirects are disabled: a hostile/compromised SearXNG response can no
+    longer turn that query into a redirect-to-internal SSRF."""
     from urllib.parse import urlparse
     base = (base_url or "").strip().rstrip("/")
     if urlparse(base).scheme not in ("http", "https"):
         return []
     try:
         import httpx
-        resp = httpx.get(f"{base}/search",
-                         params={"q": query, "format": "json"},
-                         timeout=15, headers={"User-Agent": _UA},
-                         follow_redirects=True)
+        with httpx.Client(timeout=15, follow_redirects=False) as client:
+            resp = client.get(f"{base}/search",
+                              params={"q": query, "format": "json"},
+                              headers={"User-Agent": _UA})
         return _parse_searxng_json(resp.json(), n)
     except Exception:
         return []
@@ -1548,12 +1555,20 @@ def web_fetch(url: str) -> tuple[str, list[dict]]:
     """Fetch one URL → (cleaned text for the model, source card list). http/https
     only, private/internal hosts blocked, HTML/text/JSON only.
 
-    Redirects are followed MANUALLY so every hop is re-validated against _blocked_host
-    BEFORE connecting (httpx's follow_redirects would reach an internal host first — a
-    DNS-rebind / redirect-to-internal SSRF), and the body is streamed under a byte cap
-    instead of being fully buffered."""
+    Redirects are followed MANUALLY so every hop is re-validated against
+    egress.assert_public_url BEFORE connecting (closing the redirect-to-internal
+    SSRF), AND the client itself is DNS-pinned (egress.pinned_client) so a
+    rebinding resolver can't swing the socket to a private/metadata address
+    between that validation and the actual connect. The body is streamed under a
+    byte cap instead of being fully buffered.
+
+    assert_public_url also enforces the configured domain policy and the 80/443
+    port allowlist (OCD_EGRESS_ALLOW_PORTS) -- an intentional tightening versus the
+    old _blocked_host-only check: an agent-supplied https://host:8443/... URL is
+    now refused."""
     import time as _t
     from urllib.parse import urljoin, urlparse
+    from . import egress
     url = (url or "").strip()
     if not url:
         return "web_fetch_tool_error: invalid_input", []
@@ -1562,24 +1577,23 @@ def web_fetch(url: str) -> tuple[str, list[dict]]:
     p = urlparse(url)
     if p.scheme not in ("http", "https") or not p.netloc:
         return "web_fetch_tool_error: invalid_input", []
-    if _blocked_host(p.hostname or ""):
+    try:
+        egress.assert_public_url(url)
+    except egress.EgressBlocked:
         return "web_fetch_tool_error: url_not_allowed (private/internal host blocked)", []
     cached = _FETCH_CACHE.get(url)
     if cached and (_t.time() - cached[0] < 900):
         return cached[1], cached[2]
     try:
-        import httpx
         body = b""
         ctype = ""
-        with httpx.Client(timeout=15, follow_redirects=False) as client:
+        with egress.pinned_client(timeout=15, follow_redirects=False) as client:
             cur = url
             for _ in range(5):
                 pp = urlparse(cur)
                 if pp.scheme not in ("http", "https") or not pp.netloc:
                     return "web_fetch_tool_error: invalid_input", []
-                if _blocked_host(pp.hostname or ""):
-                    return ("web_fetch_tool_error: url_not_allowed "
-                            "(private/internal host blocked)", [])
+                egress.assert_public_url(cur)  # re-validated every hop; raises -> caught below
                 with client.stream("GET", cur, headers={"User-Agent": _UA}) as r:
                     loc = r.headers.get("location")
                     if r.status_code in (301, 302, 303, 307, 308) and loc:
@@ -1596,6 +1610,10 @@ def web_fetch(url: str) -> tuple[str, list[dict]]:
                     break
             else:
                 return "web_fetch_tool_error: too_many_redirects", []
+    except egress.EgressBlocked:
+        # Covers both a redirect hop rejected by assert_public_url and a rebind
+        # caught by the pinned transport's own connect-time resolution.
+        return "web_fetch_tool_error: url_not_allowed (private/internal host blocked)", []
     except Exception as e:
         return f"web_fetch_tool_error: url_not_accessible ({str(e)[:120]})", []
     html = body.decode("utf-8", "replace")

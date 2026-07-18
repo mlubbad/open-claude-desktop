@@ -103,6 +103,21 @@ def add_connector_dialog() -> rx.Component:
                 rx.input(placeholder="Auth header value (optional)",
                          value=AppState.conn_hval, on_change=AppState.set_conn_hval,
                          width="100%"),
+                rx.vstack(
+                    rx.checkbox(
+                        "Allow private / internal hosts",
+                        checked=AppState.conn_allow_private,
+                        on_change=AppState.set_conn_allow_private,
+                    ),
+                    rx.text(
+                        "Off by default: requests to private, loopback, or "
+                        "cloud-metadata addresses are blocked (SSRF protection). "
+                        "Enable only for a connector that points at your own "
+                        "internal network.",
+                        size="1", color="var(--gray-9)",
+                    ),
+                    spacing="1", align="start", width="100%",
+                ),
                 spacing="3", margin_y="14px", width="100%",
             ),
             rx.hstack(

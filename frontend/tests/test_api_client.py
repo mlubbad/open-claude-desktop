@@ -155,6 +155,25 @@ async def test_bigquery_reconnect_posts():
 
 
 @respx.mock
+async def test_add_connector_sends_allow_private():
+    route = respx.post("http://test/connectors").mock(
+        return_value=httpx.Response(200, json={"id": "c1"}))
+    await api_client.add_connector("C1", "http://10.0.0.5", allow_private=True)
+    body = json.loads(route.calls.last.request.content)
+    assert body["allow_private"] is True
+    assert body["name"] == "C1" and body["base_url"] == "http://10.0.0.5"
+
+
+@respx.mock
+async def test_add_connector_defaults_allow_private_false():
+    route = respx.post("http://test/connectors").mock(
+        return_value=httpx.Response(200, json={"id": "c2"}))
+    await api_client.add_connector("C2", "https://api.example.com")
+    body = json.loads(route.calls.last.request.content)
+    assert body["allow_private"] is False
+
+
+@respx.mock
 async def test_save_conversation_sends_tools():
     route = respx.put("http://test/projects/p1/conversations/c1").mock(
         return_value=httpx.Response(200, json={"id": "c1"}))

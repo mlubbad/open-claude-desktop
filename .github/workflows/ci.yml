@@ -5,41 +5,81 @@ on:
     branches: [main]
   pull_request:
 
+# Actions are pinned to full commit SHAs (not floating tags like @v4) for
+# tamper-evidence; the trailing comment records the human-readable version.
+
 jobs:
-  test:
+  # Backend REST API + security-guard suite. This is the gate for the
+  # hosted-safety fixes (auth binding, BigQuery scope, MCP/bash/SSRF).
+  # Run from the repo root: pytest puts backend/ first on sys.path (it has no
+  # __init__.py) so `app`/`ocd_core` resolve to the package, while the repo-root
+  # namespace still satisfies the tests' `from backend.app.main import app`.
+  backend-tests:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b  # v5.3.0
         with:
           python-version: "3.12"
           cache: pip
-      - name: Install (app extras + dev)
-        run: pip install -e ".[chainlit,reflex,dev]"
-      - name: Run tests
-        run: pytest
+      - name: Install backend (+ dev tools)
+        run: pip install -e "./backend[dev]"
+      - name: Pin zhipuai to the v2 SDK
+        # zhipuai 2.x exposes the `ZhipuAI` class ocd_core/llm.py imports; an
+        # unpinned resolve silently drops to the broken v1 (see backend/pyproject.toml).
+        run: pip install --no-deps zhipuai==2.1.5.20250825 PyJWT==2.8.0
+      - name: Run backend tests
+        run: python -m pytest backend/tests
 
+  # Chainlit app.py pure-helper tests (tests/). app.py is loaded by file path,
+  # so it needs its runtime deps (requirements.txt) plus ocd_core registered.
+  app-tests:
+    runs-on: ubuntu-latest
+    env:
+      ZHIPU_API_KEY: ci-not-a-real-key  # app.py builds the client at import time
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b  # v5.3.0
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install pinned Chainlit stack + register ocd_core
+        run: |
+          # --no-deps: requirements.txt is a complete freeze; a fresh resolve hits
+          # the zhipuai/PyJWT vs chainlit/mcp conflict (same as the Docker build).
+          pip install --no-deps -r requirements.txt
+          pip install -e ./backend --no-deps
+          pip install pytest
+      - name: Run app tests
+        run: python -m pytest tests
+
+  # The production image must build from a clean checkout (validated locally too).
+  docker-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - name: Build backend image
+        run: docker build -t open-claude-desktop:ci .
+
+  # Advisory until the legacy tree is driven to zero lint findings.
   lint:
     runs-on: ubuntu-latest
-    # Advisory until the legacy code is driven to zero lint findings, then
-    # remove continue-on-error to make it blocking.
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b  # v5.3.0
         with:
           python-version: "3.12"
-          cache: pip
       - run: pip install ruff
       - run: ruff check . --output-format=github
 
   secrets:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
         with:
           fetch-depth: 0
       - name: Scan for committed secrets
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7  # v2.3.9
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

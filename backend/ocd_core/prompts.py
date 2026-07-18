@@ -10,7 +10,7 @@ assistant's system prompt.
 """
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 
 BASE_ASSISTANT = """You are Open Claude Desktop, a capable AI assistant that runs on \
 the user's own choice of model provider. You help with analysis, writing, coding, \
@@ -106,10 +106,10 @@ def temporal_context(now: datetime | None = None) -> str:
     `now` overrides the clock for deterministic tests; naive values mean UTC.
     """
     if now is None:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
     elif now.tzinfo is None:
-        now = now.replace(tzinfo=timezone.utc)
-    utc = now.astimezone(timezone.utc)
+        now = now.replace(tzinfo=UTC)
+    utc = now.astimezone(UTC)
     local = now.astimezone()
     minutes = int((local.utcoffset() or timedelta(0)).total_seconds() // 60)
     sign = "+" if minutes >= 0 else "-"

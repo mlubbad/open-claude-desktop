@@ -13,12 +13,12 @@ prior history stays byte-identical.
 """
 import asyncio
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from ocd_core import agent, prompts
 
-FIXED = datetime(2026, 7, 18, 14, 32, tzinfo=timezone.utc)   # a Saturday
-LATER = datetime(2026, 12, 31, 23, 59, tzinfo=timezone.utc)
+FIXED = datetime(2026, 7, 18, 14, 32, tzinfo=UTC)   # a Saturday
+LATER = datetime(2026, 12, 31, 23, 59, tzinfo=UTC)
 
 
 def test_temporal_context_renders_fixed_instant():
@@ -34,8 +34,8 @@ def test_temporal_context_defaults_to_real_now():
     m = re.search(r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}) UTC", block)
     assert m, block
     stamped = datetime.strptime(m.group(1), "%Y-%m-%d %H:%M").replace(
-        tzinfo=timezone.utc)
-    assert abs(datetime.now(timezone.utc) - stamped) < timedelta(minutes=5)
+        tzinfo=UTC)
+    assert abs(datetime.now(UTC) - stamped) < timedelta(minutes=5)
 
 
 def test_temporal_context_refreshes_per_call():

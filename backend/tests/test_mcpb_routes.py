@@ -65,7 +65,10 @@ def isolate(monkeypatch, tmp_path):
             pass
 
 
-def test_add_oauth_server_route(isolate):
+def test_add_oauth_server_route(isolate, monkeypatch):
+    # egress SSRF check runs at connect/authorize time; bypass its DNS lookup here
+    from ocd_core import egress
+    monkeypatch.setattr(egress, "assert_public_url", lambda url, **k: url)
     r = client.post("/mcp-servers/oauth",
                     json={"name": "Remote OAuth", "url": "https://mcp.example.com/mcp"})
     assert r.status_code == 200, r.text

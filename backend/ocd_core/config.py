@@ -207,9 +207,12 @@ ALLOW_WRITES = os.getenv("AJ360_ALLOW_WRITES", "false").strip().lower() in ("1",
 PERMISSION_MODE = os.getenv("PERMISSION_MODE", "ask").strip().lower()
 PERMISSION_TIMEOUT_SEC = int(os.getenv("PERMISSION_TIMEOUT_SEC", "300"))
 
-# --- containment capability switches (all require explicit operator opt-in) ---
+# --- capability switches. stdio MCP defaults ON for local-first desktop
+# (Claude Desktop's core local-tool feature; safe because netguard enforces
+# loopback-only binding and gated approval requires user consent). The rest
+# stay opt-in: host code-exec, remote marketplace, scheduler. ---
 STDIO_MCP_ENABLED = os.getenv(
-    "OCD_ENABLE_STDIO_MCP", "0").strip().lower() in ("1", "true", "yes")
+    "OCD_ENABLE_STDIO_MCP", "1").strip().lower() in ("1", "true", "yes")
 HOST_EXECUTION_ENABLED = os.getenv(
     "OCD_ALLOW_HOST_EXEC", "0").strip().lower() in ("1", "true", "yes")
 SCHEDULER_ENABLED = os.getenv(

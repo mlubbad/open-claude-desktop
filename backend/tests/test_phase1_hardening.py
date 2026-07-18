@@ -28,8 +28,8 @@ def test_cowork_approval_enum_coerces_unknown_to_gated():
     assert mk("manual") == "manual"
     assert mk("Manual") == "manual"          # case-normalized
     assert mk("manaul") == "manual"          # typo → gated, never silently autonomous
-    assert mk("") == "skip"                   # empty/unset → the autonomous default
-    assert CoworkStart(goal="g", model="m").approval == "skip"  # default unchanged
+    assert mk("") == "manual"                   # empty/unset → gated default (Option A: stdio on → approve tool actions)
+    assert CoworkStart(goal="g", model="m").approval == "manual"  # gated by default (Option A)
 
 
 def test_permission_mode_enum_coerces_unknown_to_strict():

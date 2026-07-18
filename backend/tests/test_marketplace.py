@@ -183,10 +183,11 @@ def test_clone_repo_inherits_env_for_proxy(monkeypatch):
 
     monkeypatch.setenv("HTTPS_PROXY", "http://proxy.example:8080")
     monkeypatch.setattr(git_sync.subprocess, "run", fake_run)
-    git_sync.clone_repo("https://example.com/x.git", "", Path("/tmp/zz"))
+    _dest = Path("/tmp/zz")
+    git_sync.clone_repo("https://example.com/x.git", "", _dest)
     assert captured["env"]["HTTPS_PROXY"] == "http://proxy.example:8080"  # inherited
     assert captured["env"]["GIT_TERMINAL_PROMPT"] == "0"                  # non-interactive
-    assert captured["cmd"][-2:] == ["https://example.com/x.git", "/tmp/zz"]  # url/dest after --
+    assert captured["cmd"][-2:] == ["https://example.com/x.git", str(_dest)]  # url/dest after --
 
 
 def test_add_source_no_plugins_is_rejected(tmp_path, monkeypatch):

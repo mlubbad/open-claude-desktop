@@ -21,7 +21,7 @@ def test_fresh_install_capability_defaults_are_fail_closed(monkeypatch):
 
     cfg = importlib.reload(config)
     assert cfg.MARKETPLACE_ALLOW_REMOTE is False
-    assert cfg.STDIO_MCP_ENABLED is False
+    assert cfg.STDIO_MCP_ENABLED is True   # local-first: stdio MCP on by default (loopback + gated approval)
     assert cfg.HOST_EXECUTION_ENABLED is False
     assert cfg.SCHEDULER_ENABLED is False
     assert cfg.DEFAULT_SETTINGS["code_execution"] == "docker"

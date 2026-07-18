@@ -3,7 +3,7 @@ import os
 import pytest
 
 _AUTH_ENV_VARS = ("APP_USERNAME", "APP_PASSWORD", "CHAINLIT_AUTH_SECRET",
-                  "AJ360_AUTH_SECRET", "APP_AUTH_SECRET")
+                  "OCD_AUTH_SECRET", "AJ360_AUTH_SECRET", "APP_AUTH_SECRET")
 
 
 @pytest.fixture(autouse=True, scope="session")

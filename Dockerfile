@@ -1,5 +1,5 @@
 # Chainlit chat app (app.py).
-# The Reflex projects UI (aj360_app/) needs a separate node+python image and is
+# The Reflex projects UI (frontend/ocd_app/) needs a separate node+python image and is
 # not built here.
 FROM python:3.12-slim
 

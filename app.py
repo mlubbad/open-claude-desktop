@@ -131,7 +131,8 @@ CATALOG_DATASETS = [
 
 # C2: agent is READ-ONLY by default; dataset scope is enforced at execution time
 # against the engine's parsed table references (not fragile substring matching).
-ALLOW_WRITES = os.getenv("AJ360_ALLOW_WRITES", "false").strip().lower() in ("true", "1", "yes")
+ALLOW_WRITES = (os.getenv("OCD_ALLOW_WRITES") or os.getenv("AJ360_ALLOW_WRITES")
+                or "false").strip().lower() in ("true", "1", "yes")
 ALLOWED_TABLE_SCOPES = {f"{PROJECT_ID}.{d}" for d in CATALOG_DATASETS}
 
 MAX_RETURN_ROWS = 50
@@ -951,7 +952,7 @@ async def run_sql(sql: str, step) -> str:
         audit({"event": "mutation_blocked_readonly", "stmt": stmt, "sql": sql[:200]})
         _observe("mutation_blocked_readonly", stmt=stmt)
         return (f"REJECTED: this agent is read-only. '{stmt}' statements are disabled. "
-                f"(Set AJ360_ALLOW_WRITES=true only if writes are explicitly intended.)")
+                f"(Set OCD_ALLOW_WRITES=true only if writes are explicitly intended.)")
 
     # C2: enforce dataset scope using the engine's PARSED references — not substring
     # matching. Catches forbidden tables even when joined alongside allowed ones.

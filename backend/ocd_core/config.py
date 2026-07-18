@@ -5,9 +5,10 @@ import os
 from pathlib import Path
 
 # --- paths (data dir override) ---
-# Match the pre-refactor core.py exactly: the AJ360_DATA_DIR override is taken
-# verbatim (no .resolve()); only the default branch resolves __file__.
-REPO_ROOT = Path(os.getenv("AJ360_DATA_DIR", str(Path(__file__).resolve().parents[2])))
+# Data-dir override taken verbatim (no .resolve()); only the default branch resolves
+# __file__. OCD_DATA_DIR supersedes the legacy AJ360_DATA_DIR (kept for back-compat).
+REPO_ROOT = Path(os.getenv("OCD_DATA_DIR") or os.getenv("AJ360_DATA_DIR")
+                 or str(Path(__file__).resolve().parents[2]))
 PROJECTS_DIR = Path(os.getenv("PROJECTS_DIR", str(REPO_ROOT / "projects")))
 KNOWLEDGE_DIR = Path(os.getenv("KNOWLEDGE_DIR", str(REPO_ROOT / "knowledge")))
 CHROMA_PATH = os.getenv("CHROMA_PATH", str(REPO_ROOT / "chroma_db"))
@@ -72,5 +73,6 @@ AUDIT_LOG = os.getenv("AUDIT_LOG", "./logs/agent_audit.jsonl")
 AUDIT_LOG_MAX_BYTES = int(os.getenv("AUDIT_LOG_MAX_BYTES", str(10 * 1024 * 1024)))
 AUDIT_LOG_BACKUPS = int(os.getenv("AUDIT_LOG_BACKUPS", "5"))
 
-# --- write posture (kept; intentionally aj360-prefixed per project memory) ---
-ALLOW_WRITES = os.getenv("AJ360_ALLOW_WRITES", "false").strip().lower() in ("1", "true", "yes")
+# --- write posture: prefer OCD_ALLOW_WRITES; AJ360_ALLOW_WRITES kept for back-compat ---
+ALLOW_WRITES = (os.getenv("OCD_ALLOW_WRITES") or os.getenv("AJ360_ALLOW_WRITES")
+                or "false").strip().lower() in ("1", "true", "yes")

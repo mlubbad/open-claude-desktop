@@ -13,8 +13,8 @@ constant-time comparison.
 
 Env is read at call time so configuration and tests apply without reimport.
 
-Auth secret resolution (back-compat): prefer ``APP_AUTH_SECRET``, then fall
-back to ``CHAINLIT_AUTH_SECRET``, then ``AJ360_AUTH_SECRET``.
+Auth secret resolution (back-compat): prefer ``APP_AUTH_SECRET``, then fall back
+to ``CHAINLIT_AUTH_SECRET``, then ``OCD_AUTH_SECRET``, then ``AJ360_AUTH_SECRET``.
 """
 from __future__ import annotations
 
@@ -31,6 +31,7 @@ _TTL = int(os.getenv("AUTH_SESSION_TTL_SEC", str(7 * 24 * 3600)))
 def _secret() -> bytes:
     return (os.getenv("APP_AUTH_SECRET")
             or os.getenv("CHAINLIT_AUTH_SECRET")
+            or os.getenv("OCD_AUTH_SECRET")
             or os.getenv("AJ360_AUTH_SECRET") or "").encode()
 
 

@@ -12,10 +12,22 @@ from ocd_core.mcp_registry import _server_key, _stdio_env, _transport_of
 
 @pytest.fixture(autouse=True)
 def _allow_test_loopback(monkeypatch):
-    """The in-process fixture is loopback; production MCP egress blocks it."""
+    """The in-process fixture is loopback; production MCP egress blocks it.
+
+    Egress now refuses loopback at two layers: assert_public_url's pre-flight
+    check and the connect-time pin (_resolve_ips, which the pinned transport
+    calls just before opening the socket). Neutralize both so the test can reach
+    its own in-process server -- exactly the address production is right to
+    refuse. _resolve_ips still does a real resolution here; only the
+    private/non-routable rejection is lifted."""
     from ocd_core import egress
 
     monkeypatch.setattr(egress, "assert_public_url", lambda url, **_kwargs: url)
+    monkeypatch.setattr(
+        egress,
+        "_resolve_ips",
+        lambda host, port: [str(a) for a in egress._resolved_addresses(host, port)],
+    )
 
 
 def test_transport_of():

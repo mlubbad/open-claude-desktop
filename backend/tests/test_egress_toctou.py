@@ -255,3 +255,22 @@ def test_https_to_a_real_public_host_completes_the_tls_handshake():
     except Exception as exc:  # pragma: no cover - environment-dependent
         pytest.skip(f"no outbound network available in this environment: {exc}")
     assert response.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Fail closed on unsupported pool configs. httpcore's HTTPProxy/SOCKSProxy
+# pools subclass ConnectionPool, so the pinned transports must match the exact
+# type -- an isinstance() check would let a proxy pool through and silently
+# drop its config (serving an unpinned connection). A proxied transport must
+# raise instead of quietly de-pinning itself.
+# ---------------------------------------------------------------------------
+
+
+def test_pinned_sync_transport_fails_closed_on_a_proxy_pool():
+    with pytest.raises(egress.EgressBlocked):
+        egress._PinnedHTTPTransport(proxy="http://127.0.0.1:9999")
+
+
+def test_pinned_async_transport_fails_closed_on_a_proxy_pool():
+    with pytest.raises(egress.EgressBlocked):
+        egress._PinnedAsyncHTTPTransport(proxy="http://127.0.0.1:9999")

@@ -23,6 +23,7 @@ import socket
 from collections.abc import Iterable
 from urllib.parse import urljoin, urlsplit
 
+import anyio
 import httpcore
 import httpx
 
@@ -175,7 +176,8 @@ class _PinnedSyncBackend(httpcore.SyncBackend):
                 )
             except (httpcore.ConnectError, httpcore.ConnectTimeout) as exc:
                 last_error = exc
-        assert last_error is not None  # _resolve_ips never returns an empty list
+        if last_error is None:  # pragma: no cover - _resolve_ips never returns an empty list
+            raise EgressBlocked("destination could not be connected to")
         raise last_error
 
 
@@ -190,8 +192,12 @@ class _PinnedAsyncBackend(httpcore.AnyIOBackend):
         local_address: str | None = None,
         socket_options=None,
     ):
+        # _resolve_ips runs a blocking getaddrinfo; keep it off the event loop
+        # so a slow or hostile resolver stalls only this connect, not every
+        # other request sharing the loop.
+        ips = await anyio.to_thread.run_sync(_resolve_ips, host, port)
         last_error: Exception | None = None
-        for ip in _resolve_ips(host, port):
+        for ip in ips:
             try:
                 return await super().connect_tcp(
                     ip,
@@ -202,7 +208,8 @@ class _PinnedAsyncBackend(httpcore.AnyIOBackend):
                 )
             except (httpcore.ConnectError, httpcore.ConnectTimeout) as exc:
                 last_error = exc
-        assert last_error is not None
+        if last_error is None:  # pragma: no cover - _resolve_ips never returns an empty list
+            raise EgressBlocked("destination could not be connected to")
         raise last_error
 
 
@@ -232,9 +239,11 @@ class _PinnedHTTPTransport(httpx.HTTPTransport):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         pool = self._pool
-        if not isinstance(pool, httpcore.ConnectionPool):
-            # Proxied / SOCKS pools aren't supported by the pin; fail closed
-            # rather than silently serving an unpinned connection.
+        # httpcore's HTTPProxy/SOCKSProxy pools subclass ConnectionPool, so an
+        # isinstance() check would pass them through and _pinned_pool_kwargs
+        # would silently drop their proxy config. Match the exact type and fail
+        # closed on anything else rather than serve an unpinned connection.
+        if type(pool) is not httpcore.ConnectionPool:
             raise EgressBlocked(
                 "pinned transport does not support this transport configuration"
             )
@@ -249,7 +258,9 @@ class _PinnedAsyncHTTPTransport(httpx.AsyncHTTPTransport):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         pool = self._pool
-        if not isinstance(pool, httpcore.AsyncConnectionPool):
+        # See _PinnedHTTPTransport: match the exact pool type so proxy pools
+        # (ConnectionPool subclasses) fail closed instead of losing their config.
+        if type(pool) is not httpcore.AsyncConnectionPool:
             raise EgressBlocked(
                 "pinned transport does not support this transport configuration"
             )

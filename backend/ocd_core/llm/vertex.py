@@ -32,11 +32,11 @@ DEFAULT_LOCATION = "global"
 _NEED_PROJECT = (
     "Vertex AI needs a GCP project: set VERTEX_AI_PROJECT (or GOOGLE_CLOUD_PROJECT), "
     "and optionally VERTEX_AI_LOCATION (default 'global').")
+# Fits probe_provider's 200-char detail budget, so the Test button shows it whole.
 _NEED_CREDS = (
-    "No Google Cloud credentials for Vertex AI. Run 'gcloud auth application-default "
-    "login' (or point GOOGLE_APPLICATION_CREDENTIALS at a service-account key), or "
-    "paste a short-lived access token ('gcloud auth print-access-token') as the "
-    "provider key.")
+    "No Google Cloud credentials. Run 'gcloud auth application-default login' (or set "
+    "GOOGLE_APPLICATION_CREDENTIALS), or paste a token from 'gcloud auth "
+    "print-access-token' as the Vertex AI key.")
 
 
 def _first_env(names: tuple[str, ...]) -> str | None:

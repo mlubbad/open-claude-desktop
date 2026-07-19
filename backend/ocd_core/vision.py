@@ -25,6 +25,7 @@ def _candidates() -> list[tuple[str, str]]:
     out: list[tuple[str, str]] = [
         ("openai", "gpt-4o"),
         ("anthropic", get_provider("anthropic").default_model),
+        ("gemini", get_provider("gemini").default_model),
         ("zhipu", config.VISION_MODEL or "glm-4v-plus"),
         ("openrouter", "openai/gpt-4o"),
     ]

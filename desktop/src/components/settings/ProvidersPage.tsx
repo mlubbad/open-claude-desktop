@@ -178,6 +178,18 @@ export function ProvidersPage({
     }
   }
 
+  // Key-optional providers only (Vertex AI): drop a stored token override and
+  // return to the hands-off auth path (ADC). Without this, a stale pasted token
+  // would shadow ADC forever.
+  async function clearKey(id: string) {
+    try {
+      await providers.deleteKey(id);
+      await refresh();
+    } catch (e) {
+      setErr(String(e));
+    }
+  }
+
   return (
     <>
       {err && <div className="settings-err">{err}</div>}
@@ -218,7 +230,15 @@ export function ProvidersPage({
                   {probing === p.id ? "Testing…" : "Test"}
                 </button>
                 <span className={`key-badge ${p.has_key ? "ok" : "missing"}`}>
-                  {p.requires_key ? (p.has_key ? "key set" : "no key") : "no key needed"}
+                  {p.requires_key
+                    ? p.has_key
+                      ? "key set"
+                      : "no key"
+                    : p.key_optional
+                      ? p.has_key
+                        ? "token set"
+                        : "cloud auth"
+                      : "no key needed"}
                 </span>
               </span>
             </div>
@@ -228,20 +248,29 @@ export function ProvidersPage({
                 {probe[p.id].detail}
               </div>
             )}
-            {p.requires_key && (
+            {(p.requires_key || p.key_optional) && (
               <div className="key-entry">
                 <input
                   type="password"
-                  placeholder={`${p.label} API key`}
-                  aria-label={`${p.label} API key`}
+                  placeholder={p.key_optional ? `${p.label} access token (optional)` : `${p.label} API key`}
+                  aria-label={p.key_optional ? `${p.label} access token (optional)` : `${p.label} API key`}
                   value={keyDraft[p.id] ?? ""}
                   onChange={(e) => setKeyDraft((d) => ({ ...d, [p.id]: e.target.value }))}
                 />
                 <button onClick={() => saveKey(p.id)} disabled={!(keyDraft[p.id] ?? "").trim()}>
                   Save
                 </button>
+                {p.key_optional && p.has_key && (
+                  <button
+                    onClick={() => void clearKey(p.id)}
+                    title="Remove the stored token and go back to Google Cloud ADC"
+                  >
+                    Clear
+                  </button>
+                )}
               </div>
             )}
+            {p.key_hint && <p className="key-hint">{p.key_hint}</p>}
             <div className="model-row">
               {catalogFor(p).map((m) => {
                 const isActive = p.id === active.provider && m === active.model;

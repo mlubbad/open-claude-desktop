@@ -102,7 +102,9 @@
 
 </details>
 
-### Item 2c — Pattern-based outbound secret redaction  *(re-scoped 2026-07-19 after recon — awaiting go)*
+### Item 2c — Pattern-based outbound secret redaction  ✅ **DONE** (`17aa8b3` + review `0f48b3b`)
+
+> Shipped: `egress_redact.py` (`redact_secrets` / `redact_obj`, high-signal shapes only); masks secrets from web_fetch's URL query, web_search's query, and MCP tool args — never headers (connector/MCP auth preserved). Spec review MEETS_SPEC after fixing two **MINOR_GAPS** (the blocked-host audit and the no-results echo were logging/reflecting the raw secret — both now redact first, `0f48b3b`). False-positive sweep (git SHAs, UUIDs, base64, normal queries) → zero; all real key shapes caught. Redact-not-block; best-effort. Caveat: pattern redaction is defense-in-depth on top of 2a+2b, not a guarantee — a novel/unshaped secret can still pass. Detailed spec below.
 
 **Why re-scoped.** The plan wanted to redact *all stored secret VALUES* ("zero false positives") — but recon found `SecretStore` is **get-by-key only** (no `list`/`keys`/`values`; keyring backends genuinely can't enumerate), and secrets are scattered across many id-keyed builders (`_connector_secret_key`, `_mcp_auth_key`, `_tokens_key`, provider keys, …). Exhaustive value enumeration is infeasible + fragile. **But** the crown jewels — BYOK provider API keys — have *recognizable shapes*, so pattern redaction catches them with no enumeration. So 2c becomes pattern-based; the "enumerate stored values" idea is dropped as infeasible-and-unnecessary. (The entropy / KB-provenance heuristic stays dropped.)
 

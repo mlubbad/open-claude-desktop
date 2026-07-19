@@ -6,10 +6,9 @@ token used verbatim, else ADC credentials minted and refreshed by llm.vertex.
 """
 import pytest
 from ocd_core import llm, secrets
-from ocd_core.llm import catalog
+from ocd_core.llm import catalog, vertex
 from ocd_core.llm import client as llm_client
 from ocd_core.llm import keys as llm_keys
-from ocd_core.llm import vertex
 
 
 @pytest.fixture(autouse=True)

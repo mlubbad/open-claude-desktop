@@ -1,0 +1,17 @@
+# Gitleaks configuration for CI secret scanning (the `secrets` job).
+#
+# The outbound-redaction tests (T2-Item2c) embed SYNTHETIC secret-shaped
+# fixtures — truncated PEM stubs and letter-run API-key patterns — precisely
+# because the feature's job is to recognize those shapes. Gitleaks correctly
+# pattern-matches them, but they are not real credentials (the PEM bodies are
+# literal "..." stubs; the keys are "sk-ant-AAAA…"-style runs). Allowlist that
+# one fixture file by path; everything else keeps the default rules.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Synthetic secret-shaped fixtures used by the outbound-redaction tests"
+paths = [
+    '''backend[/\\]tests[/\\]test_egress_redact\.py''',
+]

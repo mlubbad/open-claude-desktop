@@ -89,8 +89,11 @@ GENERIC_COLS = {
 }
 
 # --- models ---
-AGENT_MODEL = os.getenv("AGENT_MODEL", os.getenv("PLANNER_MODEL", "glm-4-plus"))
-FLASH_MODEL = os.getenv("FLASH_MODEL", "glm-4-flash")
+# Defaults follow the app's default provider (NVIDIA NIM, see llm/providers.py):
+# the GLM-5.2 reasoning flagship for agent turns, a small fast NIM model for the
+# cheap utility calls (conversation titles). Both are still env-overridable.
+AGENT_MODEL = os.getenv("AGENT_MODEL", os.getenv("PLANNER_MODEL", "z-ai/glm-5.2"))
+FLASH_MODEL = os.getenv("FLASH_MODEL", "meta/llama-3.1-8b-instruct")
 VISION_MODEL = os.getenv("VISION_MODEL", "glm-4v-plus")
 _glm_default = f"{AGENT_MODEL},glm-4.5-air,glm-4-flash,glm-4-long"
 GLM_MODELS = list(dict.fromkeys(
@@ -107,7 +110,7 @@ EFFORT_DESCRIPTIONS = {
     "Max": "Plans, then self-verifies",
 }
 DEFAULT_SETTINGS = {"model": AGENT_MODEL,
-                    "provider": os.getenv("LLM_PROVIDER", "zhipu"),
+                    "provider": os.getenv("LLM_PROVIDER", "nvidia"),
                     "effort": "High", "theme": "light", "profile": {},
                     # Web-search backend. "searxng" (privacy-respecting, self-hostable,
                     # JSON API — the recommended free/open-source option; set searxng_url)

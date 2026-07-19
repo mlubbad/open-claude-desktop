@@ -43,7 +43,7 @@ def test_expanded_catalog_covers_popular_open_models():
 
 def test_default_provider_env_override(monkeypatch):
     monkeypatch.delenv("LLM_PROVIDER", raising=False)
-    assert llm.default_provider_id() == "zhipu"  # parity default
+    assert llm.default_provider_id() == "nvidia"  # ships with NIM's GLM-5.2 flagship
     monkeypatch.setenv("LLM_PROVIDER", "openai")
     assert llm.default_provider_id() == "openai"
 

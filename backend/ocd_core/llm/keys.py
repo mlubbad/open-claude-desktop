@@ -44,11 +44,16 @@ def delete_api_key(provider_id: str) -> None:
 
 
 def has_key(provider_id: str | None = None) -> bool:
-    """True when a provider is usable: it has a key, or it needs none (local)."""
+    """Whether a key/token is set — or, for key-free providers, that none is needed.
+
+    For a required-key provider this doubles as "usable". A key-OPTIONAL provider
+    (e.g. Vertex AI: ADC by default, pasted token as an override) stays usable
+    without one, so here we report the actual override presence — it drives the
+    settings badge ("token set" vs the ADC default), not any gating."""
     prov = get_provider(provider_id)
-    if not prov.requires_key:
-        return True
-    return bool(get_api_key(prov.id))
+    if prov.requires_key or prov.key_optional:
+        return bool(get_api_key(prov.id))
+    return True
 
 
 def has_key_map(provider_ids: list[str]) -> dict[str, bool]:

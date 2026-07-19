@@ -21,7 +21,7 @@ export const EFFORT_LEVELS: EffortLevel[] = [
 const DESCRIPTORS: [RegExp, string][] = [
   [/gpt-4o-mini|mini|flash|turbo|haiku|instant|8b/i, "Fastest for quick answers."],
   [/glm-5|reasoner|o3|o1|thinking|glm-4\.5|deepseek-r/i, "For your toughest challenges."],
-  [/gpt-4o|opus|glm-4\.6|glm-4-plus|qwen-max|70b|72b|deepseek-chat|deepseek-v3/i, "For complex tasks."],
+  [/gpt-4o|opus|glm-4\.6|glm-4-plus|qwen-max|70b|72b|deepseek-chat|deepseek-v3|gemini.*pro/i, "For complex tasks."],
   [/sonnet|plus|glm-4-air|glm-4-long|qwen-plus/i, "Most efficient for everyday tasks."],
 ];
 

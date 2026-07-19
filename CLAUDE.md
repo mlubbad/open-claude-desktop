@@ -15,6 +15,12 @@ no proprietary Anthropic code, assets, branding, or verbatim system prompts.
   extended thinking. Request shape is model-family-aware (always-on/adaptive/budget
   thinking, sampling-param rejection); thinking blocks that precede tool calls are
   cached by tool-call id and replayed. Tests: `test_anthropic_native.py`.
+  `vertex` is OpenAI-compatible but special-cased in `llm/vertex.py`: per-
+  project/location base URL (VERTEX_AI_PROJECT/LOCATION → GOOGLE_CLOUD_* →
+  GCP_PROJECT_ID → ADC default) and short-lived OAuth bearers — a pasted token is
+  used verbatim, else ADC credentials auto-refresh. Its `Provider` entry is
+  `key_optional`: the key box is an optional token override, `has_key` reports
+  token presence (badge), never usability. Tests: `test_llm_vertex.py`.
 - `desktop/` — the flagship client: React 18 + TS + Vite (dev port 1420 → :8000)
   inside a Tauri v2 shell (`desktop/src-tauri/`). PyInstaller freezes the backend
   as the `ocd-backend` sidecar; a pinned Node runtime ships as `ocd-node` for

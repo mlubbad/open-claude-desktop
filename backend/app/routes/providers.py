@@ -26,6 +26,10 @@ def _provider_view(p, *, has_key: bool, default_id: str) -> dict:
         "label": p.label,
         "is_local": p.is_local,
         "requires_key": p.requires_key,
+        # Key-optional providers (Vertex AI) authenticate without a stored key
+        # (ADC) but accept one as an override; the hint explains the setup.
+        "key_optional": p.key_optional,
+        "key_hint": p.key_hint,
         "has_key": has_key,
         "default_model": p.default_model,
         "models": list(p.models),

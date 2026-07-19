@@ -349,9 +349,9 @@ def test_call_mcp_redacts_nested_args():
     secret = "sk-ant-" + "F" * 40
     schema_props = {"payload": {"type": "object"}}
     server = _mcp_server(schema_props)
-    import ocd_core.integrations as I
-
     from unittest.mock import patch
+
+    import ocd_core.integrations as I
     with patch.object(I, "_load_mcp_servers", lambda: [server]), \
          patch.object(I, "_resolve_cfg", lambda s: s):
         seen = {}
@@ -366,3 +366,33 @@ def test_call_mcp_redacts_nested_args():
 
     assert secret not in seen["args"]["payload"]["note"]
     assert "«redacted-secret»" in seen["args"]["payload"]["note"]
+
+
+# --------------------------------------------------------------------------- #
+# Review MINOR_GAPS: two adjacent paths that echoed the RAW secret even though
+# the outbound content was redacted -- the blocked-host AUDIT log, and the
+# no-results message reflected back into the transcript. Both now redact first.
+# --------------------------------------------------------------------------- #
+
+
+def test_web_fetch_blocked_host_audit_does_not_log_the_secret(monkeypatch):
+    events = []
+    monkeypatch.setattr(observability, "audit", lambda e: events.append(e))
+    integrations._FETCH_CACHE.clear()
+    secret = "sk-ant-" + "A" * 40
+    # A literal metadata IP is blocked by assert_public_url (link-local), so we
+    # hit the egress_blocked audit path -- with a secret in the query.
+    out, _ = integrations.web_fetch(f"http://169.254.169.254/x?key={secret}")
+    assert "url_not_allowed" in out
+    blocked = [e for e in events if e.get("event") == "egress_blocked"]
+    assert blocked, "expected an egress_blocked audit event"
+    assert secret not in blocked[0].get("url", ""), "secret leaked into the audit log"
+
+
+def test_web_search_no_results_message_does_not_echo_the_secret(monkeypatch):
+    # Force the zero-results branch so _format_web_block reflects the query back.
+    monkeypatch.setattr(integrations, "_web_results", lambda q, n=5: [])
+    secret = "gsk_" + "B" * 40
+    out = integrations.web_search(f"please look up {secret}")
+    assert secret not in out
+    assert "«redacted-secret»" in out  # the query was masked in the echoed message

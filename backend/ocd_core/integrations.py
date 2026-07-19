@@ -1389,8 +1389,13 @@ def _web_results(query: str, n: int = 5) -> list[dict]:
 
 
 def _format_web_block(query: str, results: list[dict]) -> str:
+    from . import egress_redact
+    # The no-results message reflects the query back into the tool result (and so
+    # the transcript); redact any secret shape so it isn't re-exposed there. The
+    # actual outbound query is redacted separately in the search backends.
+    query = egress_redact.redact_secrets(query or "")[0]
     if not results:
-        return "No query." if not (query or "").strip() else \
+        return "No query." if not query.strip() else \
             f"No web results for '{query}'."
     lines = [f"- {r['title']}\n  {r['snippet']}\n  {r['url']}" for r in results]
     return "Web results:\n" + "\n".join(lines)
@@ -1596,6 +1601,19 @@ def web_fetch(url: str, approved_hosts: set[str] | None = None) -> tuple[str, li
     p = urlparse(url)
     if p.scheme not in ("http", "https") or not p.netloc:
         return "web_fetch_tool_error: invalid_input", []
+    # Defense-in-depth against prompt-injection exfil: the agent controls this
+    # URL (and thus its query string), so strip any recognizable secret shape
+    # out of the query BEFORE anything validates, audits, or dials it -- so even
+    # the blocked-host audit below can't record a secret. Only the INITIAL
+    # agent-supplied URL is redacted here; redirect hops (re-validated per-hop
+    # below) come from the remote server's response, not the agent.
+    sp = urlsplit(url)
+    red_query, redaction_count = egress_redact.redact_secrets(sp.query)
+    if redaction_count:
+        url = urlunsplit((sp.scheme, sp.netloc, sp.path, red_query, sp.fragment))
+        observability.audit({"event": "egress_redaction", "tool": "web_fetch",
+                             "count": redaction_count})
+
     try:
         egress.assert_public_url(url)
     except egress.EgressUnavailable:
@@ -1603,19 +1621,6 @@ def web_fetch(url: str, approved_hosts: set[str] | None = None) -> tuple[str, li
     except egress.EgressBlocked:
         observability.audit({"event": "egress_blocked", "tool": "web_fetch", "url": url})
         return "web_fetch_tool_error: url_not_allowed (private/internal host blocked)", []
-
-    # Defense-in-depth against prompt-injection exfil: the agent controls this
-    # URL (and thus its query string), so strip any recognizable secret shape
-    # out of the query before it's ever dialed. Only the INITIAL agent-supplied
-    # URL is redacted here -- redirect hops (re-validated per-hop below) come
-    # from the remote server's response, not the agent, so they aren't
-    # agent-controlled content.
-    sp = urlsplit(url)
-    red_query, redaction_count = egress_redact.redact_secrets(sp.query)
-    if redaction_count:
-        url = urlunsplit((sp.scheme, sp.netloc, sp.path, red_query, sp.fragment))
-        observability.audit({"event": "egress_redaction", "tool": "web_fetch",
-                             "count": redaction_count})
 
     cached = _FETCH_CACHE.get(url)
     if cached and (_t.time() - cached[0] < 900):

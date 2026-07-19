@@ -119,10 +119,14 @@ def client(monkeypatch):
     from app.routes import cowork as cowork_route
     monkeypatch.setattr(cowork_route.agent, "run_turn", fake_run_turn)
     from app.main import app
-    return TestClient(app)
+    # Context-managed: one portal (event loop) for the whole test. Outside a
+    # `with`, TestClient tears the loop down after EVERY request, cancelling
+    # the just-started background task before the next assertion can see it.
+    with TestClient(app) as c:
+        yield c
 
 
-def test_cowork_routes_plumbing(client):
+def test_cowork_routes_plumbing(client, monkeypatch):
     started = client.post("/cowork", json={"goal": "summarize the repo", "model": "glm-4-plus"})
     assert started.status_code == 200
     tid = started.json()["id"]
@@ -136,7 +140,18 @@ def test_cowork_routes_plumbing(client):
 
     assert client.get("/cowork/does-not-exist").status_code == 404
     assert client.post("/cowork", json={"goal": "", "model": "m"}).status_code == 400
-    assert "cancelled" in client.post(f"/cowork/{tid}/cancel").json()
+
+    # Cancel must land while the task is RUNNING. The default fake turn finishes
+    # instantly, so whether `tid` is still cancellable is a scheduler race —
+    # give the cancel target a turn that blocks until it is cancelled.
+    async def _hanging_gen():
+        await asyncio.Event().wait()
+        yield {"type": "done"}
+
+    from app.routes import cowork as cowork_route
+    monkeypatch.setattr(cowork_route.agent, "run_turn", lambda *a, **k: _hanging_gen())
+    hung = client.post("/cowork", json={"goal": "long job", "model": "m"}).json()["id"]
+    assert "cancelled" in client.post(f"/cowork/{hung}/cancel").json()
 
 
 # --------------------------------------------------------------------------- #

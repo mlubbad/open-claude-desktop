@@ -284,7 +284,7 @@ def test_bad_enum_values_clamp_on_read_and_write(tmp_path, monkeypatch):
     assert s["opik_mode"] == "local"
     assert s["permission_mode"] == "ask"
     assert s["theme"] == "light"
-    assert s["code_execution"] == "auto"
+    assert s["code_execution"] == _config.DEFAULT_SETTINGS["code_execution"]
     assert s["search_provider"] == "ddg"
     # save_settings refuses to persist a bad enum, clamping it to the default.
     out = _settings.save_settings({"opik_mode": "banana", "theme": "dark"})

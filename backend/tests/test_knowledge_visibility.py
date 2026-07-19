@@ -77,6 +77,10 @@ def test_execute_code_transforms_an_uploaded_csv_end_to_end(monkeypatch, tmp_pat
     monkeypatch.setattr(config, "PROJECTS_DIR", tmp_path / "projects")
     monkeypatch.setattr(integrations, "SANDBOX_ROOT", tmp_path / "sandbox")
     monkeypatch.setattr(integrations, "_code_execution_mode", lambda: "local")
+    # Host (non-Docker) execution is gated since the containment hardening;
+    # this end-to-end test runs real Python on the host, so opt in explicitly
+    # (the flag is read from the env at import time into this config attr).
+    monkeypatch.setattr(config, "HOST_EXECUTION_ENABLED", True)
     _seed(tmp_path / "projects", "p1", "data.csv", "name,qty\nwidget,2\n")
 
     code = (

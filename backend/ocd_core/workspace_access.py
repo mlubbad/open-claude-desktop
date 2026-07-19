@@ -5,10 +5,11 @@ fail-closed; local single-user mode remains an implicit owner for compatibility.
 """
 from __future__ import annotations
 
+from sqlmodel import select
+
 from . import tenancy
 from .db import engine
 from .db.models import Workspace, WorkspaceMembership, utcnow
-from sqlmodel import select
 
 ROLE_ORDER = {"viewer": 10, "member": 20, "admin": 30, "owner": 40}
 

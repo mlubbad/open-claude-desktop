@@ -166,7 +166,8 @@ durable queue, per-workspace behavior, single-node caveats): `docs/hosted-deploy
 
 ## Working conventions
 
-- Verify before pushing: backend `pytest` + `ruff check .` (CI uses latest ruff),
+- Verify before pushing: backend `pytest` + `ruff check .` (CI pins ruff — bump the
+  pin deliberately and fix new findings in the same PR),
   desktop `npm run typecheck && npm run test && npm run build`, and `cargo check
   --locked` in `desktop/src-tauri` when the shell changed (CI now runs this too —
   the `shell` job).

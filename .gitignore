@@ -78,3 +78,5 @@ schedules.json
 ocd.db-journal
 ocd.db-wal
 ocd.db-shm
+# pre-migration snapshot written by engine.backup_sqlite_before_migration()
+ocd.db.pre-migration.bak

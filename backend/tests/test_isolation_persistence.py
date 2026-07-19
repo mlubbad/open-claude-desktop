@@ -1,6 +1,6 @@
 import pytest
-from sqlalchemy import inspect
 from ocd_core import tenancy
+from sqlalchemy import inspect
 
 
 @pytest.fixture

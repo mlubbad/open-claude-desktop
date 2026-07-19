@@ -42,6 +42,7 @@ import asyncio
 import json
 import time
 import types
+from datetime import datetime
 
 from . import bigquery, config, schema_catalog, sql_guard, util
 from .llm import get_llm_client
@@ -198,7 +199,7 @@ Hard rules (AJ360-specific):
 
 def _system_prompt(project_instructions: str = "", skill_instructions: str = "",
                    research: bool = False, memory: bool = False,
-                   bigquery: bool = False) -> str:
+                   bigquery: bool = False, now: datetime | None = None) -> str:
     sp = BASE_PROMPT
     if bigquery:
         sp += BIGQUERY_PROMPT
@@ -221,6 +222,9 @@ def _system_prompt(project_instructions: str = "", skill_instructions: str = "",
                "Use `deep_research` ONCE to gather parallel multi-source findings, then "
                "cross-check the sources and synthesize a structured answer that CITES the "
                "sources you used.\n")
+    # Always last: the dynamic stamp changes every turn, so keeping it at the
+    # tail leaves the static prompt prefix stable for provider-side caching.
+    sp += "\n\n" + util.temporal_context(now)
     return sp
 
 

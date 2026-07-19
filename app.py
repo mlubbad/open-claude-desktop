@@ -307,6 +307,9 @@ from ocd_core.sql_guard import (  # noqa: E402
     tables_out_of_scope,
 )
 
+# Per-turn "now" stamp for the system prompt — shared with the backend agent.
+from ocd_core.util import temporal_context  # noqa: E402
+
 # --------------------------------------------------------------------------- #
 #  Projects Module — Thread-Safe (Issue #3)
 # --------------------------------------------------------------------------- #
@@ -1552,6 +1555,8 @@ async def run_agent(goal: str, memory: list, settings: dict, step,
     if deep:
         sys_prompt += ("\n\nThink step by step before each tool call. "
                        "Verify a key aggregate with a second method when it matters.")
+    # Always last: fresh per turn, and the static prefix stays cache-stable.
+    sys_prompt += "\n\n" + temporal_context()
 
     messages = [{"role": "system", "content": sys_prompt},
                 *memory, {"role": "user", "content": goal}]

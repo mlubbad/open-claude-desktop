@@ -62,22 +62,51 @@ def test_http_get_blocks_non_http_scheme():
 
 
 def test_http_get_allows_public_host(monkeypatch):
-    monkeypatch.setattr(integrations, "_blocked_host", lambda h: False)
-
     class _R:
         url = "https://api.example.com/v1"
         status_code = 200
-    monkeypatch.setattr(httpx, "get", lambda *a, **k: _R())
+
+    class _C:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def get(self, url, headers=None):
+            return _R()
+
+    monkeypatch.setattr(integrations.egress, "pinned_client", lambda **kw: _C())
     r = integrations._http_get("https://api.example.com/v1", {})
     assert r.status_code == 200
 
 
-def test_http_get_blocks_redirect_to_private(monkeypatch):
-    monkeypatch.setattr(integrations, "_blocked_host", lambda h: h == "169.254.169.254")
+def test_http_get_redirects_stay_pinned(monkeypatch):
+    """Redirect hops must be followed *inside* the DNS-pinned client — every
+    hop re-validates at connect time (see egress._PinnedSyncBackend), so a
+    redirect to a private/metadata address can never escape the guard. This
+    pins the wiring: follow_redirects goes to the pinned client, not to a
+    plain httpx call."""
+    captured = {}
 
     class _R:
-        url = "http://169.254.169.254/latest/meta-data"
+        url = "http://api.example.com/x"
         status_code = 200
-    monkeypatch.setattr(httpx, "get", lambda *a, **k: _R())
-    with pytest.raises(ValueError):
-        integrations._http_get("http://api.example.com/x", {})
+
+    class _C:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def get(self, url, headers=None):
+            return _R()
+
+    def _fake_pinned(**kw):
+        captured.update(kw)
+        return _C()
+
+    monkeypatch.setattr(integrations.egress, "pinned_client", _fake_pinned)
+    integrations._http_get("http://api.example.com/x", {})
+    assert captured.get("follow_redirects") is True

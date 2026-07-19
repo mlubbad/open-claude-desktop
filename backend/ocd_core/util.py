@@ -6,15 +6,15 @@ NOT "improve" the logic here; change the call sites instead if behavior must
 evolve.
 
 Public names: slugify, fmt_bytes, relative_time, format_date, chunk_id,
-flatten_fields. Private back-compat aliases (_slugify, _fmt_size, _chunk_id,
-_flatten_fields) match the original names so existing call sites keep working
-unchanged.
+flatten_fields, temporal_context. Private back-compat aliases (_slugify,
+_fmt_size, _chunk_id, _flatten_fields) match the original names so existing
+call sites keep working unchanged.
 """
 from __future__ import annotations
 
 import hashlib
 import re
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 
 def slugify(text: str) -> str:
@@ -89,6 +89,39 @@ def relative_time(value) -> str:
         return f"{days // 365} year{'s' if days // 365 != 1 else ''} ago"
     except Exception:
         return "recently"
+
+
+def temporal_context(now: datetime | None = None) -> str:
+    """Current date/time block injected into agent system prompts.
+
+    Rendered fresh at the start of every agent turn so the model always has a
+    trustworthy "now" anchor (UTC + server-local) instead of guessing it from
+    training data or from timestamps that happen to appear in tool results.
+    `now` overrides the clock for deterministic tests; naive values mean UTC.
+    """
+    if now is None:
+        now = datetime.now(UTC)
+    elif now.tzinfo is None:
+        now = now.replace(tzinfo=UTC)
+    utc = now.astimezone(UTC)
+    local = now.astimezone()
+    minutes = int((local.utcoffset() or timedelta(0)).total_seconds() // 60)
+    sign = "+" if minutes >= 0 else "-"
+    hh, mm = divmod(abs(minutes), 60)
+    return (
+        "# TEMPORAL CONTEXT\n"
+        f"Now: {utc.strftime('%A %Y-%m-%d %H:%M')} UTC "
+        f"(local {local.strftime('%H:%M')} UTC{sign}{hh:02d}:{mm:02d}). "
+        'Captured when this turn started — treat it as "now".\n'
+        '- Resolve every relative date/time ("today", "yesterday", "this week") '
+        "against this stamp, and use it to judge whether scheduled events "
+        "should already have happened.\n"
+        "- Never infer the current date/time from tool results or data "
+        "timestamps — compare them AGAINST this stamp instead, and state this "
+        "as-of time when reporting freshness or schedules.\n"
+        "- If sub-minute precision matters, fetch it live (e.g. BigQuery "
+        "SELECT CURRENT_TIMESTAMP()) instead of estimating."
+    )
 
 
 # Back-compat private aliases matching the original core.py names so existing

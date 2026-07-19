@@ -15,6 +15,9 @@ class ConnectorBody(BaseModel):
     base_url: str
     header_key: str = ""
     header_value: str = ""
+    # Opt-in: allow this connector to reach private/internal hosts. Off by
+    # default so connector fetches are SSRF-guarded (see integrations._http_get).
+    allow_private: bool = False
 
 
 class McpBody(BaseModel):
@@ -41,7 +44,8 @@ def list_connectors(user: str = Depends(current_user)) -> list[dict]:
 @router.post("/connectors")
 def add_connector(body: ConnectorBody, user: str = Depends(current_user)) -> dict:
     return integrations.add_connector(body.name, body.base_url,
-                                      body.header_key, body.header_value)
+                                      body.header_key, body.header_value,
+                                      body.allow_private)
 
 
 @router.delete("/connectors/{cid}")

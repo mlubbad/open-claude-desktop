@@ -15,7 +15,13 @@ def ig(monkeypatch, tmp_path):
     importlib.reload(c)
     import ocd_core.integrations as i
     importlib.reload(i)
-    return i
+    yield i
+    # The reload above re-bound module-level paths (PLUGINS_DIR, CONNECTORS_FILE)
+    # to tmp_path. Undo the env patch and reload again so later test FILES see
+    # the real module state (else e.g. plugin dispatch resolves an empty tmp dir).
+    monkeypatch.undo()
+    importlib.reload(c)
+    importlib.reload(i)
 
 
 def test_add_connector_keeps_token_out_of_connectors_file(ig, tmp_path):
@@ -50,7 +56,7 @@ def test_call_connector_sends_the_secret_header(ig, monkeypatch):
         url = "https://api.example.com/x"
 
     monkeypatch.setattr(ig, "_http_get",
-                        lambda url, headers, timeout=15: captured.update(headers=headers) or _R())
+                        lambda url, headers, timeout=15, **kw: captured.update(headers=headers) or _R())
     ig.call_connector(cid, "/x")
     assert captured["headers"].get("X-Key") == "sekret"
 

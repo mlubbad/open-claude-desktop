@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev-main]
   pull_request:
 
 # Actions are pinned to full commit SHAs (not floating tags like @v4) for
@@ -27,7 +27,9 @@ jobs:
       - name: Pin zhipuai to the v2 SDK
         # zhipuai 2.x exposes the `ZhipuAI` class ocd_core/llm.py imports; an
         # unpinned resolve silently drops to the broken v1 (see backend/pyproject.toml).
-        run: pip install --no-deps zhipuai==2.1.5.20250825 PyJWT==2.8.0
+        # sniffio: zhipuai's core imports it, but current anyio/httpx no longer
+        # pull it transitively, so name it explicitly alongside the pins.
+        run: pip install --no-deps zhipuai==2.1.5.20250825 PyJWT==2.8.0 sniffio
       - name: Run backend tests
         run: python -m pytest backend/tests
 
@@ -83,6 +85,11 @@ jobs:
 
   secrets:
     runs-on: ubuntu-latest
+    # gitleaks-action fetches the PR's commit list to scan the PR range, so the job
+    # token needs read access to contents + pull requests (else GitHub returns 403).
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
         with:

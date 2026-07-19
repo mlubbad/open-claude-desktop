@@ -214,9 +214,11 @@ async def list_connectors() -> list[dict]:
     return await _get("/connectors")  # type: ignore[return-value]
 
 
-async def add_connector(name: str, base_url: str, header_key: str = "", header_value: str = "") -> dict:
+async def add_connector(name: str, base_url: str, header_key: str = "", header_value: str = "",
+                        allow_private: bool = False) -> dict:
     return await _post("/connectors", {"name": name, "base_url": base_url,
-                                       "header_key": header_key, "header_value": header_value})  # type: ignore[return-value]
+                                       "header_key": header_key, "header_value": header_value,
+                                       "allow_private": allow_private})  # type: ignore[return-value]
 
 
 async def remove_connector(cid: str) -> None:

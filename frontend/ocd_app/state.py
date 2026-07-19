@@ -185,6 +185,7 @@ class AppState(rx.State):
     conn_url: str = ""
     conn_hkey: str = ""
     conn_hval: str = ""
+    conn_allow_private: bool = False   # opt-in: let this connector reach private hosts
     conn_test: str = ""
 
     # ---- MCP (Model Context Protocol) connectors ----
@@ -307,6 +308,7 @@ class AppState(rx.State):
 
     def open_add_connector(self):
         self.conn_name = self.conn_url = self.conn_hkey = self.conn_hval = ""
+        self.conn_allow_private = False
         self.conn_add_open = True
 
     def set_conn_add_open(self, v: bool):
@@ -324,10 +326,14 @@ class AppState(rx.State):
     def set_conn_hval(self, v: str):
         self.conn_hval = v
 
+    def set_conn_allow_private(self, v: bool):
+        self.conn_allow_private = v
+
     async def save_connector(self):
         if self.conn_name.strip() and self.conn_url.strip():
             await api_client.add_connector(self.conn_name, self.conn_url,
-                                           self.conn_hkey, self.conn_hval)
+                                           self.conn_hkey, self.conn_hval,
+                                           allow_private=self.conn_allow_private)
             self.conn_add_open = False
             await self.load_connectors()
 

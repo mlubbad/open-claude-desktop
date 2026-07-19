@@ -1,0 +1,17 @@
+# Gitleaks configuration — extends the default ruleset.
+#
+# backend/tests/test_egress_redact.py exists to TEST the outbound
+# secret-redaction feature, so it necessarily contains secret-SHAPED fixtures
+# (fake PEM blocks with truncated "..." bodies, "sk-ant-" + "A"*40, etc.).
+# The default private-key rule flags the PEM fixtures on every scan that
+# includes that file; allowlist the fixture file rather than weakening rules.
+title = "open-claude-desktop"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Secret-shaped test fixtures for the egress redaction suite"
+paths = [
+  '''backend/tests/test_egress_redact\.py''',
+]

@@ -1,0 +1,16 @@
+# Gitleaks config. [extend] is load-bearing: without it, the presence of this
+# file would REPLACE the default ruleset instead of adding to it.
+[extend]
+useDefault = true
+
+# backend/tests/test_egress_redact.py exists to test the outbound secret-shape
+# REDACTOR (Track2 Item 2c), so it necessarily contains secret-SHAPED fixtures
+# (dummy PEM blocks, dummy sk-/ghp_/AKIA strings — nothing real). The default
+# private-key rule flags the PEM pair (first hit: main push 6375377, run
+# 29696801360). Path-scoped allowlist, not .gitleaksignore fingerprints:
+# fingerprints pin commit SHAs, so they break on rebases/replays, while this
+# keeps working for any scan range that touches the file. Everything else in
+# the repo stays fully scanned.
+[allowlist]
+description = "secret-shaped fixtures in the egress-redaction test"
+paths = ['''backend/tests/test_egress_redact\.py''']

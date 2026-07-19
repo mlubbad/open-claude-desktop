@@ -1,0 +1,10 @@
+# Acknowledged gitleaks findings (fingerprint format: commit:file:rule:line).
+#
+# test_egress_redact.py ships dummy PEM fixtures (truncated bodies, not real
+# keys) precisely so the egress redactor provably scrubs private keys — the
+# secret scanner flagging the redaction tests' own samples is the one expected
+# false positive. The other samples there are runtime-concatenated and don't
+# trip the scanner; PEM can't be, because the BEGIN header IS the pattern
+# under test.
+a37265e5c90958cd2c8a3d66d29c66c9c21ae2a7:backend/tests/test_egress_redact.py:private-key:25
+a37265e5c90958cd2c8a3d66d29c66c9c21ae2a7:backend/tests/test_egress_redact.py:private-key:28

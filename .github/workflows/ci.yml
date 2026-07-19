@@ -16,7 +16,18 @@ jobs:
           cache: pip
       - name: Install (app extras + dev)
         run: pip install -e ".[chainlit,reflex,dev]"
+      - name: Force the zhipuai v2 SDK (pyjwt conflict workaround)
+        # zhipuai 2.x requires pyjwt<2.9 while mcp requires pyjwt>=2.10.1 — an
+        # unsolvable metadata conflict, so the plain resolve above silently
+        # backtracks zhipuai to v1.0.7, which lacks the `ZhipuAI` class app.py
+        # imports. Force the known-good pair from requirements.txt instead
+        # (same recipe as the backend/pyproject.toml dependency note).
+        run: pip install --no-deps zhipuai==2.1.5.20250825 PyJWT==2.8.0
       - name: Run tests
+        env:
+          # app.py builds its module-level ZhipuAI client at import time and the
+          # v2 SDK raises without a key. Tests never call the API.
+          ZHIPU_API_KEY: dummy-key-for-import-only
         run: pytest
 
   lint:
@@ -35,6 +46,11 @@ jobs:
 
   secrets:
     runs-on: ubuntu-latest
+    # gitleaks-action fetches the PR's commit list to scan the PR range, so the job
+    # token needs read access to contents + pull requests (else GitHub returns 403).
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
       - uses: actions/checkout@v4
         with:

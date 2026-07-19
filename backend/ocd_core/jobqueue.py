@@ -350,7 +350,10 @@ async def run_worker(worker_id: str | None = None, *, lease_seconds: int = 120,
         stop_heartbeat = asyncio.Event()
         lost_lease = False
 
-        async def _heartbeat() -> None:
+        # Bind the per-iteration job/event into the closure (B023): the task is
+        # started and stopped within this iteration, but late-binding a loop
+        # variable is one refactor away from heartbeating the wrong job.
+        async def _heartbeat(job=job, stop_heartbeat=stop_heartbeat) -> None:
             nonlocal lost_lease
             interval = max(0.01, min(float(lease_seconds) / 3, 30.0))
             while not stop_heartbeat.is_set():

@@ -26,9 +26,7 @@ from urllib.parse import parse_qs, urlsplit
 from mcp.client.auth import OAuthClientProvider
 from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
 
-from . import egress
-
-from . import secrets
+from . import egress, secrets
 
 DEFAULT_SCOPES = "openid profile"
 

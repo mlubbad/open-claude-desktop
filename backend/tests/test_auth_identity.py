@@ -140,6 +140,12 @@ def test_route_scopes_to_the_jwt_workspace(db, monkeypatch):
     tok_a = _hs256({"sub": "u", "workspace": "wsA", "exp": _soon()}, "s")
     tok_b = _hs256({"sub": "u", "workspace": "wsB", "exp": _soon()}, "s")
 
+    # Multi-tenant callers need a persisted membership (workspace_access):
+    # a valid JWT alone no longer implies access to its workspace.
+    from ocd_core import workspace_access
+    workspace_access.create_workspace("wsA", "wsA", "u")
+    workspace_access.create_workspace("wsB", "wsB", "u")
+
     made = c.post("/projects/general/conversations", json={"first_message": "hi"},
                   headers={"authorization": f"Bearer {tok_a}"}).json()
     cid = made["id"]

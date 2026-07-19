@@ -29,7 +29,7 @@ def test_start_local_leaves_no_workspace(monkeypatch):
     assert "workspace" not in task.persisted()  # local on-disk shape is byte-for-byte
 
 
-def test_start_captures_ambient_workspace(monkeypatch):
+def test_start_captures_ambient_workspace(db, monkeypatch):
     monkeypatch.setenv("OCD_MULTI_TENANT", "1")
     async def go():
         mgr = cowork.CoworkManager()
@@ -66,14 +66,16 @@ def test_run_rebinds_task_workspace_from_a_local_context(monkeypatch):
 
 # ---- scheduler ------------------------------------------------------------------------
 
-def test_schedule_stamps_and_persists_workspace(monkeypatch, tmp_path):
+def test_schedule_stamps_and_persists_workspace(db, monkeypatch, tmp_path):
     monkeypatch.setenv("OCD_MULTI_TENANT", "1")
     store = scheduler.ScheduleStore(tmp_path / "schedules.json")
     svc = scheduler.SchedulerService(store=store, launch=lambda s: "t")
     with tenancy.use_workspace("wsA"):
         created = svc.add(goal="g", kind="interval", every_seconds=60)
+        # Survives the round-trip through the store. Under enforcement the
+        # store reads back scoped to the CURRENT workspace, so load inside wsA.
+        assert store.load()[0].workspace == "wsA"
     assert created["workspace"] == "wsA"
-    assert store.load()[0].workspace == "wsA"  # survives the round-trip through disk
 
 
 def test_schedule_add_local_has_no_workspace(tmp_path):
@@ -83,7 +85,7 @@ def test_schedule_add_local_has_no_workspace(tmp_path):
     assert created["workspace"] is None
 
 
-def test_default_launch_runs_under_the_schedules_workspace(monkeypatch):
+def test_default_launch_runs_under_the_schedules_workspace(db, monkeypatch):
     """End-to-end: the ticker (local context) fires a wsA automation, and the launched
     Cowork run executes as wsA — proving add()→launch()→start()→_run() carries it."""
     monkeypatch.setenv("OCD_MULTI_TENANT", "1")

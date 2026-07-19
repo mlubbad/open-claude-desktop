@@ -93,7 +93,9 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-      - run: pip install ruff
+      # Pinned: a new ruff release must not redden a previously green tree.
+      # Bump the pin deliberately (and fix new findings in the same PR).
+      - run: pip install ruff==0.15.22
       - run: ruff check . --output-format=github
 
   secrets:

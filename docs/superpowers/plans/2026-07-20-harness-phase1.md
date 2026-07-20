@@ -581,12 +581,36 @@ def test_grep_files_mode(tmp_path):
 def test_grep_outside_jail(tmp_path):
     out = wfs.grep(tmp_path, "x", path="../")
     assert out["ok"] is False
+
+
+def test_glob_rejects_parent_escape(tmp_path):
+    (tmp_path / "ws").mkdir()
+    outside = tmp_path / "outside"; outside.mkdir()
+    (outside / "secret.txt").write_text("s")
+    out = wfs.glob(tmp_path / "ws", "../outside/*")
+    assert out["ok"] is True
+    assert out["paths"] == []   # a .. pattern escape yields nothing, never the outside file
+
+
+def test_glob_deep_parent_escape_blocked(tmp_path):
+    (tmp_path / "ws").mkdir()
+    (tmp_path / "sibling.txt").write_text("x")
+    out = wfs.glob(tmp_path / "ws", "../*")
+    assert out["ok"] is True
+    assert all(".." not in p and "sibling.txt" not in p for p in out["paths"])
+
+
+def test_glob_absolute_pattern_errors(tmp_path):
+    out = wfs.glob(tmp_path, "C:/Windows/*" if os.name == "nt" else "/etc/*")
+    assert out["ok"] is False and "pattern" in out["error"].lower()
 ```
+
+*(Add `import os` to the top of the test file for the absolute-pattern test.)*
 
 - [ ] **Step 2: Run red**
 
 Run: `pytest backend/tests/test_harness_fs_tools.py -q`
-Expected: FAIL — no `glob`/`grep`.
+Expected: FAIL — no `glob`/`grep` (and the glob-escape tests fail/error).
 
 - [ ] **Step 3: Implement**
 
@@ -612,9 +636,20 @@ def _iter_files(root):
 
 def glob(root, pattern: str, max_results: int = MAX_GLOB):
     root_real = resolve_in_workspace(root, "")
+    try:
+        matched = list(root_real.glob(pattern))
+    except (NotImplementedError, ValueError) as e:
+        # absolute/empty patterns (Path.glob rejects them) -> error dict, not a raise
+        return _err(f"bad glob pattern: {e}")
     hits = []
-    for p in sorted(root_real.glob(pattern), key=lambda x: (x.is_dir(), x.name)):
-        rel = p.relative_to(root_real)
+    for p in sorted(matched, key=lambda x: (x.is_dir(), x.name)):
+        try:
+            # Jail every hit: a pattern containing .. yields a path that resolves OUTSIDE
+            # root_real; relative_to then raises and we skip it. The naive lexical
+            # p.relative_to(root_real) does NOT catch this (it leaves the .. in place).
+            rel = p.resolve(strict=False).relative_to(root_real)
+        except ValueError:
+            continue
         if any(part in _IGNORE_DIRS for part in rel.parts):
             continue
         hits.append(rel.as_posix())

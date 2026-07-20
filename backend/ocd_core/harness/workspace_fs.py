@@ -8,6 +8,7 @@ integrations.py, this defeats symlink/junction escapes and sibling-prefix roots
 from __future__ import annotations
 
 import difflib
+import re
 from pathlib import Path
 
 
@@ -124,3 +125,65 @@ def edit_file(root, user_path, old_string: str, new_string: str,
         before.splitlines(), after.splitlines(),
         fromfile=user_path, tofile=user_path, lineterm=""))
     return _ok(path=user_path, replacements=(count if replace_all else 1), diff=diff)
+
+
+_IGNORE_DIRS = {".git", "node_modules", "__pycache__", ".venv", "venv",
+                ".mypy_cache", ".pytest_cache", ".ruff_cache", "dist", "build",
+                ".next", "target"}
+MAX_GLOB = 500
+MAX_GREP_MATCHES = 300
+
+
+def _iter_files(root):
+    for p in sorted(root.rglob("*")):
+        rel = p.relative_to(root)
+        if any(part in _IGNORE_DIRS for part in rel.parts):
+            continue
+        if p.is_file():
+            yield p, rel
+
+
+def glob(root, pattern: str, max_results: int = MAX_GLOB):
+    root_real = resolve_in_workspace(root, "")
+    hits = []
+    for p in sorted(root_real.glob(pattern), key=lambda x: (x.is_dir(), x.name)):
+        rel = p.relative_to(root_real)
+        if any(part in _IGNORE_DIRS for part in rel.parts):
+            continue
+        hits.append(rel.as_posix())
+    truncated = len(hits) > max_results
+    return _ok(paths=hits[:max_results], truncated=truncated)
+
+
+def grep(root, pattern: str, path: str = "", mode: str = "content",
+         max_matches: int = MAX_GREP_MATCHES):
+    try:
+        base = resolve_in_workspace(root, path)
+    except JailError:
+        return _err("path is outside the workspace")
+    try:
+        rx = re.compile(pattern)
+    except re.error as e:
+        return _err(f"bad regex: {e}")
+    root_real = resolve_in_workspace(root, "")
+    scan_root = base if base.is_dir() else base.parent
+    matches, files = [], []
+    for p, _rel in _iter_files(scan_root):
+        try:
+            text = p.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
+            continue
+        relp = p.relative_to(root_real).as_posix()
+        found = False
+        for ln, line in enumerate(text.splitlines(), start=1):
+            if rx.search(line):
+                found = True
+                if mode == "content" and len(matches) < max_matches:
+                    matches.append(f"{relp}:{ln}:{line.strip()[:300]}")
+        if found:
+            files.append(relp)
+    if mode == "files":
+        return _ok(files=files[:max_matches], count=len(files))
+    if mode == "count":
+        return _ok(count=len(matches))
+    return _ok(matches=matches, truncated=len(matches) >= max_matches)

@@ -95,3 +95,41 @@ def test_edit_returns_unified_diff(tmp_path):
     (tmp_path / "e.py").write_text("a = 1\n")
     out = wfs.edit_file(tmp_path, "e.py", "a = 1", "a = 2", read_paths=_seen(tmp_path, "e.py"))
     assert "-a = 1" in out["diff"] and "+a = 2" in out["diff"]
+
+
+def test_glob_matches_pattern(tmp_path):
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "a.py").write_text("x")
+    (tmp_path / "src" / "b.py").write_text("x")
+    (tmp_path / "readme.md").write_text("x")
+    out = wfs.glob(tmp_path, "**/*.py")
+    assert out["ok"] is True
+    assert set(out["paths"]) == {"src/a.py", "src/b.py"}
+
+
+def test_glob_caps_results(tmp_path):
+    for i in range(10):
+        (tmp_path / f"f{i}.txt").write_text("x")
+    out = wfs.glob(tmp_path, "*.txt", max_results=5)
+    assert len(out["paths"]) == 5 and out["truncated"] is True
+
+
+def test_grep_finds_lines(tmp_path):
+    (tmp_path / "a.py").write_text("import os\nx = 1\nimport sys\n")
+    out = wfs.grep(tmp_path, r"^import ")
+    assert out["ok"] is True
+    assert any("import os" in m for m in out["matches"])
+    assert any("import sys" in m for m in out["matches"])
+    assert not any("x = 1" in m for m in out["matches"])
+
+
+def test_grep_files_mode(tmp_path):
+    (tmp_path / "a.py").write_text("TODO fix\n")
+    (tmp_path / "b.py").write_text("clean\n")
+    out = wfs.grep(tmp_path, "TODO", mode="files")
+    assert out["files"] == ["a.py"]
+
+
+def test_grep_outside_jail(tmp_path):
+    out = wfs.grep(tmp_path, "x", path="../")
+    assert out["ok"] is False

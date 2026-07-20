@@ -1,12 +1,13 @@
+import os
+from pathlib import Path
+
+import pytest
+from ocd_core.harness import workspace_fs as wfs
+
+
 def test_harness_package_imports():
     import ocd_core.harness as h
     assert h is not None
-
-
-import os
-import pytest
-from pathlib import Path
-from ocd_core.harness import workspace_fs as wfs
 
 
 def test_resolves_normal_child(tmp_path):
@@ -54,3 +55,9 @@ def test_rejects_symlink_escape(tmp_path):
 
 def test_empty_path_returns_root(tmp_path):
     assert wfs.resolve_in_workspace(tmp_path, "") == tmp_path.resolve()
+
+
+def test_rejects_nonexistent_segment_then_parent_escape(tmp_path):
+    # A non-existent leading segment followed by .. must not escape (POSIX realpath case).
+    with pytest.raises(wfs.JailError):
+        wfs.resolve_in_workspace(tmp_path, "fakedir/../../outside/secret.txt")

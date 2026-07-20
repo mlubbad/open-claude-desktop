@@ -832,6 +832,16 @@ git add backend/ocd_core/harness/workspace_fs.py backend/tests/test_harness_fs_t
 git commit -m "feat(harness): file-tool specs + run_fs_tool dispatcher"
 ```
 
+> **Post-review fixes (2026-07-20) — applied during execution; the commits are the authoritative record, not the code blocks above.** Two-stage review of Tasks 3-7 found and fixed, on top of the code shown:
+> - **`glob` jail escape** (`2e27af8`): `Path.glob("../../*")` escaped the workspace and an absolute pattern crashed. Fixed by wrapping `root_real.glob` in `try/except (NotImplementedError, ValueError)` → error dict, and re-jailing every hit via `p.resolve(strict=False).relative_to(root_real)` (skip outside hits). Same lexical-`relative_to` root cause as the two jail bugs in Task 2.
+> - **`grep(mode="count")` always returned 0** (`fc134cb`, Critical): the match counter was gated behind the content branch. Now counts unconditionally.
+> - **`grep` path scoping** (`fc134cb`): a nonexistent `path` silently searched the root; a file `path` scoped to its parent dir. Now: dir→scan dir, file→scan just that file, missing→error. Also `line.rstrip()` (was `strip()`) to preserve indentation.
+> - **`edit_file` robustness** (`fc134cb`): guards non-UTF-8 (was an uncaught `UnicodeDecodeError`) and rejects `old_string == new_string` no-ops.
+> - **`read_file` path field** (`fc134cb`): reports the full workspace-relative path (was the bare basename) — matches `edit_file`/`write_file`.
+> - **`run_fs_tool` offset/limit** (`fc134cb`): coerces in `try/except (TypeError, ValueError)` → error dict (was an uncaught raise on non-numeric); `limit:0` now flows to `read_file`'s clamp. Extracted `_key_for(target)` as the single case-fold key formula.
+>
+> **Deferred fast-follow (not a P1 blocker):** `glob`/`grep` walk the whole tree then filter `_IGNORE_DIRS` — for large `.git`/`node_modules` they pay the full walk. Convert `_iter_files` to `os.walk` with `dirnames[:]` pruning (and a manual pruned walk for `glob`) in a follow-up. Correctness is fine; this is pure scalability.
+
 ---
 
 ## Task 8: Permission modes + rule engine

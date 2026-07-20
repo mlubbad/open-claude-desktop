@@ -34,3 +34,39 @@ def resolve_in_workspace(root: Path, user_path: str) -> Path:
     except ValueError:
         raise JailError(f"path escapes workspace: {user_path!r}") from None
     return real
+
+
+MAX_READ_LINES = 2000
+MAX_LINE_CHARS = 2000
+
+
+def _ok(**kw):
+    return {"ok": True, **kw}
+
+
+def _err(msg: str):
+    return {"ok": False, "error": msg}
+
+
+def read_file(root, user_path, offset: int = 1, limit: int = MAX_READ_LINES):
+    """Read a text file, returning cat -n style numbered lines from ``offset`` (1-based)."""
+    try:
+        target = resolve_in_workspace(root, user_path)
+    except JailError:
+        return _err("path is outside the workspace")
+    if not target.is_file():
+        return _err(f"file not found: {user_path}")
+    try:
+        data = target.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        return _err("file is not UTF-8 text")
+    lines = data.splitlines()
+    start = max(1, offset)
+    chunk = lines[start - 1: start - 1 + max(1, limit)]
+    numbered = []
+    for i, line in enumerate(chunk, start=start):
+        if len(line) > MAX_LINE_CHARS:
+            line = line[:MAX_LINE_CHARS] + "…[truncated]"
+        numbered.append(f"{i}\t{line}")
+    return _ok(content="\n".join(numbered), path=target.name,
+               total_lines=len(lines), shown=len(chunk))

@@ -24,3 +24,31 @@ def test_read_file_missing(tmp_path):
 def test_read_file_outside_jail(tmp_path):
     out = wfs.read_file(tmp_path, "../x.txt")
     assert out["ok"] is False and "workspace" in out["error"].lower()
+
+
+def test_write_new_file_no_read_required(tmp_path):
+    seen = set()
+    out = wfs.write_file(tmp_path, "new.txt", "hello\n", read_paths=seen)
+    assert out["ok"] is True
+    assert (tmp_path / "new.txt").read_text() == "hello\n"
+
+
+def test_overwrite_requires_prior_read(tmp_path):
+    (tmp_path / "e.txt").write_text("old\n")
+    seen = set()
+    out = wfs.write_file(tmp_path, "e.txt", "new\n", read_paths=seen)
+    assert out["ok"] is False and "read" in out["error"].lower()
+
+
+def test_overwrite_after_read_succeeds(tmp_path):
+    (tmp_path / "e.txt").write_text("old\n")
+    seen = set()
+    wfs.read_file(tmp_path, "e.txt")
+    seen.add(wfs.canonical_key(tmp_path, "e.txt"))
+    out = wfs.write_file(tmp_path, "e.txt", "new\n", read_paths=seen)
+    assert out["ok"] is True and (tmp_path / "e.txt").read_text() == "new\n"
+
+
+def test_write_creates_parent_dirs(tmp_path):
+    out = wfs.write_file(tmp_path, "a/b/c.txt", "x\n", read_paths=set())
+    assert out["ok"] is True and (tmp_path / "a" / "b" / "c.txt").is_file()

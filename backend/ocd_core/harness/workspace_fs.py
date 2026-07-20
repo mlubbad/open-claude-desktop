@@ -70,3 +70,26 @@ def read_file(root, user_path, offset: int = 1, limit: int = MAX_READ_LINES):
         numbered.append(f"{i}\t{line}")
     return _ok(content="\n".join(numbered), path=target.name,
                total_lines=len(lines), shown=len(chunk))
+
+
+def canonical_key(root, user_path) -> str:
+    """A stable per-file identity for read-tracking (real path, posix, case-folded)."""
+    target = resolve_in_workspace(root, user_path)
+    return target.as_posix().casefold()
+
+
+def write_file(root, user_path, content: str, read_paths: set):
+    """Create or overwrite a file. Overwriting an existing file requires it to have been
+    read this turn (its key present in ``read_paths``) — Claude Code's anti-clobber guard.
+    On success the file's key is added to ``read_paths`` (a write implies you now know it)."""
+    try:
+        target = resolve_in_workspace(root, user_path)
+        key = target.as_posix().casefold()
+    except JailError:
+        return _err("path is outside the workspace")
+    if target.exists() and key not in read_paths:
+        return _err("must read the file before overwriting it (call read_file first)")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(content, encoding="utf-8")
+    read_paths.add(key)
+    return _ok(path=user_path, bytes=len(content.encode("utf-8")))

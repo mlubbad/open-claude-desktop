@@ -65,7 +65,12 @@ def test_backup_is_atomic_and_a_failure_keeps_the_prior_snapshot(tmp_path, monke
 
 
 # ---- DB-fallback honesty -----------------------------------------------------------
-def test_readyz_reports_degraded_on_fallback(monkeypatch):
+def test_readyz_reports_degraded_on_fallback(monkeypatch, db):
+    # `db` pins DATABASE_URL to an isolated in-memory SQLite so the healthy baseline
+    # probe hits a real, reachable DB. Without it, /readyz probes whatever the ambient
+    # environment configures (e.g. a dev .env Postgres that isn't running), and the
+    # "ready" baseline flakes to "unavailable" — like its siblings test_diagnostics /
+    # test_count_all_conversations, this test needs the isolated DB.
     from app.main import app
     from fastapi.testclient import TestClient
     from ocd_core.db import engine

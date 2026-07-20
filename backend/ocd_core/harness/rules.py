@@ -19,7 +19,21 @@ _ALIASES = {"auto": "bypass", "ask": "default"}
 _MODES = {"default", "acceptEdits", "plan", "strict", "bypass"}
 # Bash commands auto-approved in acceptEdits (jailed cwd already constrains them).
 SAFE_BASH = {"ls", "cat", "head", "tail", "wc", "echo", "pwd", "grep", "find",
-             "sort", "uniq", "cut", "mkdir", "touch", "mv", "cp", "sed", "git"}
+             "sort", "uniq", "cut", "mkdir", "touch", "mv", "cp", "sed"}
+# git is subcommand-gated in acceptEdits: only read-only subcommands auto-approve;
+# push/commit/reset/rebase/clean etc. reach the network or destroy history -> they ask.
+GIT_READONLY = {"status", "log", "diff", "show", "branch", "ls-files",
+                "rev-parse", "blame", "remote"}
+
+
+def _bash_auto_allowed(cmd: str) -> bool:
+    """First-token allowlist for acceptEdits, with git gated by subcommand."""
+    parts = cmd.split()
+    if not parts:
+        return False
+    if parts[0] == "git":
+        return len(parts) > 1 and parts[1] in GIT_READONLY
+    return parts[0] in SAFE_BASH
 
 
 def normalize_mode(mode: str | None) -> str:
@@ -87,8 +101,8 @@ def gate(tool: str, args: dict, mode: str, ruleset: RuleSet) -> str:
     if tool in WRITE_TOOLS:
         return "allow" if mode == "acceptEdits" else "ask"
     if tool == "bash":
-        head = str((args or {}).get("command", "")).strip().split(" ", 1)[0]
-        if mode == "acceptEdits" and head in SAFE_BASH:
+        cmd = str((args or {}).get("command", "")).strip()
+        if mode == "acceptEdits" and _bash_auto_allowed(cmd):
             return "allow"
         return "ask"
     return "ask"  # unknown/sensitive tool

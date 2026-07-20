@@ -80,3 +80,20 @@ def test_load_claude_rules_malformed(tmp_path):
     (tmp_path / ".claude" / "settings.json").write_text("{not json")
     rs = rules.load_claude_ruleset(tmp_path)  # must not raise
     assert isinstance(rs, rules.RuleSet)
+
+
+def test_accept_edits_auto_allows_readonly_git():
+    rs = rules.RuleSet()
+    assert rules.gate("bash", {"command": "git status"}, "acceptEdits", rs) == "allow"
+    assert rules.gate("bash", {"command": "git diff HEAD"}, "acceptEdits", rs) == "allow"
+
+
+def test_accept_edits_asks_for_git_write():
+    rs = rules.RuleSet()
+    assert rules.gate("bash", {"command": "git push --force origin main"}, "acceptEdits", rs) == "ask"
+    assert rules.gate("bash", {"command": "git reset --hard"}, "acceptEdits", rs) == "ask"
+    assert rules.gate("bash", {"command": "git commit -m x"}, "acceptEdits", rs) == "ask"
+
+
+def test_accept_edits_still_allows_safe_file_bash():
+    assert rules.gate("bash", {"command": "mkdir foo"}, "acceptEdits", rules.RuleSet()) == "allow"

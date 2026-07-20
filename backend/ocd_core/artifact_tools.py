@@ -45,13 +45,23 @@ CREATE_ARTIFACT_TOOL = {"type": "function", "function": {
 
 UPDATE_ARTIFACT_TOOL = {"type": "function", "function": {
     "name": "update_artifact",
-    "description": "Revise an existing artifact, producing a new version. Provide the FULL "
-                   "updated content (not a diff).",
+    "description": "Revise an existing artifact, producing a new version. For small "
+                   "changes (fewer than ~20 lines and fewer than 5 locations), send "
+                   "old_str/new_str — old_str must match the current content EXACTLY "
+                   "and appear EXACTLY once. For larger or structural changes, send "
+                   "the FULL updated content instead (a complete rewrite, not a diff).",
     "parameters": {"type": "object", "properties": {
         "id": {"type": "string", "description": "The artifact id to update."},
         "title": {"type": "string", "description": "Optional new title."},
-        "content": {"type": "string", "description": "The COMPLETE updated content."}},
-        "required": ["id", "content"]}}}
+        "old_str": {"type": "string",
+                    "description": "Exact existing text to replace; must appear exactly "
+                                   "once in the artifact."},
+        "new_str": {"type": "string",
+                    "description": "Replacement text for old_str (empty deletes it)."},
+        "content": {"type": "string",
+                    "description": "The COMPLETE updated content (full rewrite). "
+                                   "Overrides old_str/new_str if both are sent."}},
+        "required": ["id"]}}}
 
 TOOL_SPECS = [CREATE_ARTIFACT_TOOL, UPDATE_ARTIFACT_TOOL]
 TOOL_NAMES = frozenset(t["function"]["name"] for t in TOOL_SPECS)
@@ -97,13 +107,32 @@ def create(args: dict, store: dict, artifact_id: str | None = None) -> dict:
 
 
 def update(args: dict, store: dict) -> tuple[dict | None, str | None]:
-    """Revise an existing artifact (new version). Returns (doc, error)."""
+    """Revise an existing artifact (new version). Returns (doc, error).
+
+    Two modes, mirroring Claude's artifacts contract: full ``content`` (rewrite), or
+    ``old_str``/``new_str`` (targeted replacement, exactly-once). Errors leave the
+    stored document untouched so the model can retry.
+    """
     aid = (args.get("id") or "").strip()
     doc = store.get(aid)
     if not doc:
         return None, f"No artifact with id '{aid}'. Create one first."
     if args.get("content") is not None:
-        doc["content"] = strip_code_fence(args["content"])
+        content = strip_code_fence(args["content"])
+    elif args.get("old_str") is not None:
+        old, new = args["old_str"], args.get("new_str") or ""
+        n = doc["content"].count(old)
+        if n == 0:
+            return None, (f"old_str not found in artifact '{aid}'. Send the exact "
+                          "existing text, or the full replacement content.")
+        if n > 1:
+            return None, (f"old_str appears {n} times in artifact '{aid}' — it must be "
+                          "unique. Include more surrounding context.")
+        content = doc["content"].replace(old, new, 1)
+    else:
+        return None, ("Provide either old_str/new_str (targeted change) or content "
+                      "(full rewrite).")
+    doc["content"] = content
     if args.get("title"):
         doc["title"] = args["title"].strip()
     doc["version"] += 1

@@ -93,6 +93,72 @@ class TestStripCodeFence:
         assert b["content"] == "flowchart TD; A --> B;"
 
 
+class TestTargetedUpdate:
+    """Claude Gen-2 `update` semantics: old_str/new_str replacement with the
+    exactly-once contract; full `content` remains the rewrite path."""
+
+    def _store(self) -> dict:
+        store: dict = {}
+        artifact_tools.create(
+            {"title": "Doc", "kind": "markdown",
+             "content": "# Title\n\nalpha\nbeta\ngamma\n"}, store)
+        return store
+
+    def test_old_str_replaces_and_bumps_version(self):
+        store = self._store()
+        doc, err = artifact_tools.update(
+            {"id": "art1", "old_str": "beta", "new_str": "BETA"}, store)
+        assert err is None
+        assert doc["version"] == 2
+        assert store["art1"]["content"] == "# Title\n\nalpha\nBETA\ngamma\n"
+
+    def test_old_str_not_found_errors(self):
+        doc, err = artifact_tools.update(
+            {"id": "art1", "old_str": "delta", "new_str": "x"}, self._store())
+        assert doc is None and err is not None and "not found" in err
+
+    def test_ambiguous_old_str_errors_with_count(self):
+        store: dict = {}
+        artifact_tools.create(
+            {"title": "D", "kind": "markdown", "content": "x y x"}, store)
+        doc, err = artifact_tools.update(
+            {"id": "art1", "old_str": "x", "new_str": "z"}, store)
+        assert doc is None and err is not None
+        assert "2" in err and "unique" in err
+        assert store["art1"]["content"] == "x y x"  # unchanged on error
+        assert store["art1"]["version"] == 1
+
+    def test_full_content_wins_over_old_str(self):
+        store = self._store()
+        doc, err = artifact_tools.update(
+            {"id": "art1", "content": "rewritten", "old_str": "alpha",
+             "new_str": "A"}, store)
+        assert err is None and doc["content"] == "rewritten"
+
+    def test_new_str_is_literal_not_fence_stripped(self):
+        store = self._store()
+        doc, err = artifact_tools.update(
+            {"id": "art1", "old_str": "beta", "new_str": "```code```"}, store)
+        assert err is None and "```code```" in doc["content"]
+
+    def test_empty_new_str_deletes(self):
+        store = self._store()
+        doc, err = artifact_tools.update(
+            {"id": "art1", "old_str": "beta\n", "new_str": ""}, store)
+        assert err is None
+        assert doc["content"] == "# Title\n\nalpha\ngamma\n"
+
+    def test_schema_declares_targeted_fields(self):
+        props = artifact_tools.UPDATE_ARTIFACT_TOOL["function"]["parameters"]["properties"]
+        assert "old_str" in props and "new_str" in props
+        required = artifact_tools.UPDATE_ARTIFACT_TOOL["function"]["parameters"]["required"]
+        assert "content" not in required and "id" in required
+
+    def test_update_with_neither_content_nor_old_str_errors(self):
+        doc, err = artifact_tools.update({"id": "art1"}, self._store())
+        assert doc is None and err is not None
+
+
 def test_completion_events_emit_artifact_triple():
     out = {
         "id": "c1", "name": "create_artifact", "ok": True, "summary": "Chart · html",

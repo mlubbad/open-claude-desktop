@@ -544,15 +544,23 @@ async def _llm_create(llm, model, messages, tools=None, temperature=0.1,
 class _ToolCallObj:
     """Mimics an OpenAI tool_call object, reassembled from streaming deltas."""
 
-    def __init__(self, id, name, arguments):
+    def __init__(self, id, name, arguments, extra_content=None):
         self.id = id or ""
         self.type = "function"
         self.function = types.SimpleNamespace(name=name or "", arguments=arguments or "")
+        # Google's compat endpoints attach the call's thought signature here
+        # ({"google": {"thought_signature": …}}); Gemini 3 rejects the turn's next
+        # request (400) unless it is replayed on the same call, so model_dump —
+        # the exact dict run_turn replays as history — must carry it through.
+        self.extra_content = extra_content
 
     def model_dump(self):
-        return {"id": self.id, "type": "function",
-                "function": {"name": self.function.name,
-                             "arguments": self.function.arguments}}
+        d = {"id": self.id, "type": "function",
+             "function": {"name": self.function.name,
+                          "arguments": self.function.arguments}}
+        if self.extra_content:
+            d["extra_content"] = self.extra_content
+        return d
 
 
 async def _stream_chunks(llm, model, messages, tools, temperature, max_tokens,
@@ -676,7 +684,8 @@ async def _stream_llm(llm, model, messages, tools=None, temperature=0.1,
                     yield {"type": "delta", "scope": "think", "text": rc}
                 for tcd in (getattr(delta, "tool_calls", None) or []):
                     acc = tool_acc.setdefault(tcd.index,
-                                              {"id": "", "name": "", "arguments": ""})
+                                              {"id": "", "name": "", "arguments": "",
+                                               "extra_content": None})
                     if getattr(tcd, "id", None):
                         acc["id"] = tcd.id
                     fn = getattr(tcd, "function", None)
@@ -685,6 +694,12 @@ async def _stream_llm(llm, model, messages, tools=None, temperature=0.1,
                             acc["name"] = fn.name
                         if getattr(fn, "arguments", None):
                             acc["arguments"] += fn.arguments
+                    # Gemini/Vertex thought signature (any delta of the call may
+                    # carry it; direct attr or SDK model_extra, like reasoning_of).
+                    ec = getattr(tcd, "extra_content", None) or \
+                        (getattr(tcd, "model_extra", None) or {}).get("extra_content")
+                    if ec:
+                        acc["extra_content"] = ec
                     # True artifact streaming: as the create/update args accumulate, emit
                     # the content live so the side panel fills in as the model writes it.
                     # Requires a known tool-call id so the streamed id matches the final one.
@@ -702,7 +717,8 @@ async def _stream_llm(llm, model, messages, tools=None, temperature=0.1,
                         if art_delta:
                             yield {"type": "artifact_delta", "id": art.artifact_id,
                                    "text": art_delta}
-            tool_calls = [_ToolCallObj(a["id"] or f"call_{i}", a["name"], a["arguments"])
+            tool_calls = [_ToolCallObj(a["id"] or f"call_{i}", a["name"], a["arguments"],
+                                       extra_content=a.get("extra_content"))
                           for i, a in sorted(tool_acc.items())]
             note = (f"Model '{model}' is unavailable — fell back to {fallback_model}."
                     if m != model else None)

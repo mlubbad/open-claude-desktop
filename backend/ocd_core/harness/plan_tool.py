@@ -12,19 +12,30 @@ class Plan:
         self._items: list[dict] = []
 
     def apply(self, args: dict) -> dict:
-        op = (args or {}).get("op")
+        args = args or {}
+        op = args.get("op")
         if op == "set":
-            items = args.get("items") or []
-            self._items = [
-                {"id": i + 1, "subject": str(it.get("subject", "")).strip(),
-                 "status": it.get("status", "pending") if it.get("status") in _STATUSES else "pending"}
-                for i, it in enumerate(items)]
+            items = args.get("items")
+            if not isinstance(items, list):
+                return {"ok": False, "error": "items must be a list"}
+            self._items = []
+            for i, it in enumerate(items):
+                if not isinstance(it, dict):
+                    return {"ok": False, "error": "each item must be an object"}
+                status = it.get("status")
+                self._items.append({
+                    "id": i + 1,
+                    "subject": str(it.get("subject", "")).strip(),
+                    "status": status if status in _STATUSES else "pending"})
             return {"ok": True, "count": len(self._items)}
         if op == "update":
-            iid = args.get("id")
             status = args.get("status")
             if status not in _STATUSES:
                 return {"ok": False, "error": f"bad status: {status}"}
+            try:
+                iid = int(args.get("id"))
+            except (TypeError, ValueError):
+                return {"ok": False, "error": "id must be an integer"}
             for it in self._items:
                 if it["id"] == iid:
                     it["status"] = status

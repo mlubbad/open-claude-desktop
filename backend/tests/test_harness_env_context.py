@@ -24,3 +24,12 @@ def test_build_no_git_is_safe(tmp_path):
     # No .git dir -> no crash, no git section.
     text = env_context.build(tmp_path)
     assert isinstance(text, str) and "WORKSPACE" in text
+
+
+def test_build_survives_git_decode_error(tmp_path, monkeypatch):
+    import subprocess
+    def boom(*a, **k):
+        raise UnicodeDecodeError("utf-8", b"\xff", 0, 1, "bad")
+    monkeypatch.setattr(subprocess, "run", boom)
+    text = env_context.build(tmp_path)   # must not raise
+    assert isinstance(text, str) and "WORKSPACE" in text

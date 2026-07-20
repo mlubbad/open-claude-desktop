@@ -29,3 +29,13 @@ def test_rules_roundtrip(tmp_path, monkeypatch):
     ws = wr.register(str(tmp_path / "p"))
     wr.set_rules(ws["id"], {"allow": ["bash(git *)"], "deny": [], "ask": []})
     assert wr.get(ws["id"])["rules"]["allow"] == ["bash(git *)"]
+
+
+def test_newly_registered_is_most_recent(tmp_path, monkeypatch):
+    monkeypatch.setattr(wr, "_STORE", tmp_path / "workspaces.json")
+    a = wr.register(str(tmp_path / "a"))
+    wr.register(str(tmp_path / "b"))
+    wr.touch(a["id"])
+    wr.touch(a["id"])
+    c = wr.register(str(tmp_path / "c"))
+    assert wr.list_recents()[0]["id"] == c["id"]

@@ -43,3 +43,60 @@ def test_restore_new_file_deletes_it(tmp_path):
 def test_list_empty_turn(tmp_path):
     cp = checkpoints.CheckpointStore(tmp_path / "ckpt")
     assert cp.list("unknown") == []
+
+
+def test_restore_is_fault_tolerant(tmp_path):
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    (ws / "a.txt").write_text("a-orig\n")
+    (ws / "b.txt").write_text("b-orig\n")
+    cp = checkpoints.CheckpointStore(tmp_path / "ckpt")
+    cp.snapshot_before_edit("t", ws, "a.txt")
+    cp.snapshot_before_edit("t", ws, "b.txt")
+    (ws / "a.txt").write_text("a-changed\n")
+    (ws / "b.txt").write_text("b-changed\n")
+    d = cp._ckpt_dir("t")
+    next(p for p in d.iterdir() if p.suffix == ".blob").unlink()   # corrupt ONE blob
+    n = cp.restore("t", ws, what="files")   # must not raise
+    assert n >= 1   # the surviving entry restored
+
+
+def test_list_unknown_creates_no_dir(tmp_path):
+    cp = checkpoints.CheckpointStore(tmp_path / "ckpt")
+    assert cp.list("never") == []
+    assert not (tmp_path / "ckpt" / "never").exists()
+
+
+def test_malformed_manifest_does_not_crash(tmp_path):
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    cp = checkpoints.CheckpointStore(tmp_path / "ckpt")
+    d = tmp_path / "ckpt" / "t"
+    d.mkdir(parents=True)
+    (d / "manifest.json").write_text("[1, 2, 3]")   # valid JSON, wrong shape
+    assert cp.list("t") == []
+    assert cp.restore("t", ws, what="files") == 0
+
+
+def test_checkpoint_id_with_separators_stays_in_store(tmp_path):
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    (ws / "a.txt").write_text("x\n")
+    cp = checkpoints.CheckpointStore(tmp_path / "ckpt")
+    cp.snapshot_before_edit("../evil", ws, "a.txt")
+    assert not (tmp_path / "evil").exists()   # no dir created outside the store root
+
+
+def test_checkpoint_id_dotdot_alone_is_neutralized(tmp_path):
+    # Path("..").name == ".." (unlike "../evil" -> "evil"), so a bare ".." checkpoint_id
+    # is NOT reduced by a plain Path(id).name sanitizer -- verified empirically against
+    # this Python's pathlib. self.root / ".." is the store root's PARENT directory, so an
+    # unguarded sanitizer would let snapshot_before_edit write manifest.json/blobs there.
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    (ws / "a.txt").write_text("x\n")
+    cp = checkpoints.CheckpointStore(tmp_path / "ckpt")
+    cp.snapshot_before_edit("..", ws, "a.txt")
+    assert not (tmp_path / "manifest.json").exists()   # nothing escaped to ckpt's parent
+    assert not (tmp_path / "0.blob").exists()
+    assert cp.list("..")[0]["files"] == ["a.txt"]   # consistently bucketed, still round-trips

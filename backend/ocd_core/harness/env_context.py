@@ -15,9 +15,9 @@ _IGNORE = {".git", "node_modules", "__pycache__", ".venv", "venv", "dist", "buil
 def _git(root: Path, *args: str) -> str:
     try:
         out = subprocess.run(["git", *args], cwd=root, capture_output=True,
-                             text=True, timeout=5)
+                             text=True, errors="replace", timeout=5)
         return out.stdout.strip() if out.returncode == 0 else ""
-    except (OSError, subprocess.SubprocessError):
+    except (OSError, subprocess.SubprocessError, ValueError):
         return ""
 
 

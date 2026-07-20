@@ -33,7 +33,8 @@ def register(root: str) -> dict:
             return w
     ws = {"id": wid, "root": str(Path(root).resolve()),
           "rules": {"allow": [], "deny": [], "ask": []},
-          "protected": list(_DEFAULT_PROTECTED), "last_used": len(data["workspaces"])}
+          "protected": list(_DEFAULT_PROTECTED),
+          "last_used": max((w.get("last_used", 0) for w in data["workspaces"]), default=0) + 1}
     data["workspaces"].append(ws)
     _save(data)
     return ws

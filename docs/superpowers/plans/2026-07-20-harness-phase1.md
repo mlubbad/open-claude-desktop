@@ -1113,6 +1113,8 @@ git add backend/ocd_core/harness/rules.py backend/tests/test_harness_rules.py
 git commit -m "feat(harness): import .claude/settings.json permission rules"
 ```
 
+> **Post-review fix (2026-07-20) — `a557ac8`.** Two-stage review found `acceptEdits` auto-approved `git push --force` / `git reset --hard` (the `SAFE_BASH` first-token check saw only `git`). `git push` reaches the network, entirely outside the workspace jail. Fixed: bare `git` removed from `SAFE_BASH`; a `GIT_READONLY` allowlist + `_bash_auto_allowed(cmd)` helper now auto-approve only read-only git subcommands (`status`/`diff`/`log`/…), while `push`/`commit`/`reset`/etc. fall through to `ask`. Note `rm` was never in `SAFE_BASH`, so `rm -rf` already prompts. The residual "bash args aren't jailed" concern is handled at wiring time — see the REQUIRED safety note in Task 14 Step 3c.
+
 ---
 
 ## Task 10: Checkpoint store
@@ -1804,6 +1806,18 @@ At the gate (`agent.py:~1629`), before the existing `permissions.requires_approv
                     calls.append((tc.id, name, args)); continue
                 # _decision == "ask" -> fall through to the existing HITL prompt below
 ```
+
+> **REQUIRED (safety — carried from the Task 8 review): an `allow` from the gate must NOT
+> bypass the catastrophic-command circuit breaker for `bash`.** The rules gate operates on
+> the command's first token / git subcommand; it does not parse arguments, and `bash` args
+> are NOT jailed (only its cwd is set). So a rule/mode `allow` for `bash` must still be
+> subject to the existing hard block on `rm -rf /`, `rm -rf ~`, and the like. When wiring
+> this: if `name == "bash"` and the gate returned `allow`, still run the existing
+> dangerous-pattern check (reuse whatever `agent.py`/`permissions` already uses as the
+> circuit breaker — grep for `rm -rf` / the existing bash guard) and force `ask` (or deny)
+> if it trips, regardless of mode. Add a test: `bash` `rm -rf /` under `bypass`/`acceptEdits`
+> must not auto-run. This closes the residual hole that `acceptEdits`' first-token bash
+> allowlist (mkdir/touch/mv/cp/sed) can't see argument-level danger.
 
 After a harness tool runs, emit `tool_call` and (for edits) `file_diff` and (for plan) `plan_update`. In the results-emitting loop (where `tool_result` events are yielded), add:
 

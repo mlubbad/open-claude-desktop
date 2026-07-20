@@ -192,3 +192,13 @@ durable queue, per-workspace behavior, single-node caveats): `docs/hosted-deploy
   was **deleted** 2026-07-20; its tip is preserved at commit
   `94f4dfb3e10a95f963cd7880e224d3852e945251`, restorable with
   `git push origin 94f4dfb3e10a95f963cd7880e224d3852e945251:refs/heads/dev-main`.
+- Branch hygiene: delete a feature branch once its PR is merged (squash merges leave
+  it dangling — `git branch -r --merged` won't flag it, so go by PR state, not the git
+  graph). `main` and the current working branch are the only refs that should linger.
+  A stale-branch sweep was done 2026-07-20; the merged head branches for PRs #26–#30,
+  #80–#85, #93, #95 were retired, plus two chore branches — the abandoned PR-#91
+  gitleaks-allowlist branch (superseded by #89) and the never-PR'd
+  `chore/dev-launch-config` (a 17-line `.claude/launch.json`, tip
+  `2bbe023de0095e02b152896e4a0840930cda10b2` if it's ever wanted back). The remote is
+  now exactly `main` + the active working branch — restore that as the steady state
+  after any future sweep.

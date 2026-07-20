@@ -10,10 +10,13 @@ references:
     are behavior-identical — confirmed in a prior slice)
 
 NOTE: started as a faithful move of the Reflex execute_sql. The per-project
-allowlist guard (sql_guard.tables_off_allowlist) is now wired in here, hardened
-to parsed referenced_tables from the dry-run so commented/quoted table names
-can't bypass it. The salvaged rate-limit (observability.check_rate_limit) guard
-is still deliberately NOT wired in — it stays available for a later phase.
+allowlist guard (sql_guard.tables_off_allowlist) is wired in here, hardened to
+parsed referenced_tables from the dry-run so commented/quoted table names can't
+bypass it. Dataset-scope enforcement (sql_guard.datasets_out_of_scope against
+config.CATALOG_DATASETS) is applied UNCONDITIONALLY -- the always-on backstop the
+optional per-project allowlist can't be. The per-user rate limit
+(observability.check_rate_limit) is enforced by the callers that carry a user
+identity (app/routes/sql.py and /agent/turn), not in this UI-agnostic helper.
 """
 from __future__ import annotations
 
@@ -24,7 +27,7 @@ import time
 from . import config, util
 from .observability import observe
 from .projects import get_project_allowlist
-from .sql_guard import check_banned_aliases, tables_off_allowlist
+from .sql_guard import check_banned_aliases, datasets_out_of_scope, tables_off_allowlist
 
 _bq_client = None
 _bq_lock = threading.Lock()
@@ -105,6 +108,16 @@ def execute_sql(sql: str, active_project: str | None = None) -> dict:
     if not ok:
         return {"ok": False, "stmt": stmt, "error": err, "auth_expired": needs_reauth(err),
                 "agent_text": f"VALIDATION FAILED (0 rows scanned). Fix and retry.\nError: {err}"}
+
+    # Unconditional dataset-scope guard: confine every query to the configured
+    # catalog datasets regardless of whether the client supplied a project. This
+    # is the always-on backstop the optional per-project allowlist below cannot be.
+    scope_off = datasets_out_of_scope(refs, config.CATALOG_DATASETS)
+    if scope_off:
+        return {"ok": False, "error": "scope",
+                "agent_text": (f"SQL REJECTED: references tables outside the allowed "
+                               f"datasets ({', '.join(scope_off)}). Allowed datasets: "
+                               f"{', '.join(config.CATALOG_DATASETS)}.")}
 
     if active_project:
         allow = get_project_allowlist(active_project)

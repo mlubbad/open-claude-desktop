@@ -48,6 +48,21 @@ def test_tables_out_of_scope():
     assert g.tables_out_of_scope([Tbl("other", "ds_ok", "t")], allowed) != []
 
 
+def test_datasets_out_of_scope():
+    allowed = ["aj360", "aj360_platform"]
+    assert g.datasets_out_of_scope(["aj360.events"], allowed) == []
+    assert g.datasets_out_of_scope(["aj360_platform.users", "aj360.x"], allowed) == []
+    assert g.datasets_out_of_scope(["AJ360.Events"], allowed) == []
+    assert g.datasets_out_of_scope(["secret_ds.pii", "aj360.ok"], allowed) == ["secret_ds.pii"]
+    # No table refs (e.g. SELECT 1) reads no data -> in scope; empty allowed -> unrestricted.
+    assert g.datasets_out_of_scope([], allowed) == []
+    assert g.datasets_out_of_scope(None, allowed) == []
+    assert g.datasets_out_of_scope(["secret_ds.pii"], []) == []
+    # project.dataset.table: the dataset is the middle component.
+    assert g.datasets_out_of_scope(["proj.aj360.events"], allowed) == []
+    assert g.datasets_out_of_scope(["proj.secret_ds.t"], allowed) == ["proj.secret_ds.t"]
+
+
 if __name__ == "__main__":
     funcs = [v for k, v in sorted(globals().items())
              if k.startswith("test_") and callable(v)]

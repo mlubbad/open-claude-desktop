@@ -177,3 +177,56 @@ def test_glob_deep_parent_escape_blocked(tmp_path):
 def test_glob_absolute_pattern_errors(tmp_path):
     out = wfs.glob(tmp_path, "C:/Windows/*" if os.name == "nt" else "/etc/*")
     assert out["ok"] is False and "pattern" in out["error"].lower()
+
+
+def test_grep_count_mode_counts_matches(tmp_path):
+    (tmp_path / "a.py").write_text("TODO one\nTODO two\n")
+    (tmp_path / "b.py").write_text("TODO three\n")
+    out = wfs.grep(tmp_path, "TODO", mode="count")
+    assert out["ok"] is True and out["count"] == 3
+
+
+def test_grep_path_to_single_file_scopes_to_it(tmp_path):
+    (tmp_path / "target.py").write_text("NEEDLE\n")
+    (tmp_path / "other.py").write_text("NEEDLE\n")
+    out = wfs.grep(tmp_path, "NEEDLE", path="target.py", mode="files")
+    assert out["files"] == ["target.py"]
+
+
+def test_grep_nonexistent_path_errors(tmp_path):
+    (tmp_path / "s.py").write_text("SECRET\n")
+    out = wfs.grep(tmp_path, "SECRET", path="nope_subdir")
+    assert out["ok"] is False and "not found" in out["error"].lower()
+
+
+def test_grep_preserves_indentation(tmp_path):
+    (tmp_path / "a.py").write_text("    indented = 1\n")
+    out = wfs.grep(tmp_path, "indented")
+    assert any("    indented" in m for m in out["matches"])
+
+
+def test_edit_file_rejects_identical_strings(tmp_path):
+    (tmp_path / "e.py").write_text("a = 1\n")
+    seen = {wfs.canonical_key(tmp_path, "e.py")}
+    out = wfs.edit_file(tmp_path, "e.py", "a = 1", "a = 1", read_paths=seen)
+    assert out["ok"] is False and "identical" in out["error"].lower()
+
+
+def test_edit_file_non_utf8_returns_error(tmp_path):
+    (tmp_path / "bin.dat").write_bytes(b"\xff\xfe\x00\x01")
+    seen = {wfs.canonical_key(tmp_path, "bin.dat")}
+    out = wfs.edit_file(tmp_path, "bin.dat", "x", "y", read_paths=seen)
+    assert out["ok"] is False
+
+
+def test_read_file_reports_full_relative_path(tmp_path):
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "app.py").write_text("x\n")
+    out = wfs.read_file(tmp_path, "src/app.py")
+    assert out["path"] == "src/app.py"
+
+
+def test_run_fs_tool_bad_offset_returns_error(tmp_path):
+    (tmp_path / "a.txt").write_text("hi\n")
+    out = wfs.run_fs_tool("read_file", {"path": "a.txt", "offset": "two"}, tmp_path, set())
+    assert out["ok"] is False

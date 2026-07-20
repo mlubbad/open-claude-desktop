@@ -70,14 +70,18 @@ def read_file(root, user_path, offset: int = 1, limit: int = MAX_READ_LINES):
         if len(line) > MAX_LINE_CHARS:
             line = line[:MAX_LINE_CHARS] + "…[truncated]"
         numbered.append(f"{i}\t{line}")
-    return _ok(content="\n".join(numbered), path=target.name,
+    return _ok(content="\n".join(numbered), path=user_path,
                total_lines=len(lines), shown=len(chunk))
+
+
+def _key_for(target: Path) -> str:
+    """Stable per-file identity for read-tracking (real posix path, case-folded)."""
+    return target.as_posix().casefold()
 
 
 def canonical_key(root, user_path) -> str:
     """A stable per-file identity for read-tracking (real path, posix, case-folded)."""
-    target = resolve_in_workspace(root, user_path)
-    return target.as_posix().casefold()
+    return _key_for(resolve_in_workspace(root, user_path))
 
 
 def write_file(root, user_path, content: str, read_paths: set):
@@ -86,7 +90,7 @@ def write_file(root, user_path, content: str, read_paths: set):
     On success the file's key is added to ``read_paths`` (a write implies you now know it)."""
     try:
         target = resolve_in_workspace(root, user_path)
-        key = target.as_posix().casefold()
+        key = _key_for(target)
     except JailError:
         return _err("path is outside the workspace")
     if target.exists() and key not in read_paths:
@@ -105,14 +109,19 @@ def edit_file(root, user_path, old_string: str, new_string: str,
     read_paths = read_paths if read_paths is not None else set()
     try:
         target = resolve_in_workspace(root, user_path)
-        key = target.as_posix().casefold()
+        key = _key_for(target)
     except JailError:
         return _err("path is outside the workspace")
     if not target.is_file():
         return _err(f"file not found: {user_path}")
     if key not in read_paths:
         return _err("must read the file before editing it (call read_file first)")
-    before = target.read_text(encoding="utf-8")
+    if old_string == new_string:
+        return _err("old_string and new_string are identical (no-op)")
+    try:
+        before = target.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        return _err("file is not UTF-8 text")
     count = before.count(old_string)
     if count == 0:
         return _err(f"old_string not found in {user_path}")
@@ -144,6 +153,8 @@ def _iter_files(root):
 
 
 def glob(root, pattern: str, max_results: int = MAX_GLOB):
+    """List workspace files matching a glob pattern (e.g. **/*.py). Jailed; bounded;
+    ignore-dirs skipped."""
     root_real = resolve_in_workspace(root, "")
     try:
         matched = list(root_real.glob(pattern))
@@ -166,6 +177,10 @@ def glob(root, pattern: str, max_results: int = MAX_GLOB):
 
 def grep(root, pattern: str, path: str = "", mode: str = "content",
          max_matches: int = MAX_GREP_MATCHES):
+    """Search workspace file contents with a regex. mode=content returns
+    'relpath:line:text' matches; files returns matching file paths; count returns the
+    total match count. Jailed to the workspace; bounded output. A bad regex or a
+    nonexistent path returns an error dict rather than raising."""
     try:
         base = resolve_in_workspace(root, path)
     except JailError:
@@ -174,10 +189,15 @@ def grep(root, pattern: str, path: str = "", mode: str = "content",
         rx = re.compile(pattern)
     except re.error as e:
         return _err(f"bad regex: {e}")
+    if base.is_dir():
+        candidates = _iter_files(base)
+    elif base.is_file():
+        candidates = [(base, None)]   # explicit single-file scope (ignore-dirs bypassed on purpose)
+    else:
+        return _err(f"path not found: {path}")
     root_real = resolve_in_workspace(root, "")
-    scan_root = base if base.is_dir() else base.parent
-    matches, files = [], []
-    for p, _rel in _iter_files(scan_root):
+    matches, files, total = [], [], 0
+    for p, _rel in candidates:
         try:
             text = p.read_text(encoding="utf-8")
         except (UnicodeDecodeError, OSError):
@@ -187,15 +207,16 @@ def grep(root, pattern: str, path: str = "", mode: str = "content",
         for ln, line in enumerate(text.splitlines(), start=1):
             if rx.search(line):
                 found = True
+                total += 1
                 if mode == "content" and len(matches) < max_matches:
-                    matches.append(f"{relp}:{ln}:{line.strip()[:300]}")
+                    matches.append(f"{relp}:{ln}:{line.rstrip()[:300]}")
         if found:
             files.append(relp)
     if mode == "files":
         return _ok(files=files[:max_matches], count=len(files))
     if mode == "count":
-        return _ok(count=len(matches))
-    return _ok(matches=matches, truncated=len(matches) >= max_matches)
+        return _ok(count=total)
+    return _ok(matches=matches, truncated=total > max_matches)
 
 
 FILE_TOOL_SPECS = [
@@ -250,8 +271,13 @@ def run_fs_tool(name: str, args: dict, root, read_paths: set) -> dict:
     read-before-modify guard."""
     a = args or {}
     if name == "read_file":
-        out = read_file(root, a.get("path", ""), int(a.get("offset", 1) or 1),
-                        int(a.get("limit", MAX_READ_LINES) or MAX_READ_LINES))
+        try:
+            offset = int(a.get("offset") or 1)
+            raw_limit = a.get("limit")
+            limit = int(raw_limit) if raw_limit is not None else MAX_READ_LINES
+        except (TypeError, ValueError):
+            return _err("offset and limit must be integers")
+        out = read_file(root, a.get("path", ""), offset, limit)
         if out.get("ok"):
             try:
                 read_paths.add(canonical_key(root, a.get("path", "")))

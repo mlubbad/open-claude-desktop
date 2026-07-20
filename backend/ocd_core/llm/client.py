@@ -66,6 +66,12 @@ def get_client(provider_id: str | None = None):
             from .anthropic_native import AnthropicNativeClient
             client: object = AnthropicNativeClient(api_key=api_key or "",
                                                    base_url=_base_url(pid))
+        elif pid == "vertex":
+            # OpenAI-compatible, but the endpoint is per-project/location and the
+            # bearer is a short-lived OAuth token — built in llm.vertex (pasted
+            # token verbatim, else ADC with auto-refresh).
+            from .vertex import build_client as build_vertex_client
+            client = build_vertex_client(api_key)
         else:
             from openai import OpenAI
             client = OpenAI(base_url=_base_url(pid), api_key=api_key or "not-needed")

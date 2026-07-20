@@ -32,6 +32,24 @@ def test_list_providers_no_key_leak(client, monkeypatch):
     assert all("key" not in p for p in body)
 
 
+def test_key_optional_provider_view(client, monkeypatch):
+    """Vertex AI renders as key-optional: usable without a key (ADC), with a setup
+    hint, and has_key reflecting the stored-token override, not usability."""
+    monkeypatch.delenv("VERTEX_AI_ACCESS_TOKEN", raising=False)
+    body = client.get("/providers").json()
+    vertex = next(p for p in body if p["id"] == "vertex")
+    assert vertex["requires_key"] is False
+    assert vertex["key_optional"] is True
+    assert vertex["key_hint"]
+    assert vertex["has_key"] is False
+    gemini = next(p for p in body if p["id"] == "gemini")
+    assert gemini["requires_key"] is True and gemini["key_optional"] is False
+    # Storing a token flips the badge state and never leaks the value.
+    client.put("/providers/vertex/key", json={"key": "tok-x"})
+    vertex = next(p for p in client.get("/providers").json() if p["id"] == "vertex")
+    assert vertex["has_key"] is True and "key" not in vertex
+
+
 def test_set_and_delete_key(client):
     r = client.put("/providers/openai/key", json={"key": "sk-secret"})
     assert r.json() == {"id": "openai", "has_key": True}

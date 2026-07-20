@@ -41,6 +41,11 @@ _RULES: tuple[tuple[str, Capabilities], ...] = (
     ("glm-4-long", Capabilities(1_000_000, 4_096, tools=True)),
     ("glm-4.5", Capabilities(128_000, 4_096, tools=True, reasoning=True)),
     ("glm-4", Capabilities(128_000, 4_096, tools=True)),
+    # Gemini ids appear bare (Gemini API) and google/-prefixed (Vertex AI); the
+    # prefix strip below makes one rule set serve both.
+    ("gemini-3", Capabilities(1_000_000, 65_536, vision=True, tools=True, reasoning=True)),
+    ("gemini-2.5", Capabilities(1_000_000, 65_536, vision=True, tools=True, reasoning=True)),
+    ("gemini", Capabilities(1_000_000, 8_192, vision=True, tools=True)),
     ("deepseek-reasoner", Capabilities(64_000, 8_192, tools=False, reasoning=True)),
     ("deepseek", Capabilities(64_000, 8_192, tools=True)),
     ("qwen", Capabilities(131_072, 8_192, tools=True)),

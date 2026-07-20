@@ -122,6 +122,10 @@ export interface ProviderInfo {
   label: string;
   is_local: boolean;
   requires_key: boolean;
+  // Key-optional providers (Vertex AI) authenticate without a stored key (ADC)
+  // but accept a pasted token as an override; key_hint explains the setup.
+  key_optional?: boolean;
+  key_hint?: string;
   has_key: boolean;
   default_model: string;
   models: string[];

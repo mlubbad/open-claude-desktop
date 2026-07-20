@@ -22,7 +22,8 @@ def _mem_store(monkeypatch):
 
 def test_registry_has_core_providers():
     ids = {p.id for p in llm.list_providers()}
-    for expected in ("openai", "zhipu", "deepseek", "ollama", "openrouter", "vllm"):
+    for expected in ("openai", "zhipu", "deepseek", "ollama", "openrouter", "vllm",
+                     "gemini", "vertex"):
         assert expected in ids
 
 

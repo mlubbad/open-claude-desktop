@@ -26,6 +26,11 @@ class Provider:
     requires_key: bool = True       # local runtimes accept any/no key
     is_local: bool = False
     docs: str = ""
+    # A provider that AUTHENTICATES without a stored key (e.g. Vertex AI via ADC)
+    # but still accepts one as an override: render the key box anyway, and explain
+    # the setup in one line on the card.
+    key_optional: bool = False
+    key_hint: str = ""
 
 
 # The built-in catalog. base_url values are the documented OpenAI-compatible
@@ -44,6 +49,32 @@ _BUILTINS: tuple[Provider, ...] = (
               "claude-opus-4-7", "claude-opus-4-6", "claude-sonnet-4-6",
               "claude-haiku-4-5", "claude-opus-4-5", "claude-sonnet-4-5"),
              docs="https://platform.claude.com/docs"),
+    # Google's consumer/AI-Studio API through its documented OpenAI-compatible
+    # surface. A long-lived API key (aistudio.google.com/apikey); GET /models works,
+    # so "Load models" pulls the live catalog. reasoning_effort maps to thinking.
+    Provider("gemini", "Google Gemini",
+             "https://generativelanguage.googleapis.com/v1beta/openai",
+             "GEMINI_API_KEY", "gemini-3.5-flash",
+             ("gemini-3.5-flash", "gemini-3.1-pro-preview", "gemini-3.1-flash-lite",
+              "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite"),
+             docs="https://ai.google.dev/gemini-api/docs"),
+    # Vertex AI (GCP): the same models project-scoped + IAM-governed, via the
+    # OpenAI-compatible endpoint. That endpoint takes OAuth bearer tokens (~1 h),
+    # NOT long-lived API keys — so auth is Application Default Credentials with
+    # auto-refresh (llm.vertex), and the key box is an OPTIONAL short-lived-token
+    # override. base_url is computed per project/location in llm.vertex; model ids
+    # keep their publisher prefix (google/…, and Model-Garden MaaS ids work too).
+    Provider("vertex", "Vertex AI", None,
+             "VERTEX_AI_ACCESS_TOKEN", "google/gemini-3.5-flash",
+             ("google/gemini-3.5-flash", "google/gemini-3.1-pro-preview",
+              "google/gemini-3.1-flash-lite", "google/gemini-2.5-pro",
+              "google/gemini-2.5-flash", "google/gemini-2.5-flash-lite"),
+             requires_key=False, key_optional=True,
+             key_hint=("Uses Google Cloud ADC (gcloud auth application-default "
+                       "login) with VERTEX_AI_PROJECT / GOOGLE_CLOUD_PROJECT and "
+                       "VERTEX_AI_LOCATION (default: global). Pasting a token "
+                       "(gcloud auth print-access-token, ~1 h) overrides ADC."),
+             docs="https://docs.cloud.google.com/vertex-ai/generative-ai/docs/migrate/openai/overview"),
     Provider("zhipu", "Zhipu GLM", "https://open.bigmodel.cn/api/paas/v4",
              "ZHIPU_API_KEY", "glm-4.6",
              # Newest first: GLM-5 reasoning flagships, then the GLM-4.5/4.6

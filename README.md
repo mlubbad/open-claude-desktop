@@ -15,7 +15,8 @@ models and keys** — open/hosted models of your choice, not a single vendor.
 > [`docs/superpowers/specs/2026-07-02-claude-desktop-clone-architecture.md`](docs/superpowers/specs/2026-07-02-claude-desktop-clone-architecture.md).
 > See the [full repository review](docs/reviews/2026-07-02-full-repository-review.md)
 > for the origin story and the 8-phase roadmap. **Done:** BYOK model-agnostic core
-> (any OpenAI-compatible provider — NVIDIA NIM (default, GLM-5.2), OpenAI, Groq,
+> (any OpenAI-compatible provider — NVIDIA NIM (default, GLM-5.2), OpenAI, Anthropic,
+> Google Gemini, Vertex AI (ADC), Groq,
 > OpenRouter, DeepSeek, Zhipu/GLM,
 > Together, Mistral, local Ollama/vLLM/LM Studio, …; keys in the OS keychain); a general
 > assistant with BigQuery as an **optional connector**; the **React/TypeScript + Tauri

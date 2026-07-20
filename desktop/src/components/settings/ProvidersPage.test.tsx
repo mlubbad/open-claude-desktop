@@ -19,6 +19,7 @@ vi.mock("../../api/client", () => ({
     list: vi.fn(async () => [{ ...OLLAMA }]),
     test: vi.fn(),
     setKey: vi.fn(),
+    deleteKey: vi.fn(async () => ({ id: "vertex", has_key: false })),
     availableModels: vi.fn(async () => ({ id: "ollama", ...available })),
   },
   settings: { get: vi.fn(async () => ({ ...stored })), save: (p: object) => saveSpy(p) },
@@ -101,5 +102,47 @@ describe("ProvidersPage — custom models", () => {
       ));
     // Only the genuinely new id is added; the existing built-in isn't duplicated.
     expect(await screen.findByRole("button", { name: "brand-new-model" })).toBeInTheDocument();
+  });
+});
+
+// Key-OPTIONAL providers (Vertex AI): usable without a key via cloud auth (ADC),
+// with the key box repurposed as an optional short-lived-token override.
+describe("ProvidersPage — key-optional providers", () => {
+  const VERTEX = {
+    id: "vertex", label: "Vertex AI", is_local: false, requires_key: false,
+    key_optional: true, key_hint: "Uses Google Cloud ADC; pasting a token overrides it.",
+    has_key: false, default_model: "google/gemini-3.5-flash",
+    models: ["google/gemini-3.5-flash"], docs: "", is_default: false,
+  };
+
+  beforeEach(async () => {
+    stored.custom_models = {};
+    stored.hidden_models = {};
+    stored.visible_models = {};
+    const { providers } = await import("../../api/client");
+    vi.mocked(providers.list).mockResolvedValue([{ ...VERTEX }]);
+    vi.mocked(providers.deleteKey).mockClear();
+  });
+
+  it("renders the optional token box, setup hint, and cloud-auth badge", async () => {
+    render(<ProvidersPage active={active} onPick={noop} />);
+    expect(
+      await screen.findByLabelText("Vertex AI access token (optional)"),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Uses Google Cloud ADC/)).toBeInTheDocument();
+    expect(screen.getByText("cloud auth")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Clear/ })).not.toBeInTheDocument();
+    // Usable without a key: Test / Load models / model picks are all enabled.
+    expect(screen.getByRole("button", { name: "Test" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "google/gemini-3.5-flash" })).toBeEnabled();
+  });
+
+  it("with a stored token shows 'token set' and Clear returns to ADC", async () => {
+    const { providers } = await import("../../api/client");
+    vi.mocked(providers.list).mockResolvedValue([{ ...VERTEX, has_key: true }]);
+    render(<ProvidersPage active={active} onPick={noop} />);
+    expect(await screen.findByText("token set")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+    await waitFor(() => expect(providers.deleteKey).toHaveBeenCalledWith("vertex"));
   });
 });

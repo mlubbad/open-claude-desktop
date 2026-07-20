@@ -159,6 +159,43 @@ class TestTargetedUpdate:
         assert doc is None and err is not None
 
 
+class TestSystemPromptSection:
+    """The prompt must carry Claude's artifact criteria plus truthful per-kind rules
+    for THIS runtime (roster kept in sync with the desktop import map)."""
+
+    def setup_method(self):
+        self.text = artifact_tools.system_prompt_section()
+
+    def test_thresholds_and_one_per_message(self):
+        assert "20 lines" in self.text
+        assert "one artifact per message" in self.text.lower()
+
+    def test_no_fence_rule(self):
+        assert "```" in self.text and "fence" in self.text.lower()
+
+    def test_mermaid_label_quoting_rule(self):
+        assert "double-quote" in self.text.lower()
+        assert "xychart" in self.text.lower()
+
+    def test_react_rules_and_roster(self):
+        for needle in ("default export", "localStorage", "recharts", "lucide-react",
+                       "d3", "papaparse", "Tailwind"):
+            assert needle in self.text, needle
+
+    def test_html_and_svg_rules(self):
+        assert "single" in self.text.lower() and "cdn" in self.text.lower()
+        assert "viewBox" in self.text
+
+    def test_targeted_update_guidance(self):
+        assert "old_str" in self.text
+
+    def test_keeps_csv_and_file_writing_guidance(self):
+        assert "kind=csv" in self.text
+        assert "code_execution" in self.text
+        for ext in ("xlsx", "docx", "pptx", "pdf"):
+            assert ext in self.text, ext
+
+
 def test_completion_events_emit_artifact_triple():
     out = {
         "id": "c1", "name": "create_artifact", "ok": True, "summary": "Chart · html",

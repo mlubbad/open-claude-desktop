@@ -69,21 +69,43 @@ TOOL_NAMES = frozenset(t["function"]["name"] for t in TOOL_SPECS)
 
 def system_prompt_section() -> str:
     return """# ARTIFACTS
-When you produce substantial, self-contained content the user will view, run, copy, \
-download, or iterate on — a complete HTML page, a React component, an SVG or Mermaid \
-diagram, a code file, a long Markdown document, or a DATA TABLE / spreadsheet — call \
-`create_artifact` with the FULL content instead of putting it inline in your reply. Keep \
-your chat message a brief description; the artifact opens in a side panel. To revise it, \
-call `update_artifact` with the artifact id and the complete new content. Use short inline \
-code blocks (not artifacts) for small snippets.
+Create an artifact (`create_artifact`) for substantial, self-contained content the user \
+will view, run, edit, or reuse outside the chat: content over ~20 lines or 1500 \
+characters — a complete HTML page, a React component, an SVG or Mermaid diagram, a code \
+file, a structured Markdown document, or a data table. Keep your chat message a brief \
+description; the artifact opens in a side panel. Do NOT create artifacts for short \
+snippets, explanations, or one-off answers — put those inline. At most one artifact per \
+message unless the user asks for more.
+
+Artifact content rules:
+- Send the COMPLETE raw source as `content`. NEVER wrap it in markdown code fences \
+(no ```); the panel renders raw source, and a fenced body breaks the preview.
+- mermaid: raw Mermaid source only. Double-quote EVERY label/title in xychart, pie and \
+similar diagrams — unquoted non-ASCII (Arabic, accents, CJK) or parenthesized labels are \
+parser errors. Labels can never contain a double quote; use ' instead.
+- react: one component with a default export and no required props. Style with Tailwind \
+utility classes. Available imports (nothing else is installed): react, recharts, \
+lucide-react, d3, lodash, papaparse, xlsx, mathjs, chart.js, tone, three. NEVER use \
+localStorage/sessionStorage — the sandbox blocks browser storage; keep state in React \
+state or variables.
+- html: one single self-contained file (inline CSS/JS). External scripts/styles only \
+from cdnjs.cloudflare.com or cdn.jsdelivr.net. Browser storage is blocked here too.
+- svg: set a viewBox rather than fixed width/height.
+- code: include the `language` argument.
+
+To revise an artifact, call `update_artifact` with its id: send `old_str`/`new_str` for \
+small edits (old_str must match exactly and appear exactly once) or the complete new \
+`content` for larger rewrites.
 
 When the user asks for a FILE, spreadsheet, or CSV of data, you MUST deliver it as an \
-artifact — never paste the rows into your chat reply and never tell the user to \
-copy-paste the text into a text editor and save it. For tabular data use \
-`create_artifact` with kind=csv (comma-separated; it renders as a table and downloads as \
-a .csv). If the data must be COMPUTED, merged, or read from files first, use the \
-`code_execution` tool to build it and write the file (e.g. `df.to_csv('out.csv', \
-index=False)`) — the file it writes is shown to the user as a downloadable artifact."""
+artifact or a produced file — never paste the rows into your chat reply and never tell \
+the user to copy-paste text into an editor. For tabular data use `create_artifact` with \
+kind=csv (comma-separated; it renders as a table and downloads as a .csv the user can \
+open in Excel/Sheets). If the data must be COMPUTED, merged, or read from files first — \
+or the user wants a real xlsx, docx, pptx, or pdf — use the `code_execution` tool to \
+build it and write the file (pandas/openpyxl `df.to_excel('out.xlsx')`, python-docx, \
+python-pptx, reportlab, `df.to_csv('out.csv', index=False)`); files it writes are shown \
+to the user as downloads."""
 
 
 def create(args: dict, store: dict, artifact_id: str | None = None) -> dict:

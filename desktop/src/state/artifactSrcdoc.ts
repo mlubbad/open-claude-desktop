@@ -90,6 +90,9 @@ export function rewriteExports(src: string): string {
 
 function cspMeta(scriptHosts: string): string {
   return (
+    // Charset first: srcdoc strings don't need it, but the same document survives
+    // byte-serialization intact (print path, future custom-protocol previews).
+    '<meta charset="utf-8">' +
     '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; ' +
     `script-src 'unsafe-inline' ${scriptHosts}; style-src 'unsafe-inline'; ` +
     "img-src data: https:; font-src data: https:\">" +

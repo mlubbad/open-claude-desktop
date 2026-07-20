@@ -129,6 +129,10 @@ describe("buildSrcDoc: mermaid", () => {
     expect(srcdoc).toContain("artifact-error");
     expect(srcdoc).toContain("catch");
   });
+
+  it("declares utf-8 so byte-serialized copies keep RTL text intact", () => {
+    expect(srcdoc).toContain('<meta charset="utf-8">');
+  });
 });
 
 describe("buildSrcDoc: react", () => {

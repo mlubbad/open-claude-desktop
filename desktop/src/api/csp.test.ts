@@ -28,3 +28,31 @@ describe("Tauri CSP ↔ client API base agreement", () => {
     expect(connectSrc).toContain("ws://127.0.0.1:8000");
   });
 });
+
+// Artifact previews render in sandboxed srcdoc iframes, and about:srcdoc documents
+// INHERIT the embedding document's CSP — they can only tighten it from inside, never
+// loosen it. So the packaged app's policy must admit everything the preview runtimes
+// in state/artifactSrcdoc.ts use (mermaid + Babel + Tailwind from cdn.jsdelivr.net,
+// the react module graph from esm.sh, inline bootstrap scripts). Trade-off documented
+// in docs/superpowers/specs/2026-07-20-artifacts-claude-parity-design.md §3.5.
+describe("Tauri CSP ↔ artifact preview runtime agreement", () => {
+  const csp: string = tauriConf.app.security.csp;
+  const directive = (name: string) =>
+    csp
+      .split(";")
+      .map((d) => d.trim())
+      .find((d) => d.startsWith(name));
+
+  it("script-src admits the preview CDNs and inline bootstraps", () => {
+    const scriptSrc = directive("script-src");
+    expect(scriptSrc).toBeTruthy();
+    expect(scriptSrc).toContain("'self'");
+    expect(scriptSrc).toContain("'unsafe-inline'");
+    expect(scriptSrc).toContain("https://cdn.jsdelivr.net");
+    expect(scriptSrc).toContain("https://esm.sh");
+  });
+
+  it("font-src allows data: (mermaid/tailwind inline fonts)", () => {
+    expect(directive("font-src")).toContain("data:");
+  });
+});

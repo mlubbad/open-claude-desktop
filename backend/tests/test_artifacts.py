@@ -31,6 +31,68 @@ def test_csv_is_a_creatable_kind():
     assert "csv" in artifact_tools.KINDS
 
 
+FENCED_XYCHART = (
+    "```mermaid\n"
+    "xychart-beta\n"
+    '    title "Top Series by Hours Watched (2026-07-19)"\n'
+    '    x-axis ["الدحيح (Mobile)", "أبو الصادق (Mobile)"]\n'
+    '    y-axis "Hours Watched" 0 --> 1000\n'
+    "    bar [978.8, 736.5]\n"
+    "```"
+)
+
+
+class TestStripCodeFence:
+    """Models routinely wrap tool-call content in markdown fences; ingestion unwraps a
+    single whole-content fence so renderers see raw source (the reported mermaid
+    'Syntax error in text' incident)."""
+
+    def test_unwraps_language_fence(self):
+        body = artifact_tools.strip_code_fence(FENCED_XYCHART)
+        assert body.startswith("xychart-beta")
+        assert body.endswith("bar [978.8, 736.5]")
+        assert "```" not in body
+
+    def test_unwraps_bare_fence(self):
+        assert artifact_tools.strip_code_fence("```\nhello\n```") == "hello"
+
+    def test_tilde_fences_untouched(self):
+        s = "~~~\nhello\n~~~"
+        assert artifact_tools.strip_code_fence(s) == s
+
+    def test_unfenced_unchanged(self):
+        s = "graph TD; A --> B;"
+        assert artifact_tools.strip_code_fence(s) == s
+
+    def test_fence_plus_trailing_prose_unchanged(self):
+        s = "```python\nprint(1)\n```\nAnd here is why."
+        assert artifact_tools.strip_code_fence(s) == s
+
+    def test_outer_strip_keeps_inner_fences(self):
+        s = "```markdown\n# Doc\n\n```py\nprint(1)\n```\n\ntail\n```"
+        assert (artifact_tools.strip_code_fence(s)
+                == "# Doc\n\n```py\nprint(1)\n```\n\ntail")
+
+    def test_crlf_fence_unwraps(self):
+        assert artifact_tools.strip_code_fence("```mermaid\r\npie\r\n```") == "pie"
+
+    def test_no_trailing_newline_before_closer(self):
+        assert artifact_tools.strip_code_fence("```js\nlet x = 1;```") == "let x = 1;"
+
+    def test_create_strips_fence(self):
+        a = artifact_tools.create(
+            {"title": "Chart", "kind": "mermaid", "content": FENCED_XYCHART}, {})
+        assert a["content"].startswith("xychart-beta") and "```" not in a["content"]
+
+    def test_update_full_content_strips_fence(self):
+        store: dict = {}
+        artifact_tools.create({"title": "D", "kind": "mermaid", "content": "pie"}, store)
+        b, err = artifact_tools.update(
+            {"id": "art1", "content": "```mermaid\nflowchart TD; A --> B;\n```"}, store)
+        assert err is None
+        assert b["content"] == "flowchart TD; A --> B;"
+
+
 def test_completion_events_emit_artifact_triple():
     out = {
         "id": "c1", "name": "create_artifact", "ok": True, "summary": "Chart · html",

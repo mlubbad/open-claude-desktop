@@ -8,7 +8,21 @@ the per-turn artifact store live here; the agent loop emits `artifact_open` /
 """
 from __future__ import annotations
 
+import re
+
 KINDS = ("html", "react", "svg", "mermaid", "code", "markdown", "csv")
+
+# A whole-content markdown fence: models routinely wrap tool-call content in
+# ```lang … ``` even when told not to; renderers must see raw source (a fenced
+# mermaid body renders as "Syntax error in text"). Greedy body → the closer is the
+# LAST fence line, so a markdown document containing inner fences survives intact.
+_FENCE_RE = re.compile(r"\A```[ \t]*[\w+.-]*[ \t]*\r?\n(.*?)(?:\r?\n)?```[ \t]*\Z", re.S)
+
+
+def strip_code_fence(content: str) -> str:
+    """Unwrap ``content`` when the ENTIRE payload is one fenced code block."""
+    m = _FENCE_RE.match(content.strip())
+    return m.group(1) if m else content
 
 CREATE_ARTIFACT_TOOL = {"type": "function", "function": {
     "name": "create_artifact",
@@ -75,7 +89,7 @@ def create(args: dict, store: dict, artifact_id: str | None = None) -> dict:
         "title": (args.get("title") or "Untitled").strip(),
         "kind": kind,
         "language": (args.get("language") or "").strip(),
-        "content": args.get("content") or "",
+        "content": strip_code_fence(args.get("content") or ""),
         "version": 1,
     }
     store[aid] = doc
@@ -88,7 +102,8 @@ def update(args: dict, store: dict) -> tuple[dict | None, str | None]:
     doc = store.get(aid)
     if not doc:
         return None, f"No artifact with id '{aid}'. Create one first."
-    doc["content"] = args.get("content", doc["content"])
+    if args.get("content") is not None:
+        doc["content"] = strip_code_fence(args["content"])
     if args.get("title"):
         doc["title"] = args["title"].strip()
     doc["version"] += 1

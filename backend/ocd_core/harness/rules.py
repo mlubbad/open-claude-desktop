@@ -1,0 +1,91 @@
+# backend/ocd_core/harness/rules.py
+"""Permission modes + allow/deny/ask rule engine (pure functions).
+
+Modes: default | acceptEdits | plan | strict | bypass (legacy aliases auto->bypass,
+ask->default). Rule precedence: deny > ask > allow > mode default.
+"""
+from __future__ import annotations
+
+import fnmatch
+from dataclasses import dataclass, field
+
+READ_ONLY_TOOLS = {"read_file", "glob", "grep"}
+WRITE_TOOLS = {"edit_file", "write_file"}
+
+_ALIASES = {"auto": "bypass", "ask": "default"}
+_MODES = {"default", "acceptEdits", "plan", "strict", "bypass"}
+# Bash commands auto-approved in acceptEdits (jailed cwd already constrains them).
+SAFE_BASH = {"ls", "cat", "head", "tail", "wc", "echo", "pwd", "grep", "find",
+             "sort", "uniq", "cut", "mkdir", "touch", "mv", "cp", "sed", "git"}
+
+
+def normalize_mode(mode: str | None) -> str:
+    m = (mode or "default").strip()
+    m = _ALIASES.get(m, m)
+    return m if m in _MODES else "strict"  # unknown fails closed
+
+
+def _parse(rule: str) -> tuple[str, str | None]:
+    """'bash(git *)' -> ('bash', 'git *'); 'read_file' -> ('read_file', None)."""
+    rule = rule.strip()
+    if rule.endswith(")") and "(" in rule:
+        name, matcher = rule[:-1].split("(", 1)
+        return name.strip(), matcher.strip()
+    return rule, None
+
+
+def _arg_string(tool: str, args: dict) -> str:
+    if tool == "bash":
+        return str((args or {}).get("command", ""))
+    return str((args or {}).get("path", "") or (args or {}).get("url", ""))
+
+
+def _matches(rule: str, tool: str, args: dict) -> bool:
+    name, matcher = _parse(rule)
+    if name not in ("*", tool):
+        return False
+    if matcher is None or matcher == "*":
+        return True
+    return fnmatch.fnmatch(_arg_string(tool, args), matcher)
+
+
+@dataclass
+class RuleSet:
+    allow: list[str] = field(default_factory=list)
+    deny: list[str] = field(default_factory=list)
+    ask: list[str] = field(default_factory=list)
+
+    def decision(self, tool: str, args: dict) -> str | None:
+        """deny > ask > allow; None if no rule matches."""
+        if any(_matches(r, tool, args) for r in self.deny):
+            return "deny"
+        if any(_matches(r, tool, args) for r in self.ask):
+            return "ask"
+        if any(_matches(r, tool, args) for r in self.allow):
+            return "allow"
+        return None
+
+
+def gate(tool: str, args: dict, mode: str, ruleset: RuleSet) -> str:
+    """Return 'allow' | 'deny' | 'ask' for a tool call. Rules win over mode defaults."""
+    mode = normalize_mode(mode)
+    ruled = ruleset.decision(tool, args)
+    if ruled is not None:
+        return ruled
+    if mode == "bypass":
+        return "allow"
+    if mode == "plan":
+        return "allow" if tool in READ_ONLY_TOOLS else "deny"
+    if mode == "strict":
+        return "ask"
+    # default / acceptEdits
+    if tool in READ_ONLY_TOOLS:
+        return "allow"
+    if tool in WRITE_TOOLS:
+        return "allow" if mode == "acceptEdits" else "ask"
+    if tool == "bash":
+        head = str((args or {}).get("command", "")).strip().split(" ", 1)[0]
+        if mode == "acceptEdits" and head in SAFE_BASH:
+            return "allow"
+        return "ask"
+    return "ask"  # unknown/sensitive tool

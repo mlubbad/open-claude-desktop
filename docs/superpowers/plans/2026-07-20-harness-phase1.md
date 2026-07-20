@@ -1637,6 +1637,13 @@ git add backend/ocd_core/workspace_registry.py backend/tests/test_harness_regist
 git commit -m "feat(harness): on-disk workspace registry (roots, rules, recents)"
 ```
 
+> **Post-review reliability fixes (2026-07-20) — `5409c8e`.** Combined review of Tasks 10-13 (all bugs were verbatim from the plan code above) fixed, TDD:
+> - **`plan_tool.Plan.apply`**: raised uncaught `AttributeError` on non-list `items` / non-dict entries and never matched a string `id` from a model; now validates shape → error dict and coerces `id`. *(Known minor, deferred: a mid-list-invalid `set` leaves earlier items applied — non-atomic; harmless, model just re-sets.)*
+> - **`env_context._git`**: `subprocess.run(text=True)` could raise `UnicodeDecodeError` (a `ValueError`, uncaught) on non-UTF-8 git output, crashing every workspace turn; now `errors="replace"` + `ValueError` in the except tuple.
+> - **`workspace_registry.register`**: used `last_used=len(...)` while `touch` used `max(...)+1`, so a freshly-registered workspace could sort behind an older touched one in `list_recents`; unified on `max(...)+1`.
+> - **`checkpoints.CheckpointStore`**: `restore` was non-transactional (one missing blob aborted the whole restore) → now per-entry `try/except`, partial restore; manifest now uses `jsonstore` (atomic write + shape-guarded read, fixes a wrong-shape-JSON crash); `checkpoint_id` sanitized to a single safe segment (`_safe_seg`, incl. bare `.`/`..` → `adhoc`) so it can't write outside the store root; `list`/`restore` of an unknown id no longer create empty dirs. The manifest key is intentionally NOT case-folded (it reconstructs the restore path — case-folding would break restore on case-sensitive Linux).
+> - **Deferred**: checkpoint FIFO pruning (`MAX_CHECKPOINTS` reserved; needs the `checkpoints/<turn_id>` layout Task 14 establishes) and the glob/grep/env-map walk-then-filter perf item (Task 7 note).
+
 ---
 
 ## Task 14: Wire file tools + plan + env + gate into `run_turn`
@@ -1750,7 +1757,7 @@ In `agent.py`, add `workspace_root: str | None = None` and `workspace_rules: dic
             allow=list(_reg.get("allow", [])) + _claude.allow,
             deny=list(_reg.get("deny", [])) + _claude.deny,
             ask=list(_reg.get("ask", [])) + _claude.ask)
-        ws_ckpt = _ckpt.CheckpointStore(config.REPO_ROOT / "checkpoints" / (turn_id or "adhoc"))
+        ws_ckpt = _ckpt.CheckpointStore(config.REPO_ROOT / "checkpoints")  # turn-agnostic root; turn_id is the checkpoint_id
 ```
 
 Append the env-context section to the system prompt where the prompt is assembled (find where `system` / `sys_prompt` string is built in `run_turn`; append):
@@ -1783,7 +1790,7 @@ async def _run_one_tool(name, args, tc_id, active_project, goal, top_k,
     # ... existing dispatch unchanged ...
 ```
 
-Pass the new kwargs where `_run_one_tool` is invoked (the `interim`/executor block ~`agent.py:1660-1700`). Thread `workspace_root=workspace_root, ws_read_paths=ws_read_paths, ws_plan=ws_plan, ws_ckpt=ws_ckpt`. For the checkpoint turn id, capture `_ckpt_turn = turn_id or "adhoc"` in `run_turn` and pass it through (or store on the store instance).
+Pass the new kwargs where `_run_one_tool` is invoked (the `interim`/executor block ~`agent.py:1660-1700`). Thread `workspace_root=workspace_root, ws_read_paths=ws_read_paths, ws_plan=ws_plan, ws_ckpt=ws_ckpt`. For the checkpoint id, capture `_ckpt_turn = turn_id or "adhoc"` in `run_turn` and pass it as the `checkpoint_id` argument (the store root is turn-agnostic, so checkpoints land at `checkpoints/<turn_id>/manifest.json` — no double-nesting, and a future FIFO prune can just list the `checkpoints/` dir).
 
 *Implementer note:* if threading many kwargs through the executor is noisy, wrap them in a small `ws_ctx` dataclass `{root, read_paths, plan, ckpt, turn}` and pass that single object. Keep the signature change minimal.
 
@@ -2089,7 +2096,8 @@ class RestoreBody(BaseModel):
 
 
 def _store(turn_id: str) -> CheckpointStore:
-    return CheckpointStore(config.REPO_ROOT / "checkpoints" / turn_id)
+    # Turn-agnostic root; turn_id is the checkpoint_id (matches Task 14 wiring).
+    return CheckpointStore(config.REPO_ROOT / "checkpoints")
 
 
 @router.get("/workspaces/{wid}/checkpoints/{turn_id}")

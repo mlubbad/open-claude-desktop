@@ -1,3 +1,5 @@
+import os
+
 from ocd_core.harness import workspace_fs as wfs
 
 
@@ -152,3 +154,26 @@ def test_run_fs_tool_dispatches_read(tmp_path):
 def test_run_fs_tool_unknown(tmp_path):
     out = wfs.run_fs_tool("nope", {}, tmp_path, set())
     assert out["ok"] is False
+
+
+def test_glob_rejects_parent_escape(tmp_path):
+    (tmp_path / "ws").mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "secret.txt").write_text("s")
+    out = wfs.glob(tmp_path / "ws", "../outside/*")
+    assert out["ok"] is True
+    assert out["paths"] == []   # escape yields nothing, never the outside file
+
+
+def test_glob_deep_parent_escape_blocked(tmp_path):
+    (tmp_path / "ws").mkdir()
+    (tmp_path / "sibling.txt").write_text("x")
+    out = wfs.glob(tmp_path / "ws", "../*")
+    assert out["ok"] is True
+    assert all(".." not in p and "sibling.txt" not in p for p in out["paths"])
+
+
+def test_glob_absolute_pattern_errors(tmp_path):
+    out = wfs.glob(tmp_path, "C:/Windows/*" if os.name == "nt" else "/etc/*")
+    assert out["ok"] is False and "pattern" in out["error"].lower()

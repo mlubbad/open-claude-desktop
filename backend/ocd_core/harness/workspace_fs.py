@@ -145,9 +145,18 @@ def _iter_files(root):
 
 def glob(root, pattern: str, max_results: int = MAX_GLOB):
     root_real = resolve_in_workspace(root, "")
+    try:
+        matched = list(root_real.glob(pattern))
+    except (NotImplementedError, ValueError) as e:
+        return _err(f"bad glob pattern: {e}")
     hits = []
-    for p in sorted(root_real.glob(pattern), key=lambda x: (x.is_dir(), x.name)):
-        rel = p.relative_to(root_real)
+    for p in sorted(matched, key=lambda x: (x.is_dir(), x.name)):
+        try:
+            # Jail every hit: a pattern with .. yields a path that resolves OUTSIDE
+            # root_real; relative_to then raises and we skip it (never leak it).
+            rel = p.resolve(strict=False).relative_to(root_real)
+        except ValueError:
+            continue
         if any(part in _IGNORE_DIRS for part in rel.parts):
             continue
         hits.append(rel.as_posix())

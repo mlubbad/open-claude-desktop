@@ -157,6 +157,13 @@ def test_rejects_symlink_escape(tmp_path):
 
 def test_empty_path_returns_root(tmp_path):
     assert wfs.resolve_in_workspace(tmp_path, "") == tmp_path.resolve()
+
+
+def test_rejects_nonexistent_segment_then_parent_escape(tmp_path):
+    # A non-existent leading segment followed by .. must not escape (POSIX realpath case:
+    # `Path.resolve(strict=False)` collapses the .. before the relative_to check).
+    with pytest.raises(wfs.JailError):
+        wfs.resolve_in_workspace(tmp_path, "fakedir/../../outside/secret.txt")
 ```
 
 - [ ] **Step 2: Run red**
@@ -189,48 +196,38 @@ def resolve_in_workspace(root: Path, user_path: str) -> Path:
 
     Raises ``JailError`` on any escape (parent traversal, absolute path outside,
     symlink/junction that points out, sibling-prefix root). An empty path resolves to
-    the root itself.
+    the root itself. A leading-absolute path (``/etc/passwd``, ``C:/Windows``) is
+    rejected — the model must use workspace-relative paths.
     """
     root_real = Path(root).resolve()
-    raw = (user_path or "").strip().replace("\\", "/").lstrip("/")
-    # strip accidental workspace/ prefixes the model sometimes adds
-    for prefix in ("workspace/",):
-        if raw.startswith(prefix):
-            raw = raw[len(prefix):]
+    raw = (user_path or "").strip().replace("\\", "/")
+    if raw.startswith("workspace/"):   # strip an accidental workspace/ prefix the model adds
+        raw = raw[len("workspace/"):]
     if raw in ("", "."):
         return root_real
-    candidate = (root_real / raw)
-    # Resolve the deepest existing ancestor so we follow real symlinks, then re-attach
-    # the not-yet-created tail (for write/create of new files).
-    real = _resolve_existing_prefix(candidate)
+    # resolve(strict=False): follows real symlinks/junctions, collapses .. (even through a
+    # non-existent tail — the write_file/create case), so the relative_to check below cannot
+    # be fooled by a literal .. left in the path. Do NOT hand-roll ancestor resolution: a
+    # non-existent segment followed by .. (e.g. "fakedir/../../x") escaped that way on POSIX.
+    real = (root_real / raw).resolve(strict=False)
     try:
         real.relative_to(root_real)
     except ValueError:
-        raise JailError(f"path escapes workspace: {user_path!r}")
+        raise JailError(f"path escapes workspace: {user_path!r}") from None
     return real
-
-
-def _resolve_existing_prefix(path: Path) -> Path:
-    """Path.resolve() but tolerant of a non-existent tail: resolve the longest existing
-    ancestor (following symlinks), then re-append the remaining segments. This makes the
-    jail correct for files that don't exist yet (write_file/create) while still catching
-    a symlinked *directory* in the middle of the path."""
-    path = Path(path)
-    parts = path.parts
-    for i in range(len(parts), 0, -1):
-        head = Path(*parts[:i])
-        if head.exists():
-            resolved_head = head.resolve()
-            tail = parts[i:]
-            return resolved_head.joinpath(*tail) if tail else resolved_head
-    # Nothing exists (e.g. root itself missing) — resolve lexically.
-    return path.resolve()
 ```
+
+> **Review fix (2026-07-20):** the first draft used a custom `_resolve_existing_prefix`
+> helper and `.lstrip("/")`. Code review found two POSIX-only escapes: (1) a non-existent
+> segment + `..` left a literal `..` in the returned path that `relative_to` didn't catch
+> (exploitable through `write_file`'s `mkdir(parents=True)`); (2) `.lstrip("/")` turned
+> `/etc/passwd` into a contained path, failing `test_rejects_absolute_outside`. Both fixed
+> by the code above (`resolve(strict=False)` + no slash-strip). CI is Linux, so verify there.
 
 - [ ] **Step 4: Run green**
 
 Run: `pytest backend/tests/test_harness_jail.py -q`
-Expected: PASS (the symlink test may `skip` on hosts without symlink permission — acceptable).
+Expected: PASS — 8 tests (the symlink test may `skip` on hosts without symlink permission — acceptable). Also run `ruff check backend/ocd_core/harness backend/tests/test_harness_jail.py` → clean.
 
 - [ ] **Step 5: Commit**
 

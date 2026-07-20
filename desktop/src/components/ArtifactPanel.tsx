@@ -14,6 +14,7 @@ import {
   printInSandbox,
   typeTag,
 } from "../state/artifactExport";
+import { buildSrcDoc, stripFence } from "../state/artifactSrcdoc";
 import { projects as projectApi } from "../api/client";
 import { getDriveClientId, saveToDrive, setDriveClientId } from "../state/gdrive";
 import { type ArtifactDoc, contentAtVersion } from "../state/transcript";
@@ -68,10 +69,13 @@ export function ArtifactPanel({
   const shownDoc = isLatest ? doc : { ...doc, content: shownContent };
 
   const srcDoc = useMemo(() => (iframePreview ? buildSrcDoc(shownDoc) : ""), [shownDoc, iframePreview]);
+  // Preview paths render fence-stripped content (old transcripts persisted fenced
+  // bodies); Copy/Download keep the stored source verbatim.
+  const cleanContent = useMemo(() => stripFence(shownContent), [shownContent]);
   // In-panel preview markdown for non-iframe kinds (see previewMarkdown for the rules).
   const renderMarkdown = useMemo(
-    () => previewMarkdown(shownDoc.kind, shownContent, shownDoc.language),
-    [shownContent, shownDoc.kind, shownDoc.language],
+    () => previewMarkdown(shownDoc.kind, cleanContent, shownDoc.language),
+    [cleanContent, shownDoc.kind, shownDoc.language],
   );
 
   // Dismiss popovers on outside click / Escape (Escape swallowed from the global handler).
@@ -283,7 +287,7 @@ export function ArtifactPanel({
             srcDoc={srcDoc}
           />
         ) : tab === "preview" && shownDoc.kind === "csv" ? (
-          <CsvTable text={shownContent} />
+          <CsvTable text={cleanContent} />
         ) : tab === "preview" && previewable ? (
           <div className="artifact-render">
             <Markdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
@@ -443,31 +447,3 @@ function DrivePopover({
   );
 }
 
-function buildSrcDoc(doc: ArtifactDoc): string {
-  const csp =
-    '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; ' +
-    "script-src 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'unsafe-inline'; " +
-    "img-src data: https:; font-src data: https:\">" +
-    // The preview canvas is deliberately light regardless of app theme; tell the UA so
-    // form controls/scrollbars inside the sandbox match.
-    '<meta name="color-scheme" content="light">';
-  if (doc.kind === "html") {
-    // If the model already returned a full document, trust its own structure but keep
-    // it inside the sandboxed iframe.
-    return doc.content;
-  }
-  if (doc.kind === "svg") {
-    return `<!doctype html><html><head>${csp}<style>body{margin:0;display:grid;place-items:center;height:100vh}</style></head><body>${doc.content}</body></html>`;
-  }
-  if (doc.kind === "mermaid") {
-    return `<!doctype html><html><head>${csp}</head><body><pre class="mermaid">${escapeHtml(
-      doc.content,
-    )}</pre><script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script><script>mermaid.initialize({startOnLoad:true});</script></body></html>`;
-  }
-  // react: mount the component with esm.sh-hosted React via an import map.
-  return `<!doctype html><html><head>${csp}<script type="importmap">{"imports":{"react":"https://esm.sh/react@18","react-dom/client":"https://esm.sh/react-dom@18/client"}}</script></head><body><div id="root"></div><script type="module">${doc.content}\n;import React from 'react';import {createRoot} from 'react-dom/client';const C=(typeof App!=='undefined')?App:(typeof Component!=='undefined'?Component:null);if(C){createRoot(document.getElementById('root')).render(React.createElement(C));}</script></body></html>`;
-}
-
-function escapeHtml(s: string): string {
-  return s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c] ?? c);
-}

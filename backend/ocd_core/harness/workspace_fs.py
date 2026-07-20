@@ -187,3 +187,78 @@ def grep(root, pattern: str, path: str = "", mode: str = "content",
     if mode == "count":
         return _ok(count=len(matches))
     return _ok(matches=matches, truncated=len(matches) >= max_matches)
+
+
+FILE_TOOL_SPECS = [
+    {"type": "function", "function": {
+        "name": "read_file",
+        "description": "Read a text file from the workspace. Returns cat -n style "
+                       "line-numbered content. Always read a file before editing or "
+                       "overwriting it.",
+        "parameters": {"type": "object", "properties": {
+            "path": {"type": "string", "description": "Workspace-relative file path."},
+            "offset": {"type": "integer", "description": "1-based first line (default 1)."},
+            "limit": {"type": "integer", "description": "Max lines to return (default 2000)."}},
+            "required": ["path"]}}},
+    {"type": "function", "function": {
+        "name": "edit_file",
+        "description": "Replace an EXACT unique snippet in a file. old_string must occur "
+                       "exactly once unless replace_all is true. Read the file first.",
+        "parameters": {"type": "object", "properties": {
+            "path": {"type": "string"},
+            "old_string": {"type": "string", "description": "Exact text to replace (unique)."},
+            "new_string": {"type": "string", "description": "Replacement text."},
+            "replace_all": {"type": "boolean", "description": "Replace every occurrence."}},
+            "required": ["path", "old_string", "new_string"]}}},
+    {"type": "function", "function": {
+        "name": "write_file",
+        "description": "Create a new file or overwrite an existing one. Overwriting "
+                       "requires reading the file first.",
+        "parameters": {"type": "object", "properties": {
+            "path": {"type": "string"},
+            "content": {"type": "string"}},
+            "required": ["path", "content"]}}},
+    {"type": "function", "function": {
+        "name": "glob",
+        "description": "List workspace files matching a glob pattern (e.g. **/*.py).",
+        "parameters": {"type": "object", "properties": {
+            "pattern": {"type": "string"}},
+            "required": ["pattern"]}}},
+    {"type": "function", "function": {
+        "name": "grep",
+        "description": "Search workspace file contents with a regular expression. "
+                       "mode=content|files|count.",
+        "parameters": {"type": "object", "properties": {
+            "pattern": {"type": "string"},
+            "path": {"type": "string", "description": "Optional sub-path to scope the search."},
+            "mode": {"type": "string", "enum": ["content", "files", "count"]}},
+            "required": ["pattern"]}}},
+]
+
+
+def run_fs_tool(name: str, args: dict, root, read_paths: set) -> dict:
+    """Dispatch a file tool by name. Records read paths so edit/write can enforce the
+    read-before-modify guard."""
+    a = args or {}
+    if name == "read_file":
+        out = read_file(root, a.get("path", ""), int(a.get("offset", 1) or 1),
+                        int(a.get("limit", MAX_READ_LINES) or MAX_READ_LINES))
+        if out.get("ok"):
+            try:
+                read_paths.add(canonical_key(root, a.get("path", "")))
+            except JailError:
+                pass
+        return out
+    if name == "edit_file":
+        return edit_file(root, a.get("path", ""), a.get("old_string", ""),
+                         a.get("new_string", ""), bool(a.get("replace_all")), read_paths)
+    if name == "write_file":
+        return write_file(root, a.get("path", ""), a.get("content", ""), read_paths)
+    if name == "glob":
+        return glob(root, a.get("pattern", "*"))
+    if name == "grep":
+        return grep(root, a.get("pattern", ""), a.get("path", ""), a.get("mode", "content"))
+    return _err(f"unknown file tool: {name}")
+
+
+FILE_TOOL_NAMES = {"read_file", "edit_file", "write_file", "glob", "grep"}

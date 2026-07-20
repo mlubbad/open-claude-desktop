@@ -133,3 +133,22 @@ def test_grep_files_mode(tmp_path):
 def test_grep_outside_jail(tmp_path):
     out = wfs.grep(tmp_path, "x", path="../")
     assert out["ok"] is False
+
+
+def test_tool_specs_have_expected_names():
+    names = {s["function"]["name"] for s in wfs.FILE_TOOL_SPECS}
+    assert names == {"read_file", "edit_file", "write_file", "glob", "grep"}
+
+
+def test_run_fs_tool_dispatches_read(tmp_path):
+    (tmp_path / "a.txt").write_text("hi\n")
+    seen = set()
+    out = wfs.run_fs_tool("read_file", {"path": "a.txt"}, tmp_path, seen)
+    assert out["ok"] is True and "1\thi" in out["content"]
+    # reading records the path for later edit/write
+    assert wfs.canonical_key(tmp_path, "a.txt") in seen
+
+
+def test_run_fs_tool_unknown(tmp_path):
+    out = wfs.run_fs_tool("nope", {}, tmp_path, set())
+    assert out["ok"] is False

@@ -1760,12 +1760,33 @@ In `agent.py`, add `workspace_root: str | None = None` and `workspace_rules: dic
         ws_ckpt = _ckpt.CheckpointStore(config.REPO_ROOT / "checkpoints")  # turn-agnostic root; turn_id is the checkpoint_id
 ```
 
-Append the env-context section to the system prompt where the prompt is assembled (find where `system` / `sys_prompt` string is built in `run_turn`; append):
-
-```python
-        _env_section = _envctx.build(workspace_root)
-        system = system + "\n\n" + _env_section  # use the actual local var name for the system prompt
-```
+**VERIFIED integration reality (recon 2026-07-20 — the plan's original guesses here were wrong):**
+- The system prompt is NOT a local string you concatenate. It's built at `agent.py:1287-1293` via `prompts.build_system_prompt(extra_sections=extra_sections or None, ...)`. So the env section must be **appended to the `extra_sections` list BEFORE that call** — in the `extra_sections` block around `agent.py:1246-1259` (right after `if code_exec: extra_sections.append(CODE_EXEC_SECTION)`):
+  ```python
+      if workspace_root:
+          from .harness import env_context as _envctx
+          extra_sections.append(_envctx.build(workspace_root))
+  ```
+- The **tool registration + ws-context setup** goes in the tools block (after the `tools.append(...)` chain ~`agent.py:1320`), where `tools`, `turn_id`, and `workspace_rules` are all in scope. Initialize `ws = None` and `ws_ruleset = None` before it (so the gate and dispatch references are always defined), then:
+  ```python
+      if workspace_root:
+          from .harness import workspace_fs as _wfs
+          from .harness import plan_tool as _plan
+          from .harness import rules as _rules
+          from .harness import checkpoints as _ckpt
+          tools.extend(_wfs.FILE_TOOL_SPECS)
+          tools.append(_plan.PLAN_TOOL_SPEC)
+          _claude = _rules.load_claude_ruleset(workspace_root)
+          _reg = workspace_rules or {}
+          ws_ruleset = _rules.RuleSet(
+              allow=list(_reg.get("allow", [])) + _claude.allow,
+              deny=list(_reg.get("deny", [])) + _claude.deny,
+              ask=list(_reg.get("ask", [])) + _claude.ask)
+          ws = {"root": workspace_root, "read_paths": set(), "plan": _plan.Plan(),
+                "ckpt": _ckpt.CheckpointStore(config.REPO_ROOT / "checkpoints"),
+                "ckpt_turn": turn_id or "adhoc"}
+  ```
+  (Use the single `ws` dict instead of four separate kwargs — cleaner to thread through the executor.)
 
 - [ ] **Step 3b: Dispatch harness tools**
 
@@ -1773,26 +1794,32 @@ In the tool-execution path (where `_run_one_tool` is called per call, inside the
 
 ```python
 async def _run_one_tool(name, args, tc_id, active_project, goal, top_k,
-                        ...,  # keep existing params
-                        workspace_root=None, ws_read_paths=None, ws_plan=None, ws_ckpt=None):
-    if workspace_root and name in ("read_file", "edit_file", "write_file", "glob", "grep"):
+                        artifact_store=None, subagent=None, emit=None, ws=None):
+    # Harness workspace tools — dispatch before the existing ladder. `ws` is the dict
+    # built in run_turn (None on non-workspace turns → this block is skipped).
+    if ws and name in ("read_file", "edit_file", "write_file", "glob", "grep"):
         from .harness import workspace_fs as _wfs
-        if name in ("edit_file", "write_file") and ws_ckpt is not None:
-            ws_ckpt.snapshot_before_edit(_ckpt_turn, workspace_root, (args or {}).get("path", ""))
-        out = _wfs.run_fs_tool(name, args, workspace_root, ws_read_paths if ws_read_paths is not None else set())
-        result = out.get("content") or out.get("diff") or _json_compact(out)
+        if name in ("edit_file", "write_file"):
+            ws["ckpt"].snapshot_before_edit(ws["ckpt_turn"], ws["root"], (args or {}).get("path", ""))
+        out = _wfs.run_fs_tool(name, args, ws["root"], ws["read_paths"])
+        if out.get("ok"):
+            result = (out.get("content")
+                      or ("\n".join(out.get("paths", [])) if name == "glob" else None)
+                      or ("\n".join(out.get("matches", [])) if name == "grep" else None)
+                      or f"{name} ok: {out.get('path', '')}".strip())
+        else:
+            result = f"ERROR: {out.get('error', 'failed')}"
         return {"id": tc_id, "name": name, "ok": out.get("ok", False), "result": result,
-                "summary": "", "diff": out.get("diff"), "paths": out.get("paths")}
-    if workspace_root and name == "task_plan" and ws_plan is not None:
-        out = ws_plan.apply(args or {})
+                "summary": out.get("path", ""), "diff": out.get("diff"), "paths": out.get("paths")}
+    if ws and name == "task_plan":
+        out = ws["plan"].apply(args or {})
         return {"id": tc_id, "name": name, "ok": out.get("ok", False),
-                "result": _json_compact(out), "summary": "", "plan": ws_plan.snapshot()}
+                "result": ("plan updated" if out.get("ok") else f"ERROR: {out.get('error')}"),
+                "summary": "", "plan": ws["plan"].snapshot()}
     # ... existing dispatch unchanged ...
 ```
 
-Pass the new kwargs where `_run_one_tool` is invoked (the `interim`/executor block ~`agent.py:1660-1700`). Thread `workspace_root=workspace_root, ws_read_paths=ws_read_paths, ws_plan=ws_plan, ws_ckpt=ws_ckpt`. For the checkpoint id, capture `_ckpt_turn = turn_id or "adhoc"` in `run_turn` and pass it as the `checkpoint_id` argument (the store root is turn-agnostic, so checkpoints land at `checkpoints/<turn_id>/manifest.json` — no double-nesting, and a future FIFO prune can just list the `checkpoints/` dir).
-
-*Implementer note:* if threading many kwargs through the executor is noisy, wrap them in a small `ws_ctx` dataclass `{root, read_paths, plan, ckpt, turn}` and pass that single object. Keep the signature change minimal.
+Thread `ws` through the executor: in `_runner`/the `_run_one_tool(...)` call (~`agent.py:1667`) add `ws=ws`. `ws` (and `ws_ruleset`) are `run_turn` locals, so the closure captures them. The checkpoint store root is turn-agnostic and `ws["ckpt_turn"] = turn_id or "adhoc"` is the checkpoint_id, so snapshots land at `checkpoints/<turn_id>/manifest.json`.
 
 - [ ] **Step 3c: Apply the rule gate + emit events**
 
@@ -1814,30 +1841,24 @@ At the gate (`agent.py:~1629`), before the existing `permissions.requires_approv
                 # _decision == "ask" -> fall through to the existing HITL prompt below
 ```
 
-> **REQUIRED (safety — carried from the Task 8 review): an `allow` from the gate must NOT
-> bypass the catastrophic-command circuit breaker for `bash`.** The rules gate operates on
-> the command's first token / git subcommand; it does not parse arguments, and `bash` args
-> are NOT jailed (only its cwd is set). So a rule/mode `allow` for `bash` must still be
-> subject to the existing hard block on `rm -rf /`, `rm -rf ~`, and the like. When wiring
-> this: if `name == "bash"` and the gate returned `allow`, still run the existing
-> dangerous-pattern check (reuse whatever `agent.py`/`permissions` already uses as the
-> circuit breaker — grep for `rm -rf` / the existing bash guard) and force `ask` (or deny)
-> if it trips, regardless of mode. Add a test: `bash` `rm -rf /` under `bypass`/`acceptEdits`
-> must not auto-run. This closes the residual hole that `acceptEdits`' first-token bash
-> allowlist (mkdir/touch/mv/cp/sed) can't see argument-level danger.
+> **NOTE (safety): the catastrophic-`bash` circuit breaker is a SEPARATE task (Task 14b below), NOT part of this step.** Recon confirmed there is **no** existing `rm -rf /` breaker in `agent.py`/`permissions.py` to reuse (grep found none). Do the tool/gate/event wiring here first and get it green; add the breaker in Task 14b so this large integration stays focused.
 
-After a harness tool runs, emit `tool_call` and (for edits) `file_diff` and (for plan) `plan_update`. In the results-emitting loop (where `tool_result` events are yielded), add:
+**Events — emit via `_completion_events`, not an ad-hoc loop.** Tool outcomes are rendered by `_completion_events(out, streamed)` (`agent.py:1128`) inside the drain loop (`agent.py:1684`). Extend `_completion_events` so a successful workspace-tool outcome also yields the harness events — after the existing `tool_result` append (around `agent.py:1142`):
 
 ```python
-            if res.get("name") in ("read_file","edit_file","write_file","glob","grep","task_plan"):
-                yield {"type": "tool_call", "id": res["id"], "name": res["name"],
-                       "ok": res.get("ok", False)}
-                if res.get("diff"):
-                    yield {"type": "file_diff", "id": res["id"], "diff": res["diff"]}
-                if res.get("plan") is not None:
-                    yield {"type": "plan_update", "items": res["plan"]}
-            if workspace_root and res.get("name") in ("edit_file","write_file") and res.get("ok"):
-                yield {"type": "checkpoint", "turn_id": turn_id}
+    if out.get("name") in ("read_file", "edit_file", "write_file", "glob", "grep", "task_plan"):
+        evs.append({"type": "tool_call", "id": out["id"], "name": out["name"], "ok": True})
+        if out.get("diff"):
+            evs.append({"type": "file_diff", "id": out["id"], "diff": out["diff"]})
+        if out.get("plan") is not None:
+            evs.append({"type": "plan_update", "items": out["plan"]})
+```
+
+The `checkpoint` event needs `turn_id` (not in `_completion_events`'s scope), so emit it in the **drain loop** where `turn_id` and `workspace_root` are in scope — right after `for ev in _completion_events(out, streamed): yield ev` (`agent.py:1684-1685`):
+
+```python
+                        if workspace_root and out.get("name") in ("edit_file", "write_file") and out.get("ok"):
+                            yield {"type": "checkpoint", "turn_id": turn_id}
 ```
 
 - [ ] **Step 4: Run green (new test + existing HITL suite)**
@@ -1850,6 +1871,70 @@ Expected: PASS (new workspace test green; existing HITL unaffected).
 ```bash
 git add backend/ocd_core/agent.py backend/tests/test_agent_workspace.py
 git commit -m "feat(harness): wire file tools + plan + rule gate + events into run_turn"
+```
+
+---
+
+## Task 14b: Catastrophic-bash circuit breaker
+
+**Why:** `bash` args are not jailed (only its cwd is set), and the rules gate only inspects the first token / git subcommand. A user `allow`/`bypass` must NOT let `rm -rf /` auto-run. There is no existing breaker in the codebase, so add a minimal, mode-independent one to the rule engine (best-effort defense-in-depth — documented as not a complete sandbox).
+
+**Files:** Modify `backend/ocd_core/harness/rules.py`; Test `backend/tests/test_harness_rules.py`.
+
+- [ ] **Step 1: Failing tests**
+
+```python
+def test_catastrophic_rm_denied_even_in_bypass():
+    for c in ["rm -rf /", "rm -rf /*", "sudo rm -rf /", "rm -fr ~", "rm -rf $HOME"]:
+        assert rules.gate("bash", {"command": c}, "bypass", rules.RuleSet()) == "deny", c
+
+
+def test_relative_rm_is_not_catastrophic():
+    # a workspace-relative rm is not a hard-deny (acceptEdits doesn't auto-allow rm, so it asks)
+    assert rules.gate("bash", {"command": "rm -rf build"}, "acceptEdits", rules.RuleSet()) != "deny"
+
+
+def test_fork_bomb_and_disk_wipe_denied():
+    assert rules.gate("bash", {"command": ":(){ :|:& };:"}, "bypass", rules.RuleSet()) == "deny"
+    assert rules.gate("bash", {"command": "mkfs.ext4 /dev/sda1"}, "bypass", rules.RuleSet()) == "deny"
+```
+
+- [ ] **Step 2: Run red** → `test_catastrophic_rm_denied_even_in_bypass` fails (returns "allow").
+
+- [ ] **Step 3: Implement** — add to `rules.py` (needs `import re`):
+
+```python
+_CATASTROPHIC_RM = re.compile(r"\brm\b")
+_RM_FORCE_REC = re.compile(r"-\w*r\w*f|-\w*f\w*r|(-r\b.*\s-f\b)|(-f\b.*\s-r\b)")
+_RM_ROOT_TARGET = re.compile(r"\s(/|~|/\*|\$home)(\s|/|$)")
+_FORK_BOMB = re.compile(r":\(\)\s*\{[^}]*:\s*\|\s*:[^}]*\}\s*;\s*:")
+_DISK_WIPE = re.compile(r"\bmkfs\b|\bof=/dev/|>\s*/dev/sd")
+
+
+def is_catastrophic_bash(cmd: str) -> bool:
+    """Best-effort detector for irreversibly destructive shell commands that must never
+    auto-run regardless of mode/rules. NOT a complete sandbox — defense-in-depth only."""
+    c = " ".join((cmd or "").split())
+    low = c.lower()
+    if _CATASTROPHIC_RM.search(low) and _RM_FORCE_REC.search(low) and _RM_ROOT_TARGET.search(low + " "):
+        return True
+    return bool(_FORK_BOMB.search(c) or _DISK_WIPE.search(low))
+```
+
+Then at the **very top of `gate()`** (before the ruleset check), add:
+
+```python
+    if tool == "bash" and is_catastrophic_bash(str((args or {}).get("command", ""))):
+        return "deny"   # mode-independent hard block; overrides allow/bypass
+```
+
+- [ ] **Step 4: Run green** — `pytest backend/tests/test_harness_rules.py -q` (all pass), `ruff check` clean.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add backend/ocd_core/harness/rules.py backend/tests/test_harness_rules.py
+git commit -m "feat(harness): catastrophic-bash circuit breaker (mode-independent deny)"
 ```
 
 ---

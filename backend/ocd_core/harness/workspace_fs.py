@@ -7,6 +7,7 @@ integrations.py, this defeats symlink/junction escapes and sibling-prefix roots
 """
 from __future__ import annotations
 
+import difflib
 from pathlib import Path
 
 
@@ -93,3 +94,33 @@ def write_file(root, user_path, content: str, read_paths: set):
     target.write_text(content, encoding="utf-8")
     read_paths.add(key)
     return _ok(path=user_path, bytes=len(content.encode("utf-8")))
+
+
+def edit_file(root, user_path, old_string: str, new_string: str,
+              replace_all: bool = False, read_paths: set | None = None):
+    """Replace ``old_string`` with ``new_string`` in a file. Fails unless the file was
+    read this turn, and (unless ``replace_all``) unless ``old_string`` occurs exactly once.
+    Returns a unified diff on success."""
+    read_paths = read_paths if read_paths is not None else set()
+    try:
+        target = resolve_in_workspace(root, user_path)
+        key = target.as_posix().casefold()
+    except JailError:
+        return _err("path is outside the workspace")
+    if not target.is_file():
+        return _err(f"file not found: {user_path}")
+    if key not in read_paths:
+        return _err("must read the file before editing it (call read_file first)")
+    before = target.read_text(encoding="utf-8")
+    count = before.count(old_string)
+    if count == 0:
+        return _err(f"old_string not found in {user_path}")
+    if count > 1 and not replace_all:
+        return _err(f"old_string is not unique ({count} matches); add context or set replace_all")
+    after = (before.replace(old_string, new_string) if replace_all
+             else before.replace(old_string, new_string, 1))
+    target.write_text(after, encoding="utf-8")
+    diff = "\n".join(difflib.unified_diff(
+        before.splitlines(), after.splitlines(),
+        fromfile=user_path, tofile=user_path, lineterm=""))
+    return _ok(path=user_path, replacements=(count if replace_all else 1), diff=diff)

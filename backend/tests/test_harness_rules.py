@@ -1,4 +1,6 @@
 # backend/tests/test_harness_rules.py
+import json
+
 from ocd_core.harness import rules
 
 
@@ -55,3 +57,26 @@ def test_gate_bypass_allows_everything():
 def test_gate_rule_overrides_mode():
     rs = rules.RuleSet(deny=["bash(rm *)"])
     assert rules.gate("bash", {"command": "rm x"}, "bypass", rs) == "deny"
+
+
+def test_load_claude_rules(tmp_path):
+    (tmp_path / ".claude").mkdir()
+    (tmp_path / ".claude" / "settings.json").write_text(json.dumps({
+        "permissions": {"allow": ["Bash(git *)", "Read"], "deny": ["Bash(rm *)"]}
+    }))
+    rs = rules.load_claude_ruleset(tmp_path)
+    # Claude tool names map to ours; bare Read -> read_file
+    assert rules.gate("bash", {"command": "git status"}, "default", rs) == "allow"
+    assert rules.gate("bash", {"command": "rm x"}, "bypass", rs) == "deny"
+
+
+def test_load_claude_rules_absent(tmp_path):
+    rs = rules.load_claude_ruleset(tmp_path)
+    assert rs.allow == [] and rs.deny == [] and rs.ask == []
+
+
+def test_load_claude_rules_malformed(tmp_path):
+    (tmp_path / ".claude").mkdir()
+    (tmp_path / ".claude" / "settings.json").write_text("{not json")
+    rs = rules.load_claude_ruleset(tmp_path)  # must not raise
+    assert isinstance(rs, rules.RuleSet)

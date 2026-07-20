@@ -8,6 +8,9 @@ from __future__ import annotations
 
 import fnmatch
 from dataclasses import dataclass, field
+from pathlib import Path
+
+from .. import jsonstore
 
 READ_ONLY_TOOLS = {"read_file", "glob", "grep"}
 WRITE_TOOLS = {"edit_file", "write_file"}
@@ -89,3 +92,28 @@ def gate(tool: str, args: dict, mode: str, ruleset: RuleSet) -> str:
             return "allow"
         return "ask"
     return "ask"  # unknown/sensitive tool
+
+
+# Map Claude Code tool names to ours (best-effort; unmapped names pass through lowercased).
+_CLAUDE_TOOL_MAP = {
+    "Bash": "bash", "Read": "read_file", "Edit": "edit_file",
+    "Write": "write_file", "Glob": "glob", "Grep": "grep", "WebFetch": "web_fetch",
+}
+
+
+def _map_rule(rule: str) -> str:
+    name, matcher = _parse(rule)
+    mapped = _CLAUDE_TOOL_MAP.get(name, name[:1].lower() + name[1:] if name else name)
+    return f"{mapped}({matcher})" if matcher is not None else mapped
+
+
+def load_claude_ruleset(workspace_root) -> RuleSet:
+    """Read a workspace's .claude/settings.json permissions block into a RuleSet.
+    Best-effort: any error yields an empty RuleSet (never raises)."""
+    path = Path(workspace_root) / ".claude" / "settings.json"
+    data = jsonstore.load_json(path, {})
+    perms = data.get("permissions", {}) if isinstance(data, dict) else {}
+    def conv(key):
+        vals = perms.get(key, []) if isinstance(perms, dict) else []
+        return [_map_rule(str(r)) for r in vals] if isinstance(vals, list) else []
+    return RuleSet(allow=conv("allow"), deny=conv("deny"), ask=conv("ask"))

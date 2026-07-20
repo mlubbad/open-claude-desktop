@@ -184,3 +184,11 @@ durable queue, per-workspace behavior, single-node caveats): `docs/hosted-deploy
 - Never commit `backend/settings.json` changes (`git checkout` it before staging).
 - Delivery: PR per feature batch; 6 CI checks (backend/frontend/desktop/shell/lint/
   secrets); the user merges. After merge, reset the working branch onto main.
+- Branch model: **`main` is the single active line.** `dev-main` was a FROZEN legacy
+  line — the older Chainlit `app.py` + Reflex `frontend/ocd_app` + BigQuery-centric
+  core, no longer deployed anywhere (confirmed 2026-07-20). It carried its own last
+  security/CI hardening (#82/#83); do NOT resurrect it, backport to it, or reconcile
+  features across it. New work — features and fixes — goes to `main` only. The branch
+  was **deleted** 2026-07-20; its tip is preserved at commit
+  `94f4dfb3e10a95f963cd7880e224d3852e945251`, restorable with
+  `git push origin 94f4dfb3e10a95f963cd7880e224d3852e945251:refs/heads/dev-main`.

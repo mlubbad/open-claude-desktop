@@ -402,9 +402,9 @@ Expected: PASS. Then `ruff check backend/ocd_core backend/tests/test_bash_jail.p
 
 - [ ] **Step 2: Adversarial verify (subagent)**
 
-Dispatch a fresh subagent to try to defeat the workspace bash guard: an interpreter fronted by an allowlisted token (`python` variants, `poetry run python -c` — is `poetry` a front? it's allowlisted; check `poetry run python -c "…"` — the guard checks `parts[0]` only, so `poetry` fronts `python -c` and the inline-eval scan misses it); `-c` via `=`-joined form (`--command=`? not in the set — confirm python treats `-c` only); a path arg that resolves inside via a symlink pointing out; `python -m http.server` (long-running → must hit the 120s timeout, not hang the test — use a short timeout in the probe). Any real escape → add a failing test and fix (e.g. drop `poetry`/`uv` from the default allowlist, or scan every token for an interpreter+eval-flag pair). Record the outcome in the commit body.
+**Already fixed during Task 3 review (commit `fix(harness): harden workspace bash guard …`):** the `uv/poetry run python -c` interpreter-front, the bare-interpreter REPL (`python` with no args), and the missing-workspace-root fabrication were all found in the Task-3 two-stage review and fixed there — the guard now scans ALL tokens for an interpreter followed by an inline-eval flag (or a bare interpreter), and a missing `root` errors instead of being `mkdir`'d. So this step is now **confirm + probe-for-more**, not the primary fix.
 
-*Note for the implementer:* the `poetry run python -c` / `uv run python -c` front is the most likely real hole — `poetry`/`uv`/`go`/`make` can all invoke a subprocess. If the adversarial pass confirms it, the fix is to scan **all** tokens (not just `parts[0]`) for an interpreter immediately followed by an inline-eval flag, OR remove the sub-runner-capable tools (`poetry`, `uv`) from the default set. Decide and implement.
+Dispatch a fresh subagent to CONFIRM those are closed and hunt for anything else: `--command=`-joined eval forms (confirm the interpreter only treats `-c`/`-e`); a path arg that resolves inside via a symlink pointing OUT of the workspace (does `.resolve()` in `_bash_arg_escapes_jail` catch it?); `python -m http.server` and other long-runners (must hit the timeout, not hang — use a short timeout in the probe); `go run`/`make`/`npm run <script>` invoking a shell that then does something outside (single-command ban should stop chaining, but confirm). Any NEW real escape → add a failing test and fix. Record the outcome ("guard HOLDS across N classes") in the commit body.
 
 - [ ] **Step 3: Docs**
 
@@ -415,12 +415,12 @@ In `README.md`, update the Harness bash line — replace the "(`bash` remains th
   run the repo's own script files but inline `-c`/`-e` is blocked. Runners prompt by default
   (`allow` a command to auto-run it); `rm -rf /`-class stays hard-blocked.
 ```
-In `docs/superpowers/specs/2026-07-20-harness-design.md`, change the "`bash` cwd is NOT the workspace in P1" as-built bullet to note it shipped in the P1.5 fast-follow (cite this spec/branch).
+In `docs/superpowers/specs/2026-07-20-harness-design.md`, change the "`bash` cwd is NOT the workspace in P1" as-built bullet to note it shipped in the P1.5 fast-follow (cite this spec/branch). Also update `SECURITY.md` (~`:44-45`) — its "`bash` is allowlisted and path-jailed to a sandbox; `python` is not allowlisted" line now needs a clause: in an attached workspace, `bash` additionally allows curated build/test runners (incl. `python`/`node` on the repo's own script files, inline `-c`/`-e` blocked) in the workspace cwd, behind the mode gate + catastrophic breaker.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add -A backend/ README.md docs/superpowers/specs/2026-07-20-harness-design.md
+git add -A backend/ README.md docs/superpowers/specs/2026-07-20-harness-design.md SECURITY.md
 git commit -m "test(harness): adversarial-verify workspace bash + docs (shipped)"
 ```
 

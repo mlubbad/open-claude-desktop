@@ -2,7 +2,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ProvidersPage } from "./ProvidersPage";
+import { MODEL_CHIP_CAP, MODEL_SEARCH_MIN, ProvidersPage } from "./ProvidersPage";
 
 const OLLAMA = {
   id: "ollama", label: "Ollama", is_local: true, requires_key: false, has_key: false,
@@ -144,5 +144,74 @@ describe("ProvidersPage — key-optional providers", () => {
     expect(await screen.findByText("token set")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Clear" }));
     await waitFor(() => expect(providers.deleteKey).toHaveBeenCalledWith("vertex"));
+  });
+});
+
+// Big catalogs ("Load models" can pull hundreds of ids): the chip list is capped with a
+// "Show all" expander and gets a search box, so the page stays scannable without losing
+// any chip feature (pick / eye / remove / add all operate on the full catalog).
+describe("ProvidersPage — large catalogs (search + cap)", () => {
+  const MANY = Array.from({ length: 30 }, (_, i) => `m-${String(i + 1).padStart(2, "0")}`);
+
+  beforeEach(async () => {
+    saveSpy.mockClear();
+    stored.custom_models = {};
+    stored.hidden_models = {};
+    stored.visible_models = {};
+    const { providers } = await import("../../api/client");
+    vi.mocked(providers.list).mockResolvedValue([{ ...OLLAMA, models: [...MANY] }]);
+  });
+
+  it("caps the chips at MODEL_CHIP_CAP with a Show-all expander", async () => {
+    const { container } = render(<ProvidersPage active={active} onPick={noop} />);
+    await screen.findByRole("button", { name: "m-01" });
+    expect(container.querySelectorAll(".model-chip").length).toBe(MODEL_CHIP_CAP);
+    expect(screen.queryByRole("button", { name: "m-29" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: `Show all ${MANY.length} models` }));
+    expect(container.querySelectorAll(".model-chip").length).toBe(MANY.length);
+    expect(screen.getByRole("button", { name: "m-29" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Show fewer" }));
+    expect(container.querySelectorAll(".model-chip").length).toBe(MODEL_CHIP_CAP);
+  });
+
+  it("search filters the FULL catalog, past the cap", async () => {
+    render(<ProvidersPage active={active} onPick={noop} />);
+    const box = await screen.findByLabelText("Search Ollama models");
+    fireEvent.change(box, { target: { value: "M-29" } }); // case-insensitive
+    expect(screen.getByRole("button", { name: "m-29" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "m-01" })).not.toBeInTheDocument();
+    expect(screen.getByText(`1 of ${MANY.length} match`)).toBeInTheDocument();
+    fireEvent.change(box, { target: { value: "" } });
+    expect(screen.getByRole("button", { name: "m-01" })).toBeInTheDocument();
+  });
+
+  it("says so when no model matches the search", async () => {
+    render(<ProvidersPage active={active} onPick={noop} />);
+    fireEvent.change(await screen.findByLabelText("Search Ollama models"), {
+      target: { value: "zzz" },
+    });
+    expect(screen.getByText(/No models match/)).toBeInTheDocument();
+  });
+
+  it("chip actions still work from a filtered view", async () => {
+    render(<ProvidersPage active={active} onPick={noop} />);
+    fireEvent.change(await screen.findByLabelText("Search Ollama models"), {
+      target: { value: "m-29" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Remove m-29 from Ollama" }));
+    await waitFor(() =>
+      expect(saveSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ hidden_models: { ollama: ["m-29"] } }),
+      ));
+  });
+
+  it("small catalogs keep the plain chip row (no search, no expander)", async () => {
+    const { providers } = await import("../../api/client");
+    vi.mocked(providers.list).mockResolvedValue([{ ...OLLAMA }]); // 2 models
+    render(<ProvidersPage active={active} onPick={noop} />);
+    await screen.findByRole("button", { name: "llama3.1" });
+    expect(OLLAMA.models.length).toBeLessThan(MODEL_SEARCH_MIN);
+    expect(screen.queryByLabelText("Search Ollama models")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Show all/ })).not.toBeInTheDocument();
   });
 });

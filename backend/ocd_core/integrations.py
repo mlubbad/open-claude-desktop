@@ -1488,6 +1488,18 @@ _FETCH_CACHE: dict = {}
 # + path-jail into no containment at all. Use grep/ls for discovery instead.
 _BASH_ALLOW = {"ls", "cat", "echo", "pwd", "grep", "wc", "head", "tail",
                "type", "dir", "date", "whoami", "sort", "uniq", "cut"}
+# Workspace bash: the read-only base PLUS build/test runners — used ONLY when run_bash
+# gets an explicit `allow` (a workspace turn). find/npx/env are deliberately EXCLUDED
+# (find -delete/-exec; npx runs arbitrary packages; env fronts an interpreter) — a user
+# can add them per-workspace via an `allow` rule. See the workspace-cwd-bash spec.
+WORKSPACE_BASH_ALLOW = _BASH_ALLOW | {
+    "pytest", "python", "python3", "node", "npm", "pnpm", "yarn",
+    "go", "cargo", "make", "tsc", "ruff", "mypy", "eslint", "jest", "vitest",
+    "git", "which", "tox", "poetry", "uv",
+}
+# Interpreters whose inline-eval flags let the MODEL run code it wrote inline → blocked.
+_INTERPRETERS = {"python", "python3", "node", "deno", "ruby", "perl", "php"}
+_INLINE_EVAL_FLAGS = {"-c", "-e", "--eval", "-"}
 
 
 def _bash_arg_escapes_jail(tok: str) -> bool:

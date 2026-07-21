@@ -4,6 +4,7 @@ The metacharacter/`..` filter did not stop absolute-path arguments, so
 `cat /etc/passwd` and `cat <repo>/.env` escaped the jail. These tests pin the
 argument path-jail.
 """
+from ocd_core import config
 from ocd_core import integrations as I
 
 
@@ -46,3 +47,13 @@ def test_find_not_allowlisted():
     assert "not allowlisted" in out.lower()
     # The allowlist message enumerates the permitted commands; grep/ls remain.
     assert "grep" in out and "ls" in out
+
+
+def test_workspace_bash_constants_exist():
+    assert config.WORKSPACE_BASH_TIMEOUT_SEC >= 30
+    # runners present, read-only base preserved, dangerous fronts absent
+    assert {"pytest", "npm", "python", "git"} <= I.WORKSPACE_BASH_ALLOW
+    assert I._BASH_ALLOW <= I.WORKSPACE_BASH_ALLOW
+    assert not ({"find", "npx", "env"} & I.WORKSPACE_BASH_ALLOW)
+    assert I._INLINE_EVAL_FLAGS == {"-c", "-e", "--eval", "-"}
+    assert {"python", "node"} <= I._INTERPRETERS

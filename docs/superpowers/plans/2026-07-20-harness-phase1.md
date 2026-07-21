@@ -2493,30 +2493,39 @@ Expected: FAIL — no `RewindMenu`.
 
 ```tsx
 // desktop/src/components/RewindMenu.tsx
+// v1 offers file restore only: conversation restore is deferred (the backend
+// RestoreBody is Literal["files","both"], and "both" without conversation-restore
+// implemented is identical to "files").
 export function RewindMenu({ turnId, onRestore }: {
-  turnId: string; onRestore: (turnId: string, what: "files" | "conversation" | "both") => void;
+  turnId: string; onRestore: (turnId: string, what: "files") => void;
 }) {
   return (
     <div className="rewind-menu" role="menu">
-      <button role="menuitem" onClick={() => onRestore(turnId, "files")}>Restore files</button>
-      <button role="menuitem" onClick={() => onRestore(turnId, "conversation")}>Restore conversation</button>
-      <button role="menuitem" onClick={() => onRestore(turnId, "both")}>Restore both</button>
+      <button role="menuitem" onClick={() => onRestore(turnId, "files")}>
+        Restore files to before this message
+      </button>
     </div>
   );
 }
 ```
 
-Add an API client method (match `client.ts` style):
+Add an API client method (match `client.ts` style — note the **/harness prefix**, and
+handle the 404 the backend returns when the checkpoint belongs to a different
+workspace by surfacing the error message, not crashing):
 
 ```ts
 // desktop/src/api/client.ts
 export async function restoreCheckpoint(workspaceId: string, turnId: string,
-  what: "files" | "conversation" | "both") {
-  return apiFetch(`/workspaces/${workspaceId}/checkpoints/${turnId}/restore`, {
+  what: "files" = "files") {
+  return apiFetch(`/harness/workspaces/${workspaceId}/checkpoints/${turnId}/restore`, {
     method: "POST", body: JSON.stringify({ what }),
   });
 }
 ```
+
+Also render the `workspace_detached` SSE event (emitted when a turn's workspace_id no
+longer resolves) as a dismissible banner near the composer: "Workspace not found —
+continuing without folder access."
 
 Mount `WorkspaceBar` in the composer (fed by app state holding the current workspace + mode) and render `ToolTimeline`/`FileDiffCard`/`PlanCard`/`RewindMenu` inside `Message.tsx` from the accumulated events for that message. Keep the wiring minimal; the components already have tests. Follow the existing event-accumulation pattern in `Message.tsx` for reading `tool_call`/`file_diff`/`plan_update` off the message's event list.
 

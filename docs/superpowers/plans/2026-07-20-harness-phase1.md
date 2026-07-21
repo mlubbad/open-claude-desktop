@@ -2223,6 +2223,12 @@ git commit -m "feat(harness): checkpoint list + restore routes"
 
 ---
 
+> **Post-implementation notes for Tasks 15-17 (2026-07-21, commits `0ff5d4c`/`dbe06aa`/`4ecec0e`) — the commits are authoritative over the code blocks above:**
+> - **Route prefix:** tenancy already owns `/workspaces` (`app/routes/workspaces.py`, RBAC members routes), so ALL harness routes live under **`/harness/workspaces`** (e.g. `POST /harness/workspaces`, `GET /harness/workspaces/{wid}/checkpoints/{turn_id}`). **Task 21's `restoreCheckpoint` client method MUST use the `/harness/workspaces/...` paths.**
+> - **Permission-mode validator:** case-insensitive input → canonical spelling output (`acceptedits` → `acceptEdits`); unknown strings keep failing closed; legacy `auto`/`ask` pass through UN-aliased (aliasing to `bypass`/`default` at the schema layer would change `gate_on`/plan-mode comparisons in `agent.py` and defeat the scoped-gate posture).
+> - **Deliberate semantic (spec §7 amendment, safety-positive):** over HTTP, `bypass` auto-allows the *harness* tools (file suite/task_plan/bash minus the 14b breaker) but sensitive BUILT-INS (`code_execution`, `authenticate`, memory mutations) still prompt — only the legacy literal `auto` turns the gate fully off. This intentionally deviates from the spec table's "bypass = today's auto" toward the safer posture; record in the spec + PR description at Task 22.
+> - Task 17's Step-1 test snippet above still shows the stale nested store path (`... / "checkpoints" / "t1"`); the committed test uses the turn-agnostic root, matching the route + agent wiring.
+
 ## Task 18: Backend adversarial verify + full suite + lint
 
 Security-critical gate per repo convention (Track-2). No new features — a verification checkpoint.

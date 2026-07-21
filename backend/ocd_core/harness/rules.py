@@ -7,6 +7,7 @@ ask->default). Rule precedence: deny > ask > allow > mode default.
 from __future__ import annotations
 
 import fnmatch
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -34,6 +35,23 @@ def _bash_auto_allowed(cmd: str) -> bool:
     if parts[0] == "git":
         return len(parts) > 1 and parts[1] in GIT_READONLY
     return parts[0] in SAFE_BASH
+
+
+_CATASTROPHIC_RM = re.compile(r"\brm\b")
+_RM_FORCE_REC = re.compile(r"-\w*r\w*f|-\w*f\w*r|(-r\b.*\s-f\b)|(-f\b.*\s-r\b)")
+_RM_ROOT_TARGET = re.compile(r"\s(/|~|/\*|\$home)(\s|/|$)")
+_FORK_BOMB = re.compile(r":\(\)\s*\{[^}]*:\s*\|\s*:[^}]*\}\s*;\s*:")
+_DISK_WIPE = re.compile(r"\bmkfs\b|\bof=/dev/|>\s*/dev/sd")
+
+
+def is_catastrophic_bash(cmd: str) -> bool:
+    """Best-effort detector for irreversibly destructive shell commands that must never
+    auto-run regardless of mode/rules. NOT a complete sandbox — defense-in-depth only."""
+    c = " ".join((cmd or "").split())
+    low = c.lower()
+    if _CATASTROPHIC_RM.search(low) and _RM_FORCE_REC.search(low) and _RM_ROOT_TARGET.search(low + " "):
+        return True
+    return bool(_FORK_BOMB.search(c) or _DISK_WIPE.search(low))
 
 
 def normalize_mode(mode: str | None) -> str:
@@ -85,6 +103,8 @@ class RuleSet:
 
 def gate(tool: str, args: dict, mode: str, ruleset: RuleSet) -> str:
     """Return 'allow' | 'deny' | 'ask' for a tool call. Rules win over mode defaults."""
+    if tool == "bash" and is_catastrophic_bash(str((args or {}).get("command", ""))):
+        return "deny"   # mode-independent hard block; overrides allow/bypass
     mode = normalize_mode(mode)
     ruled = ruleset.decision(tool, args)
     if ruled is not None:

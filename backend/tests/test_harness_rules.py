@@ -51,7 +51,8 @@ def test_gate_plan_mode_allows_read():
 
 
 def test_gate_bypass_allows_everything():
-    assert rules.gate("bash", {"command": "rm -rf /"}, "bypass", rules.RuleSet()) == "allow"
+    # non-catastrophic command: rm -rf / is now a hard deny even in bypass (Task 14b breaker)
+    assert rules.gate("bash", {"command": "npm install"}, "bypass", rules.RuleSet()) == "allow"
 
 
 def test_gate_rule_overrides_mode():
@@ -97,3 +98,18 @@ def test_accept_edits_asks_for_git_write():
 
 def test_accept_edits_still_allows_safe_file_bash():
     assert rules.gate("bash", {"command": "mkdir foo"}, "acceptEdits", rules.RuleSet()) == "allow"
+
+
+def test_catastrophic_rm_denied_even_in_bypass():
+    for c in ["rm -rf /", "rm -rf /*", "sudo rm -rf /", "rm -fr ~", "rm -rf $HOME"]:
+        assert rules.gate("bash", {"command": c}, "bypass", rules.RuleSet()) == "deny", c
+
+
+def test_relative_rm_is_not_catastrophic():
+    # a workspace-relative rm is not a hard-deny (acceptEdits doesn't auto-allow rm, so it asks)
+    assert rules.gate("bash", {"command": "rm -rf build"}, "acceptEdits", rules.RuleSet()) != "deny"
+
+
+def test_fork_bomb_and_disk_wipe_denied():
+    assert rules.gate("bash", {"command": ":(){ :|:& };:"}, "bypass", rules.RuleSet()) == "deny"
+    assert rules.gate("bash", {"command": "mkfs.ext4 /dev/sda1"}, "bypass", rules.RuleSet()) == "deny"

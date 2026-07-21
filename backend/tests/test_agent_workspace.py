@@ -65,3 +65,79 @@ def test_workspace_edit_emits_diff_and_applies(monkeypatch, tmp_path):
     assert (tmp_path / "a.txt").read_text() == "new\n"
     assert any(e.get("type") == "file_diff" for e in events)
     assert any(e.get("type") == "tool_call" for e in events)
+
+
+def test_workspace_bypass_still_gates_sensitive_builtin(monkeypatch, tmp_path):
+    """A workspace turn in bypass must NOT auto-run a sensitive built-in — it falls
+    through to the existing HITL (which fails closed here -> approval_required)."""
+    calls = iter([[_FakeToolCall("c1", "code_execution", '{"code": "print(1)"}')], []])
+
+    async def _fake_stream(llm, model, messages, tools, temperature, max_tokens,
+                           content_scope="answer", fallback_model=None, **_kw):
+        try:
+            tcs = next(calls)
+        except StopIteration:
+            tcs = []
+        if tcs:
+            yield {"__done__": {"content": "", "note": None, "tool_calls": tcs}}
+        else:
+            yield {"type": "delta", "scope": "answer", "text": "done"}
+            yield {"__done__": {"content": "done", "tool_calls": [], "note": None}}
+
+    monkeypatch.setattr(agent, "_stream_llm", _fake_stream)
+
+    async def scenario():
+        events = []
+        # code_exec=True: without enabling it, the H6 "not enabled for this turn" check
+        # intercepts the call before it ever reaches the gate under test — verified
+        # empirically (and without it, on the PRE-fix gate this call actually executes
+        # for real via the docker code-execution engine, no prompt at all).
+        async for ev in agent.run_turn("run it", [], None, "m", effort="Low",
+                                       workspace_root=str(tmp_path), code_exec=True,
+                                       permission_mode="bypass", turn_id="t1"):
+            events.append(ev)
+        return events
+
+    events = asyncio.run(scenario())
+    assert any(e.get("type") == "approval_required" and e.get("name") == "code_execution"
+               for e in events)   # gate was NOT skipped for the sensitive built-in
+
+
+def test_workspace_plan_mode_does_not_hard_deny_safe_tool(monkeypatch, tmp_path):
+    """plan mode must not let the workspace gate hard-deny a safe read-only tool
+    (web_search); it should fall through to the existing handling (which allows it)."""
+    calls = iter([[_FakeToolCall("c1", "web_search", '{"query": "x"}')], []])
+
+    async def _fake_stream(llm, model, messages, tools, temperature, max_tokens,
+                           content_scope="answer", fallback_model=None, **_kw):
+        try:
+            tcs = next(calls)
+        except StopIteration:
+            tcs = []
+        if tcs:
+            yield {"__done__": {"content": "", "note": None, "tool_calls": tcs}}
+        else:
+            yield {"type": "delta", "scope": "answer", "text": "done"}
+            yield {"__done__": {"content": "done", "tool_calls": [], "note": None}}
+
+    monkeypatch.setattr(agent, "_stream_llm", _fake_stream)
+
+    async def _tool(name, args, tc_id, *a, **k):   # avoid real network
+        return {"id": tc_id, "name": name, "ok": True, "result": "ok", "summary": ""}
+    monkeypatch.setattr(agent, "_run_one_tool", _tool)
+
+    async def scenario():
+        events = []
+        # web_search=True: without enabling it, the H6 "not enabled for this turn"
+        # check intercepts the call before it ever reaches the harness gate under
+        # test, making the assertion below pass vacuously (verified empirically).
+        async for ev in agent.run_turn("search", [], None, "m", effort="Low",
+                                       workspace_root=str(tmp_path), web_search=True,
+                                       permission_mode="plan", turn_id="t1"):
+            events.append(ev)
+        return events
+
+    events = asyncio.run(scenario())
+    assert not any(e.get("type") == "tool_error"
+                   and "Blocked by permission rules/mode" in e.get("text", "")
+                   for e in events)   # workspace gate did NOT hard-deny web_search

@@ -1941,6 +1941,13 @@ git commit -m "feat(harness): catastrophic-bash circuit breaker (mode-independen
 
 ## Task 15: Schema + agent route wiring
 
+> **ORDERING (hard requirement from the Task 14 review):** this task widens the
+> `permission_mode` validator to accept `bypass`, which exposes the mode-independent
+> auto-run path publicly. **Task 14b (catastrophic-bash circuit breaker) MUST be committed
+> before this task.** Also depends on the Task 14 gate-scope fix (`fix(harness): scope
+> workspace rule-gate…`) being in — without it, a `bypass` workspace turn would skip the
+> HITL prompt for sensitive built-ins.
+
 **Files:**
 - Modify: `backend/app/schemas.py`, `backend/app/routes/agent.py`
 - Test: `backend/tests/test_agent_workspace.py` (route-level)

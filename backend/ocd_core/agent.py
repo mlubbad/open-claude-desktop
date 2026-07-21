@@ -1172,7 +1172,10 @@ def _completion_events(out: dict, streamed_artifacts: set | None = None):
             "summary": out.get("summary", "")}]
     # Harness workspace tools additionally surface a dedicated tool_call marker (for the
     # desktop timeline), a file_diff (edit_file only — write_file has no "before"), and a
-    # plan_update (task_plan) — on top of the generic tool_result above.
+    # plan_update (task_plan) — on top of the generic tool_result above. Keyed on tool
+    # NAME alone (out["ok"] is already True here) — safe only because no pre-existing
+    # built-in tool is named read_file/edit_file/write_file/glob/grep/task_plan; a future
+    # tool reusing one of these names would need to route around this check too.
     if out.get("name") in ("read_file", "edit_file", "write_file", "glob", "grep", "task_plan"):
         evs.append({"type": "tool_call", "id": out["id"], "name": out["name"], "ok": True})
         if out.get("diff"):
@@ -1701,24 +1704,35 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
             # Harness workspace rule gate: for a workspace turn, allow/deny/ask rules
             # (workspace_rules + the workspace's .claude/settings.json, merged into
             # ws_ruleset above) and the active permission mode are consulted BEFORE the
-            # existing HITL gate. 'deny' blocks the call outright (a mode/rule decision,
-            # not a fixable failure); 'allow' runs it immediately, skipping the HITL
-            # prompt below entirely; 'ask' changes nothing — it falls through to the
-            # existing gate, which decides using its own sensitivity list.
+            # existing HITL gate — but ONLY for the tools the harness actually governs
+            # (the 5 file tools + task_plan + bash). rules.gate's mode defaults (e.g.
+            # "bypass" -> allow everything, "plan" -> deny everything but reads) are
+            # calibrated for THAT set; applying them to every tool name let a workspace
+            # turn in "bypass" mode skip the HITL prompt for sensitive built-ins like
+            # code_execution/authenticate/memory (CRITICAL — found in review), and let
+            # "plan" mode hard-deny safe non-file tools like web_search. 'deny' blocks
+            # the call outright (a mode/rule decision, not a fixable failure); 'allow'
+            # runs it immediately, skipping the HITL prompt below entirely; 'ask'
+            # changes nothing — it falls through to the existing gate, which decides
+            # using its own sensitivity list. Every other tool name is untouched by
+            # this block and goes straight to the existing HITL gate, exactly as
+            # before the harness existed.
             if workspace_root:
-                from .harness import rules as _rules
-                _decision = _rules.gate(name, args, perm_mode, ws_ruleset)
-                if _decision == "deny":
-                    yield {"type": "tool_error", "id": tc.id, "name": name,
-                           "text": f"Blocked by permission rules/mode for {name}."}
-                    blocked_outcomes.append({"id": tc.id, "name": name, "ok": False,
-                        "skip_breaker": True,
-                        "result": f"BLOCKED: '{name}' denied by the active permission mode/rules."})
-                    continue
-                if _decision == "allow":
-                    calls.append((tc.id, name, args))
-                    continue
-                # _decision == "ask" -> fall through to the existing HITL prompt below
+                from .harness import workspace_fs as _wfs
+                if name in (_wfs.FILE_TOOL_NAMES | {"task_plan", "bash"}):
+                    from .harness import rules as _rules
+                    _decision = _rules.gate(name, args, perm_mode, ws_ruleset)
+                    if _decision == "deny":
+                        yield {"type": "tool_error", "id": tc.id, "name": name,
+                               "text": f"Blocked by permission rules/mode for {name}."}
+                        blocked_outcomes.append({"id": tc.id, "name": name, "ok": False,
+                            "skip_breaker": True,
+                            "result": f"BLOCKED: '{name}' denied by the active permission mode/rules."})
+                        continue
+                    if _decision == "allow":
+                        calls.append((tc.id, name, args))
+                        continue
+                    # _decision == "ask" -> fall through to the existing HITL prompt below
             # HITL: suspend for a user decision before running a sensitive tool. Pass
             # args so a memory *mutation* (create/delete/…) is gated even though the
             # memory tool is otherwise read-only "safe".
@@ -1782,10 +1796,14 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
                             yield ev
                         # A checkpoint is the file's pre-mutation restore point, already
                         # captured by snapshot_before_edit inside _run_one_tool; the event
-                        # just tells the UI a rewind point now exists for this turn.
+                        # just tells the UI a rewind point now exists for this turn. The id
+                        # MUST be ws["ckpt_turn"] (what snapshot_before_edit actually filed
+                        # under, turn_id or "adhoc") — not the raw turn_id, which can differ
+                        # (falsy turn_id) and would point the Task 17 restore route at a
+                        # checkpoint id that was never written.
                         if (workspace_root and out.get("ok")
                                 and out.get("name") in ("edit_file", "write_file")):
-                            yield {"type": "checkpoint", "turn_id": turn_id}
+                            yield {"type": "checkpoint", "turn_id": ws["ckpt_turn"]}
                         pending -= 1
                     else:
                         yield item  # live tool_output_delta

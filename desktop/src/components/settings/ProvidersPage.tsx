@@ -7,6 +7,14 @@ import { Icon } from "../Icon";
 // Models & keys: BYOK providers, connection test, and a fully customisable per-provider
 // model list — add any model name the endpoint accepts, remove ones you don't use, and
 // choose which appear in the chat picker (the eye).
+
+// "Load models" can pull hundreds of ids (NIM, Gemini). Above these thresholds the chip
+// row gets a search box and is capped behind a "Show all" expander so the page stays
+// scannable; search always filters the FULL catalog, and every chip action (pick / eye /
+// remove / add) keeps operating on the full catalog, never just the visible slice.
+export const MODEL_SEARCH_MIN = 10;
+export const MODEL_CHIP_CAP = 24;
+
 export function ProvidersPage({
   active,
   onPick,
@@ -28,6 +36,9 @@ export function ProvidersPage({
   const [hidden, setHidden] = useState<Record<string, string[]>>({});
   // The "add a model" input per provider.
   const [modelDraft, setModelDraft] = useState<Record<string, string>>({});
+  // Big-catalog chip row state: the per-provider search needle + Show-all expansion.
+  const [modelQuery, setModelQuery] = useState<Record<string, string>>({});
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
   async function refresh() {
     try {
@@ -206,7 +217,13 @@ export function ProvidersPage({
         </div>
       )}
       <ul className="provider-list">
-        {list.map((p) => (
+        {list.map((p) => {
+          const cat = catalogFor(p);
+          const q = (modelQuery[p.id] ?? "").trim().toLowerCase();
+          const matches = q ? cat.filter((m) => m.toLowerCase().includes(q)) : cat;
+          const isCapped = !q && !expanded[p.id] && matches.length > MODEL_CHIP_CAP;
+          const chips = isCapped ? matches.slice(0, MODEL_CHIP_CAP) : matches;
+          return (
           <li key={p.id} className={p.id === active.provider ? "active" : ""}>
             <div className="provider-row">
               <span className="provider-label">
@@ -271,8 +288,37 @@ export function ProvidersPage({
               </div>
             )}
             {p.key_hint && <p className="key-hint">{p.key_hint}</p>}
+            {cat.length >= MODEL_SEARCH_MIN && (
+              <div className="model-tools">
+                <span className="model-search">
+                  <Icon name="search" size={12} />
+                  <input
+                    value={modelQuery[p.id] ?? ""}
+                    onChange={(e) => setModelQuery((d) => ({ ...d, [p.id]: e.target.value }))}
+                    placeholder={`Search ${cat.length} models…`}
+                    aria-label={`Search ${p.label} models`}
+                    spellCheck={false}
+                    autoCapitalize="off"
+                    autoCorrect="off"
+                  />
+                  {q && (
+                    <button
+                      className="model-search-clear"
+                      aria-label={`Clear ${p.label} model search`}
+                      title="Clear"
+                      onClick={() => setModelQuery((d) => ({ ...d, [p.id]: "" }))}
+                    >
+                      <Icon name="x" size={11} />
+                    </button>
+                  )}
+                </span>
+                <span className="model-count" aria-live="polite">
+                  {q ? `${matches.length} of ${cat.length} match` : `${cat.length} models`}
+                </span>
+              </div>
+            )}
             <div className="model-row">
-              {catalogFor(p).map((m) => {
+              {chips.map((m) => {
                 const isActive = p.id === active.provider && m === active.model;
                 const isShown = shown(p, m);
                 const isCustom = (custom[p.id] ?? []).includes(m);
@@ -309,6 +355,25 @@ export function ProvidersPage({
                   </span>
                 );
               })}
+              {q && matches.length === 0 && (
+                <span className="model-none">No models match “{(modelQuery[p.id] ?? "").trim()}”.</span>
+              )}
+              {isCapped && (
+                <button
+                  className="model-more"
+                  onClick={() => setExpanded((d) => ({ ...d, [p.id]: true }))}
+                >
+                  Show all {matches.length} models
+                </button>
+              )}
+              {!q && expanded[p.id] && matches.length > MODEL_CHIP_CAP && (
+                <button
+                  className="model-more"
+                  onClick={() => setExpanded((d) => ({ ...d, [p.id]: false }))}
+                >
+                  Show fewer
+                </button>
+              )}
               <form
                 className="model-add"
                 onSubmit={(e) => {
@@ -337,7 +402,8 @@ export function ProvidersPage({
               </form>
             </div>
           </li>
-        ))}
+          );
+        })}
       </ul>
     </>
   );

@@ -10,7 +10,8 @@ rationale.
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
-from ocd_core import workspace_registry
+from ocd_core import config, workspace_registry
+from ocd_core.harness.checkpoints import CheckpointStore
 from pydantic import BaseModel
 
 from ..deps import current_user
@@ -26,6 +27,10 @@ class RulesBody(BaseModel):
     allow: list[str] = []
     deny: list[str] = []
     ask: list[str] = []
+
+
+class RestoreBody(BaseModel):
+    what: str = "files"   # files | conversation | both
 
 
 @router.post("")
@@ -52,3 +57,27 @@ def set_rules(wid: str, body: RulesBody, user: str = Depends(current_user)) -> d
         raise HTTPException(404, "unknown workspace")
     workspace_registry.set_rules(wid, body.model_dump())
     return {"ok": True}
+
+
+def _store(turn_id: str) -> CheckpointStore:
+    # Turn-agnostic root; turn_id is the checkpoint_id (matches Task 14 wiring:
+    # agent.py's run_turn constructs the SAME CheckpointStore(config.REPO_ROOT /
+    # "checkpoints") and snapshots under the turn's own id).
+    return CheckpointStore(config.REPO_ROOT / "checkpoints")
+
+
+@router.get("/{wid}/checkpoints/{turn_id}")
+def list_checkpoints(wid: str, turn_id: str, user: str = Depends(current_user)) -> list[dict]:
+    if not workspace_registry.get(wid):
+        raise HTTPException(404, "unknown workspace")
+    return _store(turn_id).list(turn_id)
+
+
+@router.post("/{wid}/checkpoints/{turn_id}/restore")
+def restore_checkpoint(wid: str, turn_id: str, body: RestoreBody,
+                       user: str = Depends(current_user)) -> dict:
+    ws = workspace_registry.get(wid)
+    if not ws:
+        raise HTTPException(404, "unknown workspace")
+    n = _store(turn_id).restore(turn_id, ws["root"], what=body.what)
+    return {"ok": True, "restored": n}

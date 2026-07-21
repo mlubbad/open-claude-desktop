@@ -111,3 +111,31 @@ def test_run_bash_nonworkspace_unchanged():
     # no root/allow -> read-only base + SANDBOX_ROOT (regression): a runner is NOT allowed
     out = I.run_bash("pytest")
     assert "not allowlisted" in out.lower()
+
+
+def test_run_bash_workspace_rejects_bare_interpreter(tmp_path):
+    out = I.run_bash("python", root=tmp_path, allow=I.WORKSPACE_BASH_ALLOW, timeout=5)
+    assert "interpreter must run a workspace file" in out.lower() or "rejected" in out.lower()
+    assert "inline code" in out.lower() or "repl" in out.lower() or "workspace file" in out.lower()
+
+
+def test_run_bash_workspace_blocks_interpreter_front(tmp_path):
+    # uv/poetry fronting an interpreter with inline eval must be rejected by the GUARD,
+    # before any subprocess runs (independent of whether uv/poetry is installed).
+    for cmd in ("uv run python -c \"print(1)\"", "poetry run python -c \"print(1)\""):
+        out = I.run_bash(cmd, root=tmp_path, allow=I.WORKSPACE_BASH_ALLOW, timeout=5)
+        assert "workspace file" in out.lower() and "rejected" in out.lower(), cmd
+
+
+def test_run_bash_workspace_allows_runner_via_uv(tmp_path):
+    # `uv run pytest` has no interpreter+eval pattern -> the guard must NOT fire
+    # (it may still fail for lack of a project, but not with the guard message).
+    out = I.run_bash("uv run pytest --version", root=tmp_path, allow=I.WORKSPACE_BASH_ALLOW, timeout=10)
+    assert "must run a workspace file" not in out.lower()
+
+
+def test_run_bash_workspace_missing_root_errors(tmp_path):
+    ghost = tmp_path / "does" / "not" / "exist"
+    out = I.run_bash("python x.py", root=ghost, allow=I.WORKSPACE_BASH_ALLOW, timeout=5)
+    assert "does not exist" in out.lower()
+    assert not ghost.exists()   # not fabricated

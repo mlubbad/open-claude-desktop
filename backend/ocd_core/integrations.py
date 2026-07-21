@@ -1498,6 +1498,8 @@ WORKSPACE_BASH_ALLOW = _BASH_ALLOW | {
     "git", "which", "tox", "poetry", "uv",
 }
 # Interpreters whose inline-eval flags let the MODEL run code it wrote inline → blocked.
+# deno/ruby/perl/php are forward-looking (not in WORKSPACE_BASH_ALLOW yet) — the guard
+# already covers them if they're ever added to the allowlist.
 _INTERPRETERS = {"python", "python3", "node", "deno", "ruby", "perl", "php"}
 _INLINE_EVAL_FLAGS = {"-c", "-e", "--eval", "-"}
 
@@ -1510,7 +1512,7 @@ def _bash_arg_escapes_jail(tok: str, root: Path | None = None) -> bool:
     looks like an absolute POSIX path, a home-relative path, a Windows drive/UNC path, or
     that resolves outside ``root`` is rejected.
     """
-    root = root or SANDBOX_ROOT
+    root = root if root is not None else SANDBOX_ROOT
     t = (tok or "").strip()
     if not t or t.startswith("-"):
         return False  # empty or a flag — not a path escape
@@ -2112,7 +2114,11 @@ def run_bash(command: str, restart: bool = False, *,
     active_root = Path(root) if root is not None else SANDBOX_ROOT
     active_allow = allow if allow is not None else _BASH_ALLOW
     active_timeout = timeout if timeout is not None else 30
-    _ensure_dir(active_root)
+    if root is not None:
+        if not active_root.is_dir():
+            return f"Rejected: workspace root does not exist: {active_root}"
+    else:
+        _ensure_dir(active_root)   # SANDBOX_ROOT is create-on-demand (scratch dir)
     if restart:
         return "Bash session restarted."
     command = (command or "").strip()
@@ -2129,12 +2135,17 @@ def run_bash(command: str, restart: bool = False, *,
     if not parts or parts[0] not in active_allow:
         return (f"Rejected: '{parts[0] if parts else ''}' is not allowlisted. Allowed: "
                 + ", ".join(sorted(active_allow)))
-    # Interpreters may run the workspace's own script FILES, but not code the model wrote
-    # inline (-c/-e/--eval/stdin). Unreachable in non-workspace mode (interpreters aren't
-    # in _BASH_ALLOW), so this is safe to apply unconditionally.
-    if parts[0] in _INTERPRETERS and any(a in _INLINE_EVAL_FLAGS for a in parts[1:]):
-        return ("Rejected: inline code (-c/-e/--eval/stdin) is not allowed. Run a file in "
-                "the workspace instead (e.g. `python script.py`).")
+    # Interpreters must run a workspace FILE — never inline code the model wrote
+    # (-c/-e/--eval/stdin) and never an interactive REPL (no script -> hangs). Scan ALL
+    # tokens so a front (`uv run python -c`, `poetry run python -c`) can't dodge a
+    # parts[0]-only check. Unreachable in non-workspace mode (interpreters aren't in
+    # _BASH_ALLOW), so it's safe to apply unconditionally.
+    for i, tok in enumerate(parts):
+        if tok in _INTERPRETERS and (
+                i == len(parts) - 1                                    # bare REPL (no script)
+                or any(a in _INLINE_EVAL_FLAGS for a in parts[i + 1:])):  # inline eval
+            return ("Rejected: an interpreter must run a workspace file, not inline code "
+                    "(-c/-e/--eval/stdin) or an interactive REPL. Run e.g. `python script.py`.")
     # No argument may point outside the active root (blocks `cat /etc/passwd` etc.).
     escaping = next((a for a in parts[1:] if _bash_arg_escapes_jail(a, active_root)), None)
     if escaping is not None:

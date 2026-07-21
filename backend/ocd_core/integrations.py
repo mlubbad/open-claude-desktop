@@ -2104,10 +2104,15 @@ def run_python(code: str) -> str:
 
 
 # ---- bash (default OFF, allowlisted + cwd-jailed) ---- #
-def run_bash(command: str, restart: bool = False) -> str:
+def run_bash(command: str, restart: bool = False, *,
+             root: Path | None = None, allow: set | None = None,
+             timeout: int | None = None) -> str:
     import shlex
     import subprocess
-    _ensure_dir(SANDBOX_ROOT)
+    active_root = Path(root) if root is not None else SANDBOX_ROOT
+    active_allow = allow if allow is not None else _BASH_ALLOW
+    active_timeout = timeout if timeout is not None else 30
+    _ensure_dir(active_root)
     if restart:
         return "Bash session restarted."
     command = (command or "").strip()
@@ -2116,27 +2121,32 @@ def run_bash(command: str, restart: bool = False) -> str:
     if any(tok in command for tok in ("&&", "||", "|", ";", "&", ">", "<", "`",
                                       "$(", "${", "..", "\n")):
         return ("Rejected: pipes, redirects, chaining, and path traversal are not "
-                "allowed in the sandbox. Run one simple allowlisted command.")
+                "allowed. Run one simple allowlisted command.")
     try:
         parts = shlex.split(command)
     except Exception:
         return "Rejected: could not parse command."
-    if not parts or parts[0] not in _BASH_ALLOW:
+    if not parts or parts[0] not in active_allow:
         return (f"Rejected: '{parts[0] if parts else ''}' is not allowlisted. Allowed: "
-                + ", ".join(sorted(_BASH_ALLOW)))
-    # C2: no argument may point outside the sandbox (blocks absolute-path reads
-    # like `cat /etc/passwd` that the metacharacter/`..` filter did not catch).
-    escaping = next((a for a in parts[1:] if _bash_arg_escapes_jail(a)), None)
+                + ", ".join(sorted(active_allow)))
+    # Interpreters may run the workspace's own script FILES, but not code the model wrote
+    # inline (-c/-e/--eval/stdin). Unreachable in non-workspace mode (interpreters aren't
+    # in _BASH_ALLOW), so this is safe to apply unconditionally.
+    if parts[0] in _INTERPRETERS and any(a in _INLINE_EVAL_FLAGS for a in parts[1:]):
+        return ("Rejected: inline code (-c/-e/--eval/stdin) is not allowed. Run a file in "
+                "the workspace instead (e.g. `python script.py`).")
+    # No argument may point outside the active root (blocks `cat /etc/passwd` etc.).
+    escaping = next((a for a in parts[1:] if _bash_arg_escapes_jail(a, active_root)), None)
     if escaping is not None:
-        return ("Rejected: argument outside the sandbox is not allowed "
-                f"('{escaping}'). Only paths inside the session workspace are permitted.")
+        return ("Rejected: argument outside the workspace is not allowed "
+                f"('{escaping}'). Only paths inside the working directory are permitted.")
     try:
-        proc = subprocess.run(parts, cwd=str(SANDBOX_ROOT), capture_output=True,
-                              text=True, timeout=30, shell=False)
+        proc = subprocess.run(parts, cwd=str(active_root), capture_output=True,
+                              text=True, timeout=active_timeout, shell=False)
         out = (proc.stdout or "") + (proc.stderr or "")
         return _scrub_secrets(_cap(out, 16000)) or "(no output)"
     except subprocess.TimeoutExpired:
-        return "Timed out after 30s."
+        return f"Timed out after {active_timeout}s."
     except FileNotFoundError:
         return f"Rejected: '{parts[0]}' is not available on this system."
     except Exception as e:

@@ -29,7 +29,10 @@ def test_flags_and_relative_args_allowed():
 
 def test_run_bash_blocks_absolute_read():
     out = I.run_bash("cat /etc/passwd")
-    assert "outside the sandbox" in out
+    # Task 3 (workspace-cwd-bash) made this message mode-generic ("sandbox" -> "workspace")
+    # since run_bash now serves both a fixed sandbox and an arbitrary workspace root; the
+    # security behavior (reject before any subprocess runs) is unchanged.
+    assert "outside" in out.lower() and "rejected" in out.lower()
     assert "root:" not in out  # must not have actually read the file
 
 
@@ -71,3 +74,40 @@ def test_arg_escapes_jail_is_root_relative(tmp_path):
     assert I._bash_arg_escapes_jail("../secret", ws) is True    # parent
     # default root still works (back-compat, no root passed)
     assert I._bash_arg_escapes_jail("-v") is False
+
+
+# Use `python` for the execution tests — always present in the venv and portable across
+# Windows/Linux (unlike `ls`/`pwd`, which aren't reliable subprocess binaries on Windows).
+
+
+def test_run_bash_workspace_runs_script_in_root(tmp_path):
+    # A runner (python) executes a workspace script FILE with cwd=root — proves both that
+    # the runner allowlist is honored and that cwd is the workspace (script prints getcwd).
+    (tmp_path / "cwd.py").write_text("import os\nprint(os.getcwd())\n")
+    out = I.run_bash("python cwd.py", root=tmp_path, allow=I.WORKSPACE_BASH_ALLOW, timeout=30)
+    assert tmp_path.name in out          # ran in the workspace dir
+    assert "Rejected" not in out
+
+
+def test_run_bash_workspace_blocks_inline_eval(tmp_path):
+    out = I.run_bash('python -c "print(1)"', root=tmp_path,
+                      allow=I.WORKSPACE_BASH_ALLOW, timeout=30)
+    assert "inline code" in out.lower() and "rejected" in out.lower()
+
+
+def test_run_bash_workspace_rejects_unlisted(tmp_path):
+    out = I.run_bash("rm -rf x", root=tmp_path, allow=I.WORKSPACE_BASH_ALLOW, timeout=30)
+    assert "not allowlisted" in out.lower()
+
+
+def test_run_bash_workspace_rejects_outside_arg(tmp_path):
+    # cat is in the read-only base (allowed); the arg-jail rejects the absolute path
+    # BEFORE any subprocess runs, so this is portable (no dependency on `cat` existing).
+    out = I.run_bash("cat /etc/passwd", root=tmp_path, allow=I.WORKSPACE_BASH_ALLOW, timeout=30)
+    assert "outside" in out.lower() and "rejected" in out.lower()
+
+
+def test_run_bash_nonworkspace_unchanged():
+    # no root/allow -> read-only base + SANDBOX_ROOT (regression): a runner is NOT allowed
+    out = I.run_bash("pytest")
+    assert "not allowlisted" in out.lower()

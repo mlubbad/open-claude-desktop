@@ -144,8 +144,10 @@ export function Composer({
   // Chat | Cowork mode switch (reference parity): flips the whole surface between
   // an interactive chat and delegating an autonomous background task.
   modeToggle?: { mode: "chat" | "cowork"; onMode: (m: "chat" | "cowork") => void };
-  // Harness (code workspaces): omit entirely to hide both the bar AND the attach
-  // affordance (e.g. the project-home composer, which doesn't offer this yet).
+  // Harness (code workspaces): omit entirely to hide both the bar and the attach
+  // affordance. App.tsx currently passes the same WorkspaceControlInfo to every
+  // Composer instance (hero, footer, and project-home), so this is opt-out per call
+  // site, not opt-in — a future caller that shouldn't offer it just leaves it unset.
   workspace?: WorkspaceControlInfo;
   // The current turn's workspace_id didn't resolve server-side — a dismissible notice
   // (state.workspaceDetached; see state/transcript.ts). Dismissal is local/display-only:

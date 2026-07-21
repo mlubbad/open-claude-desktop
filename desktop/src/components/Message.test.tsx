@@ -56,11 +56,19 @@ describe("AssistantBubble harness rendering", () => {
   });
 
   it("does not render RewindMenu without an onRestoreCheckpoint handler, even with a checkpoint", () => {
-    render(<AssistantBubble msg={msg({ checkpointTurnId: "t1" })} isLast={false} busy={false} />);
+    render(
+      <AssistantBubble
+        msg={msg({ checkpointTurnId: "t1", workspaceId: "ws-1" })}
+        isLast={false}
+        busy={false}
+      />,
+    );
     expect(screen.queryByRole("menu")).not.toBeInTheDocument();
   });
 
-  it("renders RewindMenu when both a checkpoint and a handler are present, and wires the click through", () => {
+  // Review regression: a message can (in principle) have a checkpoint but no stamped
+  // workspaceId -- must not render a RewindMenu with nothing to restore against.
+  it("does not render RewindMenu when the message has a checkpoint but no workspaceId", () => {
     const onRestoreCheckpoint = vi.fn();
     render(
       <AssistantBubble
@@ -70,7 +78,23 @@ describe("AssistantBubble harness rendering", () => {
         onRestoreCheckpoint={onRestoreCheckpoint}
       />,
     );
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+  });
+
+  it("renders RewindMenu when a checkpoint, a workspaceId, and a handler are all present, and passes THIS message's workspaceId through", () => {
+    const onRestoreCheckpoint = vi.fn();
+    render(
+      <AssistantBubble
+        msg={msg({ checkpointTurnId: "t1", workspaceId: "ws-1" })}
+        isLast={false}
+        busy={false}
+        onRestoreCheckpoint={onRestoreCheckpoint}
+      />,
+    );
     fireEvent.click(screen.getByText(/restore files/i));
-    expect(onRestoreCheckpoint).toHaveBeenCalledWith("t1", "files");
+    // The message's OWN workspaceId ("ws-1"), not any live/ambient workspace state --
+    // the whole point of the review fix (rewind targets the workspace the message's
+    // turn actually ran under).
+    expect(onRestoreCheckpoint).toHaveBeenCalledWith("ws-1", "t1", "files");
   });
 });

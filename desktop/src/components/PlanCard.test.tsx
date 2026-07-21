@@ -22,4 +22,11 @@ describe("PlanCard", () => {
     render(<PlanCard items={[{ id: 1, subject: "plan it", status: "pending" }]} />);
     expect(screen.getByText("plan it").closest("li")).toHaveAttribute("data-status", "pending");
   });
+
+  // Accessibility (review): the status glyph (✓/▸/○) is aria-hidden, so screen readers
+  // need a text alternative for the status, not just the subject.
+  it("announces the status as text for screen readers, alongside the hidden glyph", () => {
+    render(<PlanCard items={[{ id: 1, subject: "write the tests", status: "in_progress" }]} />);
+    expect(screen.getByText("in progress")).toBeInTheDocument();
+  });
 });

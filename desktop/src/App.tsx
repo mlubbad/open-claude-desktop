@@ -205,17 +205,17 @@ export default function App() {
   }, [state.workspaceDetached]);
 
   // Restore a workspace's files to their state before a given message (RewindMenu).
-  // Undefined while nothing is attached — Message.tsx only renders the menu when both
-  // a checkpoint AND this handler are present. Scoped to the CURRENTLY attached
-  // workspace: a checkpoint from a since-detached/replaced workspace 404s server-side
-  // (owned_by check) rather than silently restoring the wrong folder.
-  const restoreCheckpointFor = workspace
-    ? (turnId: string, what: "files") => {
-        void restoreCheckpoint(workspace.id, turnId, what).catch((e) => {
-          window.alert(e instanceof Error ? e.message : "Couldn't restore that checkpoint.");
-        });
-      }
-    : undefined;
+  // Takes the workspaceId the CALLER supplies (Message.tsx passes the message's own
+  // stamped msg.workspaceId, not whatever happens to be attached right now) — so a
+  // rewind always targets the workspace that message's turn actually ran under, even
+  // after the user has since detached or attached a different folder. Always defined
+  // (doesn't depend on the live `workspace` state at all); the backend's owned_by
+  // check is still defense-in-depth against a workspace/checkpoint mismatch.
+  const restoreCheckpointFor = useCallback((workspaceId: string, turnId: string, what: "files") => {
+    void restoreCheckpoint(workspaceId, turnId, what).catch((e) => {
+      window.alert(e instanceof Error ? e.message : "Couldn't restore that checkpoint.");
+    });
+  }, []);
 
   // The branch family (tree) of the open conversation, powering the transcript's branch
   // switcher. Incognito chats never persist, so they can't branch — skip the fetch.

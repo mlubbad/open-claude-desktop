@@ -88,6 +88,12 @@ export type Block = ThinkingBlock | AnswerBlock | ToolCard | ArtifactBlock | Que
 export interface AssistantMessage {
   role: "assistant";
   blocks: Block[];
+  // The workspace_id this message's turn was SENT with (stamped by startTurn/retryFrom/
+  // editFrom at turn-creation time, from the caller's request config -- SSE events never
+  // carry it). Rewind must restore the workspace THIS message's edits happened in, not
+  // whatever happens to be attached when the user clicks Restore later, so RewindMenu
+  // reads this instead of closing over "the current workspace".
+  workspaceId?: string;
   toolCalls?: { id: string; name: string; ok: boolean }[];
   fileDiffs?: { id: string; diff: string }[];
   planItems?: PlanItem[];
@@ -218,9 +224,17 @@ export function buildHistory(messages: Message[]): HistoryTurn[] {
   });
 }
 
+// A fresh assistant slot, stamped with the workspace_id this turn is being sent under
+// (or no key at all when there isn't one — mirrors the images?.length pattern below).
+// Stamping at CREATION time is what lets RewindMenu later restore the workspace THIS
+// message's edits happened in, regardless of what's attached when the user clicks it.
+function newAssistantSlot(workspaceId?: string | null): AssistantMessage {
+  return { role: "assistant", blocks: [], ...(workspaceId ? { workspaceId } : {}) };
+}
+
 // Truncate to just after the last user message and append a fresh assistant slot
 // (used to regenerate the last response).
-export function retryFrom(state: TranscriptState, userIdx: number): TranscriptState {
+export function retryFrom(state: TranscriptState, userIdx: number, workspaceId?: string | null): TranscriptState {
   const kept = state.messages.slice(0, userIdx + 1);
   return {
     ...state,
@@ -228,13 +242,18 @@ export function retryFrom(state: TranscriptState, userIdx: number): TranscriptSt
     error: null,
     pendingApproval: null,
     workspaceDetached: null,
-    messages: [...kept, { role: "assistant", blocks: [] }],
+    messages: [...kept, newAssistantSlot(workspaceId)],
   };
 }
 
 // Replace a user message at `index` with edited text, drop everything after it, and
 // open a fresh assistant slot (edit-and-resend / branch).
-export function editFrom(state: TranscriptState, index: number, text: string): TranscriptState {
+export function editFrom(
+  state: TranscriptState,
+  index: number,
+  text: string,
+  workspaceId?: string | null,
+): TranscriptState {
   const kept = state.messages.slice(0, index);
   return {
     ...state,
@@ -242,12 +261,17 @@ export function editFrom(state: TranscriptState, index: number, text: string): T
     error: null,
     pendingApproval: null,
     workspaceDetached: null,
-    messages: [...kept, { role: "user", text }, { role: "assistant", blocks: [] }],
+    messages: [...kept, { role: "user", text }, newAssistantSlot(workspaceId)],
   };
 }
 
 // Begin a new user turn: append the user message + a fresh assistant message.
-export function startTurn(state: TranscriptState, goal: string, images?: string[]): TranscriptState {
+export function startTurn(
+  state: TranscriptState,
+  goal: string,
+  images?: string[],
+  workspaceId?: string | null,
+): TranscriptState {
   return {
     ...state,
     running: true,
@@ -257,7 +281,7 @@ export function startTurn(state: TranscriptState, goal: string, images?: string[
     messages: [
       ...state.messages,
       { role: "user", text: goal, ...(images?.length ? { images } : {}) },
-      { role: "assistant", blocks: [] },
+      newAssistantSlot(workspaceId),
     ],
   };
 }
@@ -536,7 +560,9 @@ export function answerQuestionState(state: TranscriptState, id: string): Transcr
       }
       return b;
     });
-    return changed ? { role: "assistant" as const, blocks } : m;
+    // Spread the whole message (not just role/blocks) so harness fields
+    // (toolCalls/fileDiffs/planItems/checkpointTurnId) survive this update too.
+    return changed ? { ...m, blocks } : m;
   });
   return { ...state, messages };
 }
@@ -577,7 +603,8 @@ export function resolveApprovalState(
       }
       return b;
     });
-    return changed ? { role: "assistant" as const, blocks } : m;
+    // Spread the whole message so harness fields survive an approval resolution too.
+    return changed ? { ...m, blocks } : m;
   });
   return { ...state, messages, pendingApproval: null };
 }
@@ -599,7 +626,8 @@ export function restoreApprovalState(
       }
       return b;
     });
-    return changed ? { role: "assistant" as const, blocks } : m;
+    // Spread the whole message so harness fields survive re-arming an approval too.
+    return changed ? { ...m, blocks } : m;
   });
   return { ...state, messages, pendingApproval: pending };
 }
@@ -653,7 +681,8 @@ function mutateArtifact(
       }
       return b;
     });
-    return changed ? { role: "assistant" as const, blocks } : m;
+    // Spread the whole message so harness fields survive an artifact update too.
+    return changed ? { ...m, blocks } : m;
   });
   return { ...state, messages };
 }

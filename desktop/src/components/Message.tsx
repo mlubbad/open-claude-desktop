@@ -153,10 +153,13 @@ function AssistantBubbleImpl({
   onAnswerQuestion?: (id: string, text: string) => void;
   onFeedback?: () => void;
   onBranch?: () => void;
-  // Harness rewind (RewindMenu): restores the attached workspace's files to their
-  // state before this message. Undefined when no workspace is attached — the menu
-  // simply doesn't render rather than offering a restore that has nowhere to act.
-  onRestoreCheckpoint?: (turnId: string, what: "files") => void;
+  // Harness rewind (RewindMenu): restores a workspace's files to their state before
+  // this message. Takes the WORKSPACE id explicitly (msg.workspaceId, below) rather
+  // than assuming "whatever's currently attached" — a message stays restorable to the
+  // workspace its own turn ran under even after the user detaches or attaches a
+  // different folder. Undefined entirely omits the capability (e.g. Cowork replay,
+  // which has no restore endpoint to call).
+  onRestoreCheckpoint?: (workspaceId: string, turnId: string, what: "files") => void;
 }) {
   const answer = answerText(msg);
   const streaming = msg.blocks.some((b) => (b.kind === "answer" || b.kind === "thinking") && b.streaming);
@@ -179,8 +182,11 @@ function AssistantBubbleImpl({
       {msg.toolCalls && msg.toolCalls.length > 0 && <ToolTimeline calls={msg.toolCalls} />}
       {msg.fileDiffs?.map((d) => <FileDiffCard key={d.id} diff={d.diff} />)}
       {msg.planItems && msg.planItems.length > 0 && <PlanCard items={msg.planItems} />}
-      {msg.checkpointTurnId && onRestoreCheckpoint && (
-        <RewindMenu turnId={msg.checkpointTurnId} onRestore={onRestoreCheckpoint} />
+      {msg.checkpointTurnId && msg.workspaceId && onRestoreCheckpoint && (
+        <RewindMenu
+          turnId={msg.checkpointTurnId}
+          onRestore={(turnId, what) => onRestoreCheckpoint(msg.workspaceId!, turnId, what)}
+        />
       )}
       {!streaming && answer && (
         <div className={`msg-actions ${isLast ? "pinned" : ""}`}>

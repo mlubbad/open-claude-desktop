@@ -10,6 +10,7 @@ export function PlanCard({ items }: { items: PlanItem[] }) {
       {items.map((it) => (
         <li key={it.id} data-status={it.status}>
           <span className="plan-card-mark" aria-hidden="true">{mark(it.status)}</span>
+          <span className="sr-only">{it.status.replace(/_/g, " ")}</span>
           <span className="plan-card-subject">{it.subject}</span>
         </li>
       ))}

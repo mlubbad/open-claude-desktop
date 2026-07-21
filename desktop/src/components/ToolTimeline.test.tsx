@@ -24,4 +24,19 @@ describe("ToolTimeline", () => {
     expect(items[0]).toHaveAttribute("data-ok", "true");
     expect(items[1]).toHaveAttribute("data-ok", "false");
   });
+
+  // Accessibility (review): the status glyph is aria-hidden, so screen readers need a
+  // text alternative -- not just a visual checkmark/x.
+  it("announces succeeded/failed as text for screen readers, alongside the hidden glyph", () => {
+    render(
+      <ToolTimeline
+        calls={[
+          { id: "c1", name: "read_file", ok: true },
+          { id: "c2", name: "edit_file", ok: false },
+        ]}
+      />,
+    );
+    expect(screen.getByText("succeeded")).toBeInTheDocument();
+    expect(screen.getByText("failed")).toBeInTheDocument();
+  });
 });

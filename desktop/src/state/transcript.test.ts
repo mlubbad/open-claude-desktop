@@ -634,3 +634,113 @@ describe("harness workspace events", () => {
     expect(assistant(s)).toEqual({ role: "assistant", blocks: [] });
   });
 });
+
+// Regression (code review): answerQuestionState/resolveApprovalState/restoreApprovalState
+// and mutateArtifact (exercised via artifact_close) each rebuilt the changed assistant
+// message as `{ role: "assistant", blocks }` -- a narrower literal than the message's
+// actual shape once harness fields exist, silently dropping toolCalls/fileDiffs/
+// planItems/checkpointTurnId (and with them, the RewindMenu) on the next unrelated
+// action. Every case below first gives the assistant message harness activity, THEN
+// exercises the helper, and asserts the harness fields are still there afterward.
+describe("harness fields survive other message-mutating helpers (regression)", () => {
+  function withHarnessActivity(events: AgentEvent[]): TranscriptState {
+    return drive([
+      { type: "tool_call", id: "h1", name: "read_file", ok: true },
+      { type: "file_diff", id: "h1", diff: "-a\n+b" },
+      { type: "plan_update", items: [{ id: 1, subject: "step one", status: "pending" }] },
+      { type: "checkpoint", turn_id: "t1" },
+      ...events,
+    ]);
+  }
+
+  function expectHarnessFieldsIntact(s: TranscriptState) {
+    const a = assistant(s);
+    expect(a.toolCalls).toEqual([{ id: "h1", name: "read_file", ok: true }]);
+    expect(a.fileDiffs).toEqual([{ id: "h1", diff: "-a\n+b" }]);
+    expect(a.planItems).toEqual([{ id: 1, subject: "step one", status: "pending" }]);
+    expect(a.checkpointTurnId).toBe("t1");
+  }
+
+  it("answerQuestionState preserves harness fields on the same message", () => {
+    const s = withHarnessActivity([
+      { type: "question", id: "q1", questions: [{ title: "Which file?", options: ["a", "b"] }] },
+    ]);
+    const answered = answerQuestionState(s, "q1");
+    const q = answered.messages
+      .flatMap((m) => (m.role === "assistant" ? m.blocks : []))
+      .find((b) => b.kind === "question");
+    expect(q && q.kind === "question" && q.answered).toBe(true); // the helper did its job
+    expectHarnessFieldsIntact(answered);
+  });
+
+  it("resolveApprovalState preserves harness fields on the same message", () => {
+    const s = withHarnessActivity([
+      { type: "tool", id: "c1", name: "edit_file", input: "a.py", label_running: "Editing", label_done: "Edited", icon: "file" },
+      { type: "approval_required", turn_id: "t1", id: "c1", name: "edit_file", input: "a.py" },
+    ]);
+    expect(s.pendingApproval).not.toBeNull();
+    const resolved = resolveApprovalState(s, "approve", "c1");
+    const tool = assistant(resolved).blocks.find((b) => b.kind === "tool") as ToolCard;
+    expect(tool.status).toBe("running"); // the helper did its job
+    expectHarnessFieldsIntact(resolved);
+  });
+
+  it("restoreApprovalState preserves harness fields on the same message", () => {
+    const s = withHarnessActivity([
+      { type: "tool", id: "c1", name: "edit_file", input: "a.py", label_running: "Editing", label_done: "Edited", icon: "file" },
+    ]);
+    const restored = restoreApprovalState(s, { turnId: "t1", toolCallId: "c1", name: "edit_file", input: "a.py" });
+    const tool = assistant(restored).blocks.find((b) => b.kind === "tool") as ToolCard;
+    expect(tool.status).toBe("awaiting_approval"); // the helper did its job
+    expectHarnessFieldsIntact(restored);
+  });
+
+  it("mutateArtifact (via artifact_close) preserves harness fields on the same message", () => {
+    const s = withHarnessActivity([
+      { type: "artifact_open", id: "a1", title: "demo.py", kind: "code", language: "python" },
+      { type: "artifact_delta", id: "a1", text: "print(1)" },
+      { type: "artifact_close", id: "a1", version: 1 },
+    ]);
+    const doc = findArtifact(s, "a1");
+    expect(doc?.version).toBe(1); // the helper did its job
+    expectHarnessFieldsIntact(s);
+  });
+});
+
+// Code review (Important): rewind must target the workspace a message's turn actually
+// ran under, not whatever happens to be attached when the user later clicks Restore.
+// The fix stamps workspace_id onto the assistant message AT TURN-CREATION time (the SSE
+// stream never carries it — checkpoint only has turn_id), so RewindMenu can key off the
+// message itself instead of a closure over "the current workspace".
+describe("workspaceId is stamped on the assistant message at turn creation", () => {
+  it("startTurn stamps the workspace_id the turn is sent under", () => {
+    const s = startTurn(initialState(), "hi", undefined, "ws-a");
+    expect(assistant(s).workspaceId).toBe("ws-a");
+  });
+
+  it("startTurn omits the key entirely when no workspace is attached", () => {
+    const s = startTurn(initialState(), "hi");
+    expect("workspaceId" in assistant(s)).toBe(false);
+  });
+
+  it("retryFrom stamps the (possibly different) workspace_id of the retry", () => {
+    const s0 = startTurn(initialState(), "hi", undefined, "ws-a");
+    const s1 = retryFrom(s0, 0, "ws-b");
+    expect(assistant(s1).workspaceId).toBe("ws-b");
+  });
+
+  it("editFrom stamps the workspace_id of the edited resend", () => {
+    const s0 = startTurn(initialState(), "hi", undefined, "ws-a");
+    const s1 = editFrom(s0, 0, "hi again", "ws-c");
+    expect(assistant(s1).workspaceId).toBe("ws-c");
+  });
+
+  it("a stamped workspaceId is preserved through the whole turn's events, including the regression-prone helpers", () => {
+    let s = startTurn(initialState(), "hi", undefined, "ws-a");
+    s = applyEvent(s, { type: "checkpoint", turn_id: "t1" });
+    s = applyEvent(s, { type: "question", id: "q1", questions: [{ title: "ok?", options: ["yes"] }] });
+    s = answerQuestionState(s, "q1"); // one of the four previously-buggy helpers
+    expect(assistant(s).workspaceId).toBe("ws-a");
+    expect(assistant(s).checkpointTurnId).toBe("t1");
+  });
+});

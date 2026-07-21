@@ -20,6 +20,8 @@ export interface TurnConfig {
   enabledPlugins?: string[];
   // Response style (P0-6): normal | concise | explanatory | formal.
   style?: string;
+  // Attaches a code workspace (harness file tools) for this turn — see WorkspaceBar.
+  workspaceId?: string | null;
 }
 
 function baseRequest(config: TurnConfig): Omit<AgentTurnRequest, "goal" | "history"> {
@@ -32,6 +34,7 @@ function baseRequest(config: TurnConfig): Omit<AgentTurnRequest, "goal" | "histo
     options: config.options ?? {},
     enabled_mcp: config.enabledMcp ?? [],
     enabled_plugins: config.enabledPlugins ?? [],
+    workspace_id: config.workspaceId ?? null,
     // "normal" adds nothing server-side; omit it to keep requests clean.
     ...(config.style && config.style !== "normal" ? { style: config.style } : {}),
   };

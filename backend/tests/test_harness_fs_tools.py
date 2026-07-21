@@ -1,0 +1,232 @@
+import os
+
+from ocd_core.harness import workspace_fs as wfs
+
+
+def test_read_file_numbers_lines(tmp_path):
+    (tmp_path / "a.txt").write_text("first\nsecond\nthird\n")
+    out = wfs.read_file(tmp_path, "a.txt")
+    assert out["ok"] is True
+    assert "1\tfirst" in out["content"]
+    assert "3\tthird" in out["content"]
+
+
+def test_read_file_offset_limit(tmp_path):
+    (tmp_path / "a.txt").write_text("l1\nl2\nl3\nl4\nl5\n")
+    out = wfs.read_file(tmp_path, "a.txt", offset=2, limit=2)
+    assert "2\tl2" in out["content"] and "3\tl3" in out["content"]
+    assert "l1" not in out["content"] and "l4" not in out["content"]
+
+
+def test_read_file_missing(tmp_path):
+    out = wfs.read_file(tmp_path, "nope.txt")
+    assert out["ok"] is False and "not found" in out["error"].lower()
+
+
+def test_read_file_outside_jail(tmp_path):
+    out = wfs.read_file(tmp_path, "../x.txt")
+    assert out["ok"] is False and "workspace" in out["error"].lower()
+
+
+def test_write_new_file_no_read_required(tmp_path):
+    seen = set()
+    out = wfs.write_file(tmp_path, "new.txt", "hello\n", read_paths=seen)
+    assert out["ok"] is True
+    assert (tmp_path / "new.txt").read_text() == "hello\n"
+
+
+def test_overwrite_requires_prior_read(tmp_path):
+    (tmp_path / "e.txt").write_text("old\n")
+    seen = set()
+    out = wfs.write_file(tmp_path, "e.txt", "new\n", read_paths=seen)
+    assert out["ok"] is False and "read" in out["error"].lower()
+
+
+def test_overwrite_after_read_succeeds(tmp_path):
+    (tmp_path / "e.txt").write_text("old\n")
+    seen = set()
+    wfs.read_file(tmp_path, "e.txt")
+    seen.add(wfs.canonical_key(tmp_path, "e.txt"))
+    out = wfs.write_file(tmp_path, "e.txt", "new\n", read_paths=seen)
+    assert out["ok"] is True and (tmp_path / "e.txt").read_text() == "new\n"
+
+
+def test_write_creates_parent_dirs(tmp_path):
+    out = wfs.write_file(tmp_path, "a/b/c.txt", "x\n", read_paths=set())
+    assert out["ok"] is True and (tmp_path / "a" / "b" / "c.txt").is_file()
+
+
+def _seen(root, rel):
+    return {wfs.canonical_key(root, rel)}
+
+
+def test_edit_replaces_unique_string(tmp_path):
+    (tmp_path / "e.py").write_text("a = 1\nb = 2\n")
+    out = wfs.edit_file(tmp_path, "e.py", "b = 2", "b = 3", read_paths=_seen(tmp_path, "e.py"))
+    assert out["ok"] is True
+    assert (tmp_path / "e.py").read_text() == "a = 1\nb = 3\n"
+
+
+def test_edit_fails_when_old_string_not_unique(tmp_path):
+    (tmp_path / "e.py").write_text("x = 1\nx = 1\n")
+    out = wfs.edit_file(tmp_path, "e.py", "x = 1", "x = 2", read_paths=_seen(tmp_path, "e.py"))
+    assert out["ok"] is False and "unique" in out["error"].lower()
+    assert (tmp_path / "e.py").read_text() == "x = 1\nx = 1\n"  # unchanged
+
+
+def test_edit_replace_all(tmp_path):
+    (tmp_path / "e.py").write_text("x = 1\nx = 1\n")
+    out = wfs.edit_file(tmp_path, "e.py", "x = 1", "x = 2", replace_all=True,
+                        read_paths=_seen(tmp_path, "e.py"))
+    assert out["ok"] is True and (tmp_path / "e.py").read_text() == "x = 2\nx = 2\n"
+
+
+def test_edit_fails_when_old_string_absent(tmp_path):
+    (tmp_path / "e.py").write_text("a = 1\n")
+    out = wfs.edit_file(tmp_path, "e.py", "zzz", "yyy", read_paths=_seen(tmp_path, "e.py"))
+    assert out["ok"] is False and "not found" in out["error"].lower()
+
+
+def test_edit_requires_prior_read(tmp_path):
+    (tmp_path / "e.py").write_text("a = 1\n")
+    out = wfs.edit_file(tmp_path, "e.py", "a = 1", "a = 2", read_paths=set())
+    assert out["ok"] is False and "read" in out["error"].lower()
+
+
+def test_edit_returns_unified_diff(tmp_path):
+    (tmp_path / "e.py").write_text("a = 1\n")
+    out = wfs.edit_file(tmp_path, "e.py", "a = 1", "a = 2", read_paths=_seen(tmp_path, "e.py"))
+    assert "-a = 1" in out["diff"] and "+a = 2" in out["diff"]
+
+
+def test_glob_matches_pattern(tmp_path):
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "a.py").write_text("x")
+    (tmp_path / "src" / "b.py").write_text("x")
+    (tmp_path / "readme.md").write_text("x")
+    out = wfs.glob(tmp_path, "**/*.py")
+    assert out["ok"] is True
+    assert set(out["paths"]) == {"src/a.py", "src/b.py"}
+
+
+def test_glob_caps_results(tmp_path):
+    for i in range(10):
+        (tmp_path / f"f{i}.txt").write_text("x")
+    out = wfs.glob(tmp_path, "*.txt", max_results=5)
+    assert len(out["paths"]) == 5 and out["truncated"] is True
+
+
+def test_grep_finds_lines(tmp_path):
+    (tmp_path / "a.py").write_text("import os\nx = 1\nimport sys\n")
+    out = wfs.grep(tmp_path, r"^import ")
+    assert out["ok"] is True
+    assert any("import os" in m for m in out["matches"])
+    assert any("import sys" in m for m in out["matches"])
+    assert not any("x = 1" in m for m in out["matches"])
+
+
+def test_grep_files_mode(tmp_path):
+    (tmp_path / "a.py").write_text("TODO fix\n")
+    (tmp_path / "b.py").write_text("clean\n")
+    out = wfs.grep(tmp_path, "TODO", mode="files")
+    assert out["files"] == ["a.py"]
+
+
+def test_grep_outside_jail(tmp_path):
+    out = wfs.grep(tmp_path, "x", path="../")
+    assert out["ok"] is False
+
+
+def test_tool_specs_have_expected_names():
+    names = {s["function"]["name"] for s in wfs.FILE_TOOL_SPECS}
+    assert names == {"read_file", "edit_file", "write_file", "glob", "grep"}
+
+
+def test_run_fs_tool_dispatches_read(tmp_path):
+    (tmp_path / "a.txt").write_text("hi\n")
+    seen = set()
+    out = wfs.run_fs_tool("read_file", {"path": "a.txt"}, tmp_path, seen)
+    assert out["ok"] is True and "1\thi" in out["content"]
+    # reading records the path for later edit/write
+    assert wfs.canonical_key(tmp_path, "a.txt") in seen
+
+
+def test_run_fs_tool_unknown(tmp_path):
+    out = wfs.run_fs_tool("nope", {}, tmp_path, set())
+    assert out["ok"] is False
+
+
+def test_glob_rejects_parent_escape(tmp_path):
+    (tmp_path / "ws").mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "secret.txt").write_text("s")
+    out = wfs.glob(tmp_path / "ws", "../outside/*")
+    assert out["ok"] is True
+    assert out["paths"] == []   # escape yields nothing, never the outside file
+
+
+def test_glob_deep_parent_escape_blocked(tmp_path):
+    (tmp_path / "ws").mkdir()
+    (tmp_path / "sibling.txt").write_text("x")
+    out = wfs.glob(tmp_path / "ws", "../*")
+    assert out["ok"] is True
+    assert all(".." not in p and "sibling.txt" not in p for p in out["paths"])
+
+
+def test_glob_absolute_pattern_errors(tmp_path):
+    out = wfs.glob(tmp_path, "C:/Windows/*" if os.name == "nt" else "/etc/*")
+    assert out["ok"] is False and "pattern" in out["error"].lower()
+
+
+def test_grep_count_mode_counts_matches(tmp_path):
+    (tmp_path / "a.py").write_text("TODO one\nTODO two\n")
+    (tmp_path / "b.py").write_text("TODO three\n")
+    out = wfs.grep(tmp_path, "TODO", mode="count")
+    assert out["ok"] is True and out["count"] == 3
+
+
+def test_grep_path_to_single_file_scopes_to_it(tmp_path):
+    (tmp_path / "target.py").write_text("NEEDLE\n")
+    (tmp_path / "other.py").write_text("NEEDLE\n")
+    out = wfs.grep(tmp_path, "NEEDLE", path="target.py", mode="files")
+    assert out["files"] == ["target.py"]
+
+
+def test_grep_nonexistent_path_errors(tmp_path):
+    (tmp_path / "s.py").write_text("SECRET\n")
+    out = wfs.grep(tmp_path, "SECRET", path="nope_subdir")
+    assert out["ok"] is False and "not found" in out["error"].lower()
+
+
+def test_grep_preserves_indentation(tmp_path):
+    (tmp_path / "a.py").write_text("    indented = 1\n")
+    out = wfs.grep(tmp_path, "indented")
+    assert any("    indented" in m for m in out["matches"])
+
+
+def test_edit_file_rejects_identical_strings(tmp_path):
+    (tmp_path / "e.py").write_text("a = 1\n")
+    seen = {wfs.canonical_key(tmp_path, "e.py")}
+    out = wfs.edit_file(tmp_path, "e.py", "a = 1", "a = 1", read_paths=seen)
+    assert out["ok"] is False and "identical" in out["error"].lower()
+
+
+def test_edit_file_non_utf8_returns_error(tmp_path):
+    (tmp_path / "bin.dat").write_bytes(b"\xff\xfe\x00\x01")
+    seen = {wfs.canonical_key(tmp_path, "bin.dat")}
+    out = wfs.edit_file(tmp_path, "bin.dat", "x", "y", read_paths=seen)
+    assert out["ok"] is False
+
+
+def test_read_file_reports_full_relative_path(tmp_path):
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "app.py").write_text("x\n")
+    out = wfs.read_file(tmp_path, "src/app.py")
+    assert out["path"] == "src/app.py"
+
+
+def test_run_fs_tool_bad_offset_returns_error(tmp_path):
+    (tmp_path / "a.txt").write_text("hi\n")
+    out = wfs.run_fs_tool("read_file", {"path": "a.txt", "offset": "two"}, tmp_path, set())
+    assert out["ok"] is False

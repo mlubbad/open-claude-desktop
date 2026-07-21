@@ -270,7 +270,7 @@ export function sendActive(goal: string, base: BaseTurnRequest, images?: string[
   const s = ensure(key, base.project_id ?? "");
   if (s.busy || (!goal.trim() && !images?.length)) return false;
   const history = buildHistory(s.state.messages);
-  apply(key, (st) => startTurn(st, goal, images));
+  apply(key, (st) => startTurn(st, goal, images, base.workspace_id));
   launch(key, goal, history, base, images);
   return true;
 }
@@ -284,7 +284,7 @@ export function retryActive(base: BaseTurnRequest): void {
   if (idx < 0) return;
   const um = s.state.messages[idx] as UserMessage;
   const history = buildHistory(s.state.messages.slice(0, idx));
-  apply(key, (st) => retryFrom(st, idx));
+  apply(key, (st) => retryFrom(st, idx, base.workspace_id));
   launch(key, um.text, history, base, um.images);
 }
 
@@ -294,7 +294,7 @@ export function editActive(index: number, text: string, base: BaseTurnRequest): 
   const s = sessions.get(key);
   if (!s || s.busy || !text.trim()) return;
   const history = buildHistory(s.state.messages.slice(0, index));
-  apply(key, (st) => editFrom(st, index, text));
+  apply(key, (st) => editFrom(st, index, text, base.workspace_id));
   launch(key, text, history, base);
 }
 

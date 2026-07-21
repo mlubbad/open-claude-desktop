@@ -859,14 +859,44 @@ def _exec_summary(res: dict) -> str:
 
 
 async def _run_one_tool(name, args, tc_id, active_project, goal, top_k,
-                        artifact_store=None, subagent=None, emit=None) -> dict:
+                        artifact_store=None, subagent=None, emit=None, ws=None) -> dict:
     """Execute ONE tool to completion and return a structured outcome (no UI events).
     Never raises — failures become {ok: False, ...} so the loop survives and the model
     can retry (Claude's is_error protocol, expressed in the tool-result string).
 
     ``emit(event)`` is an optional thread-safe sink for INTERIM UI events (used by
-    code_execution to stream stdout/stderr live); it may be called from worker threads."""
+    code_execution to stream stdout/stderr live); it may be called from worker threads.
+
+    ``ws`` is the per-turn workspace context built by run_turn when a workspace_root is
+    attached (None otherwise). Harness tools are dispatched here, before the generic
+    ladder below, so they share this function's never-raises contract."""
     try:
+        if ws is not None:
+            from .harness import workspace_fs as _wfs
+            if name in _wfs.FILE_TOOL_NAMES:
+                if name in ("edit_file", "write_file"):
+                    # Snapshot the pre-edit bytes (or a not-yet-existing tombstone) BEFORE
+                    # the mutation, keyed by this turn — the checkpoint restore point.
+                    ws["ckpt"].snapshot_before_edit(
+                        ws["ckpt_turn"], ws["root"], (args or {}).get("path", ""))
+                out = _wfs.run_fs_tool(name, args, ws["root"], ws["read_paths"])
+                if out.get("ok"):
+                    result = (out.get("content")
+                              or ("\n".join(out.get("paths", [])) if name == "glob" else None)
+                              or ("\n".join(out.get("matches", [])) if name == "grep" else None)
+                              or f"{name} ok: {out.get('path', '')}".strip())
+                else:
+                    result = f"ERROR: {out.get('error', 'failed')}"
+                return {"id": tc_id, "name": name, "ok": out.get("ok", False), "result": result,
+                        "summary": out.get("path", ""), "diff": out.get("diff"),
+                        "paths": out.get("paths")}
+            if name == "task_plan":
+                out = ws["plan"].apply(args or {})
+                return {"id": tc_id, "name": name, "ok": out.get("ok", False),
+                        "result": ("plan updated" if out.get("ok")
+                                   else f"ERROR: {out.get('error')}"),
+                        "summary": "", "plan": ws["plan"].snapshot()}
+
         if name == "spawn_subagent":
             if subagent is None:
                 return {"id": tc_id, "name": name, "ok": False,
@@ -1140,6 +1170,18 @@ def _completion_events(out: dict, streamed_artifacts: set | None = None):
         return evs
     evs = [{"type": "tool_result", "id": out["id"], "name": out["name"],
             "summary": out.get("summary", "")}]
+    # Harness workspace tools additionally surface a dedicated tool_call marker (for the
+    # desktop timeline), a file_diff (edit_file only — write_file has no "before"), and a
+    # plan_update (task_plan) — on top of the generic tool_result above. Keyed on tool
+    # NAME alone (out["ok"] is already True here) — safe only because no pre-existing
+    # built-in tool is named read_file/edit_file/write_file/glob/grep/task_plan; a future
+    # tool reusing one of these names would need to route around this check too.
+    if out.get("name") in ("read_file", "edit_file", "write_file", "glob", "grep", "task_plan"):
+        evs.append({"type": "tool_call", "id": out["id"], "name": out["name"], "ok": True})
+        if out.get("diff"):
+            evs.append({"type": "file_diff", "id": out["id"], "diff": out["diff"]})
+        if out.get("plan") is not None:
+            evs.append({"type": "plan_update", "items": out["plan"]})
     if "table" in out:
         t = out["table"]
         evs.append({"type": "table", "id": out["id"], "columns": t["columns"],
@@ -1206,6 +1248,7 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
                    provider: str | None = None, turn_id: str | None = None,
                    permission_mode: str | None = None, artifacts: bool = False,
                    user_profile: str = "", subagents: bool = False,
+                   workspace_root: str | None = None, workspace_rules: dict | None = None,
                    project_memory: str | None = None, images: list[str] | None = None,
                    style: str = ""):
     """Drive one agent turn, yielding events. `history` is prior (role/content) turns.
@@ -1224,6 +1267,15 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
 
     `project_instructions`/`project_memory` default to None → hydrated from the active
     project so background/scheduled runs honor project rules (F-19); pass "" to opt out.
+
+    `workspace_root` (optional) attaches the harness coding layer: the five file tools
+    (read_file/edit_file/write_file/glob/grep) + task_plan are registered, the workspace
+    is described to the model via an env-context system-prompt section, and every tool
+    call in the turn is first consulted against the harness permission rules (mode +
+    allow/deny/ask) before falling through to the existing HITL gate above. `workspace_rules`
+    is the caller-supplied ruleset (e.g. from the workspace registry); it is merged with the
+    workspace's own `.claude/settings.json`. With `workspace_root=None` (the default) none
+    of this activates and the turn behaves exactly as before the harness existed.
     """
     project_instructions, project_memory = _project_context(
         active_project, project_instructions, project_memory)
@@ -1251,6 +1303,9 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
         extra_sections.append(artifact_tools.system_prompt_section())
     if code_exec:
         extra_sections.append(CODE_EXEC_SECTION)
+    if workspace_root:
+        from .harness import env_context as _envctx
+        extra_sections.append(_envctx.build(workspace_root))
     # Make uploads VISIBLE: list the project's knowledge files so the model reaches
     # for search_project_knowledge (or the workspace mirror) instead of hunting the
     # disk with whatever filesystem connector happens to be attached.
@@ -1318,6 +1373,40 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
         tools.append(TASK_TOOL)
     if plan_mode:
         tools.append(PLAN_TOOL)
+    # Harness workspace tools (only when a folder is attached): the five file tools +
+    # task_plan, and a merged permission ruleset (the caller-supplied workspace_rules —
+    # e.g. from the workspace registry — plus the workspace's own .claude/settings.json).
+    # `ws` is the per-turn context threaded through dispatch (_run_one_tool) and the gate
+    # below; it stays None for a non-workspace turn so both are no-ops there.
+    ws = None
+    ws_ruleset = None
+    if workspace_root:
+        from .harness import checkpoints as _ckpt
+        from .harness import plan_tool as _plan
+        from .harness import rules as _rules
+        from .harness import workspace_fs as _wfs
+        tools.extend(_wfs.FILE_TOOL_SPECS)
+        tools.append(_plan.PLAN_TOOL_SPEC)
+        _claude = _rules.load_claude_ruleset(workspace_root)
+        _reg = workspace_rules or {}
+        # Protected paths (spec S5) are not filesystem-blocked -- they're generated
+        # ask-rules, so a write/edit always prompts for confirmation even in acceptEdits
+        # (rules are consulted before mode defaults; ask beats the mode's "allow"). Both
+        # a bare-name and a "*/name" variant are generated: fnmatch's "*" crosses "/"
+        # freely, but a pattern with NO leading "*/" only matches a path with zero
+        # separators, so the bare form alone would miss a nested match, and the "*/"
+        # form alone would miss a top-level (no-separator) match.
+        _protected_ask = []
+        for _g in _reg.get("protected", []) or []:
+            _protected_ask.extend([f"edit_file({_g})", f"write_file({_g})",
+                                   f"edit_file(*/{_g})", f"write_file(*/{_g})"])
+        ws_ruleset = _rules.RuleSet(
+            allow=list(_reg.get("allow", [])) + _claude.allow,
+            deny=list(_reg.get("deny", [])) + _claude.deny,
+            ask=list(_reg.get("ask", [])) + _claude.ask + _protected_ask)
+        ws = {"root": workspace_root, "read_paths": set(), "plan": _plan.Plan(),
+              "ckpt": _ckpt.CheckpointStore(config.REPO_ROOT / "checkpoints"),
+              "ckpt_turn": turn_id or "adhoc"}
     # Structured clarifying questions need a live user to answer them: only offer the
     # tool on interactive turns (turn_id present). Cowork/scheduler/subagent runs pass
     # no turn_id and must never stall waiting for input.
@@ -1623,6 +1712,38 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
                         continue
                     egress_policy.registry.approve(active_project, egress_host)
                     domain_gate_prompted = True
+            # Harness workspace rule gate: for a workspace turn, allow/deny/ask rules
+            # (workspace_rules + the workspace's .claude/settings.json, merged into
+            # ws_ruleset above) and the active permission mode are consulted BEFORE the
+            # existing HITL gate — but ONLY for the tools the harness actually governs
+            # (the 5 file tools + task_plan + bash). rules.gate's mode defaults (e.g.
+            # "bypass" -> allow everything, "plan" -> deny everything but reads) are
+            # calibrated for THAT set; applying them to every tool name let a workspace
+            # turn in "bypass" mode skip the HITL prompt for sensitive built-ins like
+            # code_execution/authenticate/memory (CRITICAL — found in review), and let
+            # "plan" mode hard-deny safe non-file tools like web_search. 'deny' blocks
+            # the call outright (a mode/rule decision, not a fixable failure); 'allow'
+            # runs it immediately, skipping the HITL prompt below entirely; 'ask'
+            # changes nothing — it falls through to the existing gate, which decides
+            # using its own sensitivity list. Every other tool name is untouched by
+            # this block and goes straight to the existing HITL gate, exactly as
+            # before the harness existed.
+            if workspace_root:
+                from .harness import workspace_fs as _wfs
+                if name in (_wfs.FILE_TOOL_NAMES | {"task_plan", "bash"}):
+                    from .harness import rules as _rules
+                    _decision = _rules.gate(name, args, perm_mode, ws_ruleset)
+                    if _decision == "deny":
+                        yield {"type": "tool_error", "id": tc.id, "name": name,
+                               "text": f"Blocked by permission rules/mode for {name}."}
+                        blocked_outcomes.append({"id": tc.id, "name": name, "ok": False,
+                            "skip_breaker": True,
+                            "result": f"BLOCKED: '{name}' denied by the active permission mode/rules."})
+                        continue
+                    if _decision == "allow":
+                        calls.append((tc.id, name, args))
+                        continue
+                    # _decision == "ask" -> fall through to the existing HITL prompt below
             # HITL: suspend for a user decision before running a sensitive tool. Pass
             # args so a memory *mutation* (create/delete/…) is gated even though the
             # memory tool is otherwise read-only "safe".
@@ -1665,7 +1786,8 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
                 # unexpected error — so the drain loop below can never hang waiting on it.
                 try:
                     out = await _run_one_tool(n, a, i, active_project, goal, top_k,
-                                              artifact_store, subagent=subagent_runner, emit=_emit)
+                                              artifact_store, subagent=subagent_runner,
+                                              emit=_emit, ws=ws)
                 except BaseException as e:  # noqa: BLE001 - convert to a tool failure, never hang
                     out = {"id": i, "name": n, "ok": False, "error": str(e)[:300],
                            "result": f"ERROR: {n} crashed: {str(e)[:200]}"}
@@ -1683,6 +1805,16 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
                         outcomes.append(out)
                         for ev in _completion_events(out, streamed):
                             yield ev
+                        # A checkpoint is the file's pre-mutation restore point, already
+                        # captured by snapshot_before_edit inside _run_one_tool; the event
+                        # just tells the UI a rewind point now exists for this turn. The id
+                        # MUST be ws["ckpt_turn"] (what snapshot_before_edit actually filed
+                        # under, turn_id or "adhoc") — not the raw turn_id, which can differ
+                        # (falsy turn_id) and would point the Task 17 restore route at a
+                        # checkpoint id that was never written.
+                        if (workspace_root and out.get("ok")
+                                and out.get("name") in ("edit_file", "write_file")):
+                            yield {"type": "checkpoint", "turn_id": ws["ckpt_turn"]}
                         pending -= 1
                     else:
                         yield item  # live tool_output_delta

@@ -62,3 +62,34 @@ def test_agent_turn_rate_limited(monkeypatch, db):
                                     "model": "m", "effort": "Low", "options": {},
                                     "enabled_plugins": [], "enabled_connectors": [], "enabled_mcp": []})
     assert r.status_code == 429
+
+
+def test_agent_turn_unknown_workspace_id_detaches_instead_of_erroring(monkeypatch, db, tmp_path):
+    """IMPORTANT fix: a stale/bogus workspace_id must not silently drop the caller's
+    intent to attach a workspace -- it should surface a workspace_detached event AND
+    run_turn must receive workspace_root=None (never a half-resolved state)."""
+    from ocd_core import agent
+    from ocd_core import workspace_registry as wr
+    monkeypatch.setattr(wr, "_STORE", tmp_path / "workspaces.json")
+
+    captured = {}
+
+    async def _fake_run_turn_capture(*args, **kwargs):
+        captured.update(kwargs)
+        yield {"type": "answer_open"}
+        yield {"type": "delta", "scope": "answer", "text": "ok"}
+
+    monkeypatch.setattr(agent, "run_turn", _fake_run_turn_capture)
+    from app.main import app
+    c = TestClient(app)
+    r = c.post("/agent/turn", json={"project_id": None, "goal": "hi", "history": [],
+                                    "model": "m", "effort": "Low", "options": {},
+                                    "enabled_plugins": [], "enabled_connectors": [],
+                                    "enabled_mcp": [], "workspace_id": "does-not-exist"})
+    assert r.status_code == 200
+    evs = _read_sse(r)
+    types = [e["event"] for e in evs]
+    assert "workspace_detached" in types
+    detached = next(e for e in evs if e["event"] == "workspace_detached")
+    assert detached["data"]["workspace_id"] == "does-not-exist"
+    assert captured.get("workspace_root") is None

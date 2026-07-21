@@ -29,6 +29,8 @@ kuzu_db
 kuzu_db.wal
 _sandbox/
 agent_memory/
+# harness per-turn file checkpoints (ocd_core.harness.checkpoints), keyed by turn id
+checkpoints/
 __pycache__/
 *.pyc
 *.pyo

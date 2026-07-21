@@ -54,8 +54,30 @@ export type AgentEvent =
       context_pct: number;
       cost_usd: number | null;
     }
+  // Harness workspace tools (read_file/edit_file/write_file/glob/grep/task_plan) surface
+  // a dedicated tool_call marker for the desktop timeline, alongside the generic
+  // tool_result every tool already emits.
+  | { type: "tool_call"; id: string; name: string; ok: boolean }
+  // A unified diff for an edit_file call (write_file has no "before" to diff against).
+  | { type: "file_diff"; id: string; diff: string }
+  // The task_plan tool's full current plan state (replaces, not appends).
+  | { type: "plan_update"; items: PlanItem[] }
+  // A per-turn file checkpoint was captured -- turn_id is the restore point's id.
+  | { type: "checkpoint"; turn_id: string }
+  // The turn's workspace_id didn't resolve (unknown/stale) -- the turn continues without
+  // folder access; the client renders this as a dismissible notice near the composer.
+  | { type: "workspace_detached"; workspace_id: string; text: string }
   | { type: "error"; text: string }
   | { type: "done" };
+
+// One task_plan item (plan_update event / PlanCard). `status` is a free-form string from
+// the tool (e.g. "pending" | "in_progress" | "completed") -- kept loose here to match the
+// backend's plan_tool contract without duplicating its enum on the wire type.
+export interface PlanItem {
+  id: number;
+  subject: string;
+  status: string;
+}
 
 export interface Usage {
   model: string;

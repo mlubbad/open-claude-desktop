@@ -236,13 +236,53 @@ plan card. New settings page: Workspaces (roots, rules, protected paths).
 
 | Phase | Contents |
 |---|---|
-| **P1 (this spec)** | workspace + jail, fs tool suite, modes + rules, checkpoints/rewind, plan tool, env context, SSE/UI |
+| **P1 — SHIPPED** (branch `feat/harness`, 2026-07-21) | workspace + jail, fs tool suite, modes + rules, checkpoints/rewind, plan tool, env context, SSE/UI |
 | **P2** | hooks (Claude JSON stdin/stdout contract: PreToolUse/PostToolUse/UserPromptSubmit/Stop/SessionStart, matchers, allow/deny/additionalContext); generalized subagents (`.claude/agents/*.md`-compatible defs, Agent tool, fresh context, tool scoping); skills/commands upgraded to full Claude formats (`$ARGUMENTS`, `allowed-tools`) |
 | **P3** | compaction upgrade (tool-aware: preserves call/result pairs; optional LLM summarization above today's extractive `context.py`); memory hierarchy (workspace `CLAUDE.md`/`AGENTS.md` + user-level, injected cache-friendly); background bash + job-queue integration |
 | **P4** | opt-in container sandbox runner (`backend/sandbox/`); ACP server exposure; checkpoint-git integration; auto permission mode (classifier-reviewed) if/where model support allows |
 
 Each phase gets its own spec → plan → implementation cycle; this document is the
 umbrella reference.
+
+### P1 as-built — deltas from this spec (recorded 2026-07-21)
+
+The implementation (plan: `docs/superpowers/plans/2026-07-20-harness-phase1.md`) matched
+the design; two-stage review during execution hardened these points, which supersede the
+spec text where they differ:
+
+- **Permission modes (§7) — `bypass` is safety-scoped, deviating deliberately from
+  "bypass = today's auto".** The mode/rule gate governs only the harness tools (file
+  suite + `task_plan` + `bash`); it is NOT applied to the pre-existing sensitive
+  built-ins (`code_execution`, `authenticate`, memory mutations), which keep their
+  existing HITL gate. So `bypass` auto-runs the *coding* tools (minus the
+  catastrophic-bash breaker) but a sensitive built-in still prompts — only the legacy
+  literal `auto` turns the gate fully off. This closes a review-found hole where an
+  unscoped gate let `bypass` skip the HITL prompt for `code_execution`.
+- **Catastrophic-bash circuit breaker** (`rules.is_catastrophic_bash`): a mode-independent
+  hard `deny` for `rm -rf /`/`~`, fork bombs, `mkfs`, disk-device writes — overrides
+  `allow` rules and `bypass` alike (best-effort defense-in-depth, not a sandbox). Lands
+  because `bash` args are not jailed (only its cwd is).
+- **Protected paths (§5) are enforced as generated `ask`-rules** (`edit_file`/`write_file`
+  on each glob, bare + `*/`-nested), so `.env`/`*.pem`/`id_*` prompt even in `acceptEdits`.
+- **Routes live under `/harness/workspaces`** (tenancy already owns `/workspaces`).
+- **Checkpoints are workspace-bound**: the manifest stamps its owning workspace root and
+  restore/list verify it (`owned_by`), so one workspace can never restore into another
+  (cross-workspace overwrite was a review-caught Critical).
+- **Rewind is file-restore only in v1**; conversation restore is deferred (desktop-side).
+- **`bash` cwd is NOT the workspace in P1.** §6 envisioned `bash` running with
+  `cwd=workspace_root`; the implementation left `bash` as the existing read-only,
+  allowlisted (`integrations._BASH_ALLOW`) sandbox tool running in `SANDBOX_ROOT`. The
+  rules/mode gate + catastrophic breaker DO govern `bash` decisions in a workspace turn
+  (policy layer ready), but execution still targets the sandbox, and the allowlist is
+  read-only. The file tools cover the core edit/search loop; **running commands/tests in
+  the attached folder is a deliberate fast-follow** (needs `run_bash` to accept a jailed
+  workspace cwd + a broader, gated command allowlist — adjacent to the P4 sandbox runner).
+- **Deferred to a fast-follow (not P1 blockers):** workspace-cwd bash (above); checkpoint
+  FIFO pruning (`MAX_CHECKPOINTS` reserved); `glob`/`grep`/env-map walk-then-filter perf on
+  large `.git`/`node_modules`; the `env_context` depth-cap has no "truncated" marker.
+- **Unknown/stale `workspace_id`** degrades to a normal (folderless) chat AND emits a
+  `workspace_detached` SSE event + `workspace_attach_failed` audit, so the model never
+  silently over-claims folder access (the CSV-hallucination incident's failure shape).
 
 ## 15. Risks & mitigations
 

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, render } from "@testing-library/react";
 import { createElement as h, useRef } from "react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { useMenuFit } from "./useMenuFit";
 
@@ -50,5 +50,81 @@ describe("useMenuFit", () => {
       window.dispatchEvent(new Event("resize"));
     });
     expect(getByTestId("menu").style.transform).toBe("translate(-58px, 0px)"); // 250-8-300
+  });
+
+  it("caps a panel taller than the viewport and makes it scrollable", () => {
+    // 900px of menu in a 768px viewport can never fit by moving alone: it must be
+    // capped to vh - 2*margin, scroll internally, and be pulled back below the top.
+    const { getByTestId } = render(
+      h(Menu, { rect: { left: 100, right: 300, top: -100, bottom: 800, height: 900 } }),
+    );
+    const el = getByTestId("menu");
+    expect(el.style.maxHeight).toBe("752px"); // 768 - 2*8
+    expect(el.style.overflowY).toBe("auto");
+    expect(el.style.transform).toBe("translate(0px, 108px)"); // top -100 → margin 8
+  });
+
+  it("leaves a shorter-than-viewport panel's max-height alone", () => {
+    // The author stylesheet may cap menus tighter than the viewport (e.g. the model
+    // picker's 50vh) — the hook must not override that when the panel already fits.
+    const { getByTestId } = render(h(Menu, { rect: { left: 100, right: 300, top: 100, bottom: 400, height: 300 } }));
+    expect(getByTestId("menu").style.maxHeight).toBe("");
+  });
+});
+
+// Menus load content AFTER opening (the model picker fetches its provider list, flyouts
+// fill in async) — the panel then grows in place and can push past the viewport edge.
+// A ResizeObserver on the panel must re-clamp on any size change, not just window events.
+describe("useMenuFit — async content growth", () => {
+  class FakeResizeObserver {
+    static instances: FakeResizeObserver[] = [];
+    cb: ResizeObserverCallback;
+    observed: Element[] = [];
+    constructor(cb: ResizeObserverCallback) {
+      this.cb = cb;
+      FakeResizeObserver.instances.push(this);
+    }
+    observe(el: Element) {
+      this.observed.push(el);
+    }
+    unobserve() {}
+    disconnect() {
+      this.observed = [];
+    }
+    trigger() {
+      this.cb([], this as unknown as ResizeObserver);
+    }
+  }
+
+  beforeEach(() => {
+    FakeResizeObserver.instances = [];
+    (globalThis as { ResizeObserver?: unknown }).ResizeObserver = FakeResizeObserver;
+  });
+  afterEach(() => {
+    delete (globalThis as { ResizeObserver?: unknown }).ResizeObserver;
+  });
+
+  it("observes the open panel and re-clamps when it grows past the top", () => {
+    const rect = { left: 100, right: 300, top: 100, bottom: 300 };
+    const { getByTestId } = render(h(Menu, { rect }));
+    expect(getByTestId("menu").style.transform).toBe("none");
+
+    const ro = FakeResizeObserver.instances.at(-1);
+    expect(ro?.observed).toContain(getByTestId("menu"));
+
+    act(() => {
+      // A bottom-anchored menu that grows extends UPWARD: top goes past the viewport.
+      rect.top = -140;
+      ro?.trigger();
+    });
+    expect(getByTestId("menu").style.transform).toBe("translate(0px, 148px)"); // 8 - (-140)
+  });
+
+  it("disconnects the observer when the menu closes", () => {
+    const { unmount } = render(h(Menu, { rect: { left: 0, right: 100, top: 0, bottom: 100 } }));
+    const ro = FakeResizeObserver.instances.at(-1);
+    expect(ro?.observed.length).toBe(1);
+    unmount();
+    expect(ro?.observed.length).toBe(0);
   });
 });

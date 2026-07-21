@@ -732,8 +732,14 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-
   box-shadow: var(--shadow-soft); }
 .composer:focus-within { border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--ring), var(--shadow-soft); }
-.composer-row { display: flex; align-items: center; gap: 8px; }
+/* Wraps when the window is narrow (DevTools docked, split screen): controls flow onto
+   extra lines inside the card instead of overflowing it. */
+.composer-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; row-gap: 6px; }
 .composer-spacer { flex: 1; }
+/* The trailing model/mic/voice/send cluster: one right-aligned unit, so wrapping moves
+   the whole cluster to its own line rather than scattering the buttons one by one. */
+.composer-actions { display: flex; align-items: center; gap: 8px; margin-left: auto;
+  min-width: 0; max-width: 100%; }
 /* Context chips beside the + button: active project / Research mode, each with an ✕. */
 .ctx-chip { display: inline-flex; align-items: center; gap: 2px; height: 32px;
   padding: 0 6px 0 9px; border-radius: 10px; border: 1px solid var(--border);
@@ -841,7 +847,9 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-
   max-height: 50vh; overflow-y: auto; display: block; }
 .composer textarea:focus-visible { box-shadow: none; }
 
-.palette-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.35);
+/* Full-screen overlays live on the modal tier (z 60+): in-page menus/popovers use
+   z 40-45 and must never paint over an open modal. */
+.palette-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.35); z-index: 60;
   display: flex; align-items: flex-start; justify-content: center; padding-top: 12vh; }
 .palette { background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
   width: min(560px, 92vw); overflow: hidden; box-shadow: 0 12px 40px rgba(0,0,0,0.3); }
@@ -860,7 +868,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-
 .palette-section.active, .palette-empty.active { background: none; }
 .palette-empty { color: var(--muted); padding: 10px; cursor: default; }
 
-.settings-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.4);
+.settings-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 60;
   display: flex; align-items: center; justify-content: center; }
 .settings { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
   width: min(560px, 92vw); max-height: 82vh; overflow-y: auto; padding: 16px; }
@@ -921,6 +929,24 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-
   display: inline-flex; align-items: center; padding: 4px 6px; border-radius: 999px; }
 .model-add-btn:hover:not(:disabled) { color: var(--accent); }
 .model-add-btn:disabled { opacity: 0.4; cursor: default; }
+/* Big catalogs ("Load models" can pull hundreds of ids): search + count toolbar above
+   the chip row; the row itself is capped behind a "Show all N models" expander. */
+.model-tools { display: flex; align-items: center; gap: 10px; margin: 10px 0 8px; }
+.model-search { display: inline-flex; align-items: center; gap: 6px; flex: 1; max-width: 320px;
+  border: 1px solid var(--border); border-radius: 999px; padding: 4px 10px;
+  background: var(--bg); color: var(--muted); }
+.model-search:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--ring); }
+.model-search input { flex: 1; min-width: 0; border: none; outline: none; background: none;
+  color: var(--text); font: inherit; font-size: 12.5px; }
+.model-search input:focus-visible { box-shadow: none; }
+.model-search-clear { border: none; background: none; color: var(--muted); cursor: pointer;
+  display: inline-flex; padding: 2px; border-radius: 999px; }
+.model-search-clear:hover { color: var(--text); }
+.model-count { flex: none; font-size: 12px; color: var(--muted); white-space: nowrap; }
+.model-none { font-size: 12.5px; color: var(--muted); padding: 4px 2px; }
+.model-more { border: 1px dashed var(--border-strong); background: none; color: var(--muted);
+  cursor: pointer; font: inherit; font-size: 12px; border-radius: 999px; padding: 4px 12px; }
+.model-more:hover { color: var(--accent); border-color: var(--accent); }
 
 .field-label { display: block; font-size: 13px; font-weight: 600; margin: 12px 0 4px; }
 .profile-form { display: flex; flex-direction: column; gap: 6px; }
@@ -1228,11 +1254,14 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-
 /* Wide "choice" chip sits centered on its own row. */
 .chip-wide { flex-basis: 100%; justify-content: center; margin-top: 2px; }
 
-/* Model pill: model name in ink, effort word muted. */
-.composer-pill.model { gap: 8px; }
-.model-name { color: var(--text); }
-.model-effort { color: var(--muted); }
+/* Model pill: model name in ink, effort word muted. Long model ids truncate with an
+   ellipsis (full id in the tooltip) instead of wrapping inside the fixed-height pill —
+   the min-width:0 chain (anchor → pill → name) is what lets flexbox shrink it. */
+.composer-pill.model { gap: 8px; min-width: 0; max-width: 100%; }
+.model-name { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.model-effort { color: var(--muted); flex: none; }
 .model-anchor, .mic-anchor { position: relative; display: inline-flex; }
+.model-anchor { min-width: 0; max-width: 100%; }
 .composer-ghost.bare { border: none; background: none; width: 30px; }
 .composer-ghost.bare:hover:not(:disabled) { background: var(--surface-2); }
 .send-stop-glyph { width: 11px; height: 11px; background: var(--accent-fg); border-radius: 2px; }
@@ -1241,14 +1270,16 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-
 .mp-pop { position: absolute; bottom: calc(100% + 8px); right: 0; z-index: 40;
   display: flex; gap: 0; background: var(--surface); border: 1px solid var(--border);
   border-radius: var(--r-lg); box-shadow: 0 12px 34px rgba(0,0,0,0.18); overflow: hidden;
-  min-width: 520px;
+  /* 520px normally, never wider than the window (DevTools-narrowed included) —
+     useMenuFit slides it fully into view when the anchor sits near an edge. */
+  width: min(520px, calc(100vw - 16px));
   /* Never taller than the space above the composer — even on the empty-state hero,
      where the composer sits mid-screen; long lists scroll instead. */
   max-height: min(50vh, 520px); }
 .mp-col { padding: 8px; display: flex; flex-direction: column; gap: 1px;
-  overflow-y: auto; }
-.mp-effort { width: 250px; border-right: 1px solid var(--border); }
-.mp-models { width: 270px; }
+  overflow-y: auto; min-width: 0; }
+.mp-effort { flex: 1 1 250px; border-right: 1px solid var(--border); }
+.mp-models { flex: 1 1 270px; }
 .mp-help { margin: 4px 8px 8px; font-size: 12px; color: var(--muted); line-height: 1.45; }
 .mp-row { display: flex; align-items: center; justify-content: space-between; gap: 10px;
   width: 100%; text-align: left; border: none; background: none; color: var(--text);

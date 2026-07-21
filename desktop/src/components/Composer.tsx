@@ -734,12 +734,15 @@ export function Composer({
             </button>
           </span>
         )}
-        <span className="composer-spacer" />
+        {/* Trailing controls live in one group with margin-left:auto so a narrow window
+            (DevTools open) wraps them to their own right-aligned line as a unit instead
+            of overflowing the card. */}
+        <div className="composer-actions">
         {modelControl && (
           <div className="model-anchor">
             <button
               className="composer-pill model"
-              title="Model & effort"
+              title={modelControl.model}
               aria-haspopup="dialog"
               aria-expanded={modelOpen}
               onClick={() => setModelOpen((o) => !o)}
@@ -793,6 +796,7 @@ export function Composer({
             <Icon name="arrow-up" size={17} />
           </button>
         )}
+        </div>
       </div>
     </div>
   );

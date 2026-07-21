@@ -3,6 +3,7 @@ file_diff event is emitted."""
 import asyncio
 
 import pytest
+from app.schemas import AgentTurnRequest
 from ocd_core import agent, config, secrets
 from ocd_core.llm import client as llm_client
 
@@ -141,3 +142,30 @@ def test_workspace_plan_mode_does_not_hard_deny_safe_tool(monkeypatch, tmp_path)
     assert not any(e.get("type") == "tool_error"
                    and "Blocked by permission rules/mode" in e.get("text", "")
                    for e in events)   # workspace gate did NOT hard-deny web_search
+
+
+def test_schema_accepts_workspace_id_and_new_modes():
+    req = AgentTurnRequest(goal="hi", model="m", workspace_id="abc123",
+                           permission_mode="acceptEdits")
+    assert req.workspace_id == "abc123"
+    # Must round-trip to the EXACT canonical casing ocd_core.harness.rules expects
+    # (rules._MODES is case-sensitive) -- a naive .lower() would corrupt this to
+    # "acceptedits" and silently fail-closed every acceptEdits-mode turn to strict.
+    assert req.permission_mode == "acceptEdits"
+    req2 = AgentTurnRequest(goal="hi", model="m", permission_mode="plan")
+    assert req2.permission_mode == "plan"
+
+
+def test_schema_permission_mode_full_contract():
+    def mode(v):
+        return AgentTurnRequest(goal="hi", model="m", permission_mode=v).permission_mode
+
+    assert mode(None) is None                    # None -> server default, unchanged
+    assert mode("default") == "default"
+    assert mode("strict") == "strict"
+    assert mode("bypass") == "bypass"
+    assert mode("auto") == "auto"                 # legacy alias passes through literally
+    assert mode("ask") == "ask"                   # legacy alias passes through literally
+    assert mode("BYPASS") == "bypass"             # case-insensitive match...
+    assert mode("ACCEPTEDITS") == "acceptEdits"   # ...canonical casing preserved
+    assert mode("nonsense") == "strict"           # unknown fails closed

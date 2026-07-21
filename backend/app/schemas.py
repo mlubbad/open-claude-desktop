@@ -34,6 +34,16 @@ class AgentOptions(BaseModel):
 MAX_IMAGES = 6
 MAX_IMAGE_CHARS = 8_000_000  # ~6 MB of base64 per image
 
+# Recognized permission_mode values: the harness modes (default/acceptEdits/plan/
+# strict/bypass) plus the legacy auto/ask aliases (still accepted literally -- NOT
+# resolved to their harness-mode equivalents here; see the validator below). Keyed by
+# lowercase so matching is case-insensitive while the returned value is always the
+# exact canonical spelling (matters for "acceptEdits": ocd_core.harness.rules._MODES
+# is case-sensitive, so a lowercased "acceptedits" would silently fail closed).
+_PERMISSION_MODES_BY_LOWER = {
+    m.lower(): m for m in ("strict", "ask", "auto", "default", "acceptEdits", "plan", "bypass")
+}
+
 
 class AgentTurnRequest(BaseModel):
     project_id: str | None = None
@@ -42,7 +52,9 @@ class AgentTurnRequest(BaseModel):
     model: str
     provider: str | None = None      # explicit provider; else inferred from model/default
     effort: str = "High"
-    permission_mode: str | None = None   # auto | ask | strict (HITL); None -> server default
+    # auto | ask | strict (legacy) | default | acceptEdits | plan | bypass (harness);
+    # None -> server default.
+    permission_mode: str | None = None
     options: AgentOptions = AgentOptions()
     enabled_plugins: list[str] = []
     enabled_connectors: list[str] = []
@@ -52,6 +64,7 @@ class AgentTurnRequest(BaseModel):
     # Response style: "normal"|"concise"|"explanatory"|"formal", or custom
     # instruction text (bounded). Empty/None = no style section.
     style: str | None = None
+    workspace_id: str | None = None   # attaches a code workspace (harness tools)
 
     @field_validator("style")
     @classmethod
@@ -63,13 +76,13 @@ class AgentTurnRequest(BaseModel):
     @field_validator("permission_mode")
     @classmethod
     def _bound_permission_mode(cls, v: str | None) -> str | None:
-        # None → server default. A recognized mode passes through (case-normalized); any
-        # unrecognized string coerces to "strict" so a typo/injected value fails closed
-        # rather than dropping to the autonomous "auto" path.
+        # None → server default. A recognized mode passes through (case-normalized to its
+        # canonical spelling); any unrecognized string coerces to "strict" so a
+        # typo/injected value fails closed rather than dropping to an autonomous path.
         if v is None:
             return None
         m = str(v).strip().lower()
-        return m if m in {"strict", "ask", "auto"} else "strict"
+        return _PERMISSION_MODES_BY_LOWER.get(m, "strict")
 
     @field_validator("images")
     @classmethod

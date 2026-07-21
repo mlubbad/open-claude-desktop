@@ -14,6 +14,7 @@ from ocd_core import (
     projects,
     settings,
     skills,
+    workspace_registry,
 )
 from sse_starlette.sse import EventSourceResponse
 
@@ -49,6 +50,17 @@ async def agent_turn(req: AgentTurnRequest, user: str = Depends(current_user)):
     turn_id = uuid.uuid4().hex
     user_profile = profile.render(settings.get_settings().get("profile") or {})
 
+    # Resolve an attached code workspace (harness tools) once, up front: an unknown/
+    # stale workspace_id degrades to no workspace rather than erroring the turn.
+    ws_root = None
+    ws_rules = None
+    if req.workspace_id:
+        ws = workspace_registry.get(req.workspace_id)
+        if ws:
+            ws_root = ws["root"]
+            ws_rules = ws.get("rules")
+            workspace_registry.touch(req.workspace_id)
+
     async def stream():
         # First frame carries the turn_id so the client can reply to permission prompts
         # (and, later, cancel the turn).
@@ -63,7 +75,8 @@ async def agent_turn(req: AgentTurnRequest, user: str = Depends(current_user)):
                     code_exec=o.code_exec, bash=o.bash, text_editor=o.text_editor, memory=o.memory,
                     provider=req.provider, turn_id=turn_id, permission_mode=req.permission_mode,
                     artifacts=o.artifacts, user_profile=user_profile, subagents=o.subagents,
-                    project_memory=proj_mem, images=req.images, style=req.style or "")
+                    project_memory=proj_mem, images=req.images, style=req.style or "",
+                    workspace_root=ws_root, workspace_rules=ws_rules)
             async for ev in opik_tracing.traced(
                     turn, goal=goal, model=req.model, provider=req.provider,
                     effort=req.effort, turn_id=turn_id, tags=["chat"]):

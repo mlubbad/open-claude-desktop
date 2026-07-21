@@ -1792,3 +1792,26 @@ html[data-motion="reduced"] *, html[data-motion="reduced"] *::before, html[data-
   background: var(--surface); color: var(--danger); font-size: 12.5px; }
 .workspace-detached-banner button { margin-left: auto; border: none; background: none;
   color: inherit; cursor: pointer; font-size: 13px; line-height: 1; }
+
+.tool-timeline { list-style: none; margin: 8px 0; padding: 0; display: flex; flex-direction: column;
+  gap: 2px; font-size: 12.5px; }
+.tool-timeline li { display: flex; align-items: center; gap: 6px; padding: 3px 0; color: var(--muted); }
+.tool-timeline li[data-ok="true"] { color: var(--text); }
+.tool-timeline li[data-ok="false"] { color: var(--danger); }
+.tool-timeline code { font-family: var(--mono); font-size: 12px; }
+
+.file-diff { margin: 8px 0; padding: 8px 0; border: 1px solid var(--border); border-radius: var(--r-md);
+  background: var(--surface-2); font-family: var(--mono); font-size: 12px; overflow-x: auto; }
+.diff-line { padding: 0 12px; white-space: pre; }
+.diff-line.add { background: color-mix(in srgb, var(--ok) 15%, transparent); color: var(--ok); }
+.diff-line.del { background: color-mix(in srgb, var(--danger) 15%, transparent); color: var(--danger); }
+.diff-line.ctx { color: var(--muted); }
+
+.plan-card { list-style: none; margin: 8px 0; padding: 8px 10px; border: 1px solid var(--border);
+  border-radius: var(--r-md); background: var(--surface); display: flex; flex-direction: column;
+  gap: 4px; font-size: 13px; }
+.plan-card li { display: flex; align-items: baseline; gap: 8px; }
+.plan-card-mark { flex: none; color: var(--muted); }
+.plan-card li[data-status="completed"] .plan-card-mark { color: var(--ok); }
+.plan-card li[data-status="in_progress"] .plan-card-subject { font-weight: 600; }
+.plan-card li[data-status="completed"] .plan-card-subject { color: var(--muted); text-decoration: line-through; }

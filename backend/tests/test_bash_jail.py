@@ -57,3 +57,17 @@ def test_workspace_bash_constants_exist():
     assert not ({"find", "npx", "env"} & I.WORKSPACE_BASH_ALLOW)
     assert I._INLINE_EVAL_FLAGS == {"-c", "-e", "--eval", "-"}
     assert {"python", "node"} <= I._INTERPRETERS
+
+
+def test_arg_escapes_jail_is_root_relative(tmp_path):
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    (ws / "tests").mkdir()
+    # a path inside the given root is fine; absolute/parent escapes are not
+    assert I._bash_arg_escapes_jail("tests", ws) is False
+    assert I._bash_arg_escapes_jail("tests/unit", ws) is False
+    assert I._bash_arg_escapes_jail("-k", ws) is False          # a flag
+    assert I._bash_arg_escapes_jail("/etc/passwd", ws) is True  # absolute
+    assert I._bash_arg_escapes_jail("../secret", ws) is True    # parent
+    # default root still works (back-compat, no root passed)
+    assert I._bash_arg_escapes_jail("-v") is False

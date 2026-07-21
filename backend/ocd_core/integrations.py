@@ -1502,27 +1502,25 @@ _INTERPRETERS = {"python", "python3", "node", "deno", "ruby", "perl", "php"}
 _INLINE_EVAL_FLAGS = {"-c", "-e", "--eval", "-"}
 
 
-def _bash_arg_escapes_jail(tok: str) -> bool:
-    """C2: reject a bash argument that reaches outside the sandbox.
+def _bash_arg_escapes_jail(tok: str, root: Path | None = None) -> bool:
+    """Reject a bash argument that reaches outside ``root`` (default ``SANDBOX_ROOT``).
 
-    The command loop already sets cwd to SANDBOX_ROOT and blocks '..' and shell
-    metacharacters, but ABSOLUTE-path arguments still escaped the jail (e.g.
-    ``cat /etc/passwd`` or ``cat /home/user/app/.env``). Flags (leading '-') are
-    fine. Anything that looks like an absolute POSIX path, a home-relative path,
-    a Windows drive/UNC path, or that resolves outside SANDBOX_ROOT is rejected.
+    The command loop blocks '..' and shell metacharacters, but ABSOLUTE-path arguments
+    still escape (e.g. ``cat /etc/passwd``). Flags (leading '-') are fine. Anything that
+    looks like an absolute POSIX path, a home-relative path, a Windows drive/UNC path, or
+    that resolves outside ``root`` is rejected.
     """
+    root = root or SANDBOX_ROOT
     t = (tok or "").strip()
     if not t or t.startswith("-"):
         return False  # empty or a flag — not a path escape
-    # Absolute / home / Windows-absolute / UNC paths never allowed.
     if t.startswith(("/", "~", "\\")):
         return True
     if len(t) >= 2 and t[1] == ":" and t[0].isalpha():  # C:\ or C:/
         return True
-    # Relative token: it must resolve to somewhere inside the sandbox root.
     try:
-        target = (SANDBOX_ROOT / t).resolve()
-        target.relative_to(SANDBOX_ROOT.resolve())
+        target = (root / t).resolve()
+        target.relative_to(Path(root).resolve())
         return False
     except Exception:
         return True

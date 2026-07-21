@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { Composer } from "./Composer";
+import { Composer, type WorkspaceControlInfo } from "./Composer";
 
 vi.mock("../api/client", () => ({
   mcp: { getPrompt: vi.fn() },
@@ -42,5 +42,54 @@ describe("Composer — model pill at narrow widths", () => {
     // Model pill and send button live inside the group; the group is what wraps.
     expect(actions?.querySelector(".composer-pill.model")).not.toBeNull();
     expect(actions?.querySelector(".composer-send")).not.toBeNull();
+  });
+});
+
+function baseProps() {
+  return { busy: false, onSend: vi.fn(), onStop: vi.fn(), modelControl };
+}
+
+describe("Composer workspace wiring", () => {
+  it("renders nothing workspace-related when no workspace prop is given", () => {
+    render(<Composer {...baseProps()} />);
+    expect(screen.queryByLabelText(/permission mode/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/attach folder/i)).not.toBeInTheDocument();
+  });
+
+  it("shows the WorkspaceBar when a workspace is attached", () => {
+    const workspace: WorkspaceControlInfo = {
+      current: { root: "C:/proj/demo", mode: "acceptEdits" },
+      onAttach: vi.fn(),
+      onModeChange: vi.fn(),
+      onDetach: vi.fn(),
+    };
+    render(<Composer {...baseProps()} workspace={workspace} />);
+    expect(screen.getByText(/demo/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/permission mode/i)).toBeInTheDocument();
+  });
+
+  it("offers an attach affordance when workspace control is present but nothing is attached", () => {
+    const onAttach = vi.fn();
+    const workspace: WorkspaceControlInfo = {
+      current: null,
+      onAttach,
+      onModeChange: vi.fn(),
+      onDetach: vi.fn(),
+    };
+    render(<Composer {...baseProps()} workspace={workspace} />);
+    fireEvent.click(screen.getByText(/attach folder/i));
+    expect(onAttach).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows a dismissible workspace_detached notice and hides it once dismissed", () => {
+    render(
+      <Composer
+        {...baseProps()}
+        workspaceDetached={{ workspaceId: "w1", text: "Workspace not found — continuing without folder access." }}
+      />,
+    );
+    expect(screen.getByText(/continuing without folder access/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText(/dismiss/i));
+    expect(screen.queryByText(/continuing without folder access/i)).not.toBeInTheDocument();
   });
 });

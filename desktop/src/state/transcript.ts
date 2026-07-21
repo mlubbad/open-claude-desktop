@@ -4,7 +4,7 @@
 // semantics: thinking-block coalescing with elapsed labels, answer streaming,
 // per-call tool cards upserted by id, sources, and HITL approval prompts.
 
-import type { AgentEvent, ArtifactKind, ProducedFile, Source, Usage } from "../api/events";
+import type { AgentEvent, ArtifactKind, PlanItem, ProducedFile, Source, Usage } from "../api/events";
 
 export interface ArtifactDoc {
   id: string;
@@ -80,9 +80,18 @@ export interface QuestionBlock {
 
 export type Block = ThinkingBlock | AnswerBlock | ToolCard | ArtifactBlock | QuestionBlock;
 
+// Harness workspace-tool activity accumulated for this message, alongside its regular
+// blocks: a condensed tool_call list (ToolTimeline), the edit_file diffs (FileDiffCard,
+// one per diff), the task_plan's latest full state (PlanCard -- plan_update REPLACES,
+// it doesn't append), and the turn's checkpoint id if one was captured (RewindMenu).
+// Optional/absent when the turn had no attached workspace.
 export interface AssistantMessage {
   role: "assistant";
   blocks: Block[];
+  toolCalls?: { id: string; name: string; ok: boolean }[];
+  fileDiffs?: { id: string; diff: string }[];
+  planItems?: PlanItem[];
+  checkpointTurnId?: string;
 }
 
 export interface UserMessage {
@@ -106,6 +115,10 @@ export interface TranscriptState {
   // Token/cost usage from the most recent completed turn (null until one finishes).
   usage: Usage | null;
   error: string | null;
+  // The current turn's workspace_id didn't resolve server-side (unknown/stale) -- the
+  // turn ran without folder access. Reset to null at the start of every new turn;
+  // dismissing it is a display-only concern the composer handles locally.
+  workspaceDetached: { workspaceId: string; text: string } | null;
 }
 
 export function initialState(): TranscriptState {
@@ -117,6 +130,7 @@ export function initialState(): TranscriptState {
     openArtifactId: null,
     usage: null,
     error: null,
+    workspaceDetached: null,
   };
 }
 
@@ -213,6 +227,7 @@ export function retryFrom(state: TranscriptState, userIdx: number): TranscriptSt
     running: true,
     error: null,
     pendingApproval: null,
+    workspaceDetached: null,
     messages: [...kept, { role: "assistant", blocks: [] }],
   };
 }
@@ -226,6 +241,7 @@ export function editFrom(state: TranscriptState, index: number, text: string): T
     running: true,
     error: null,
     pendingApproval: null,
+    workspaceDetached: null,
     messages: [...kept, { role: "user", text }, { role: "assistant", blocks: [] }],
   };
 }
@@ -236,6 +252,7 @@ export function startTurn(state: TranscriptState, goal: string, images?: string[
     ...state,
     running: true,
     error: null,
+    workspaceDetached: null,
     pendingApproval: null,
     messages: [
       ...state.messages,
@@ -264,10 +281,14 @@ function lastBlock(a: AssistantMessage): Block | undefined {
 export function applyEvent(prev: TranscriptState, ev: AgentEvent): TranscriptState {
   const state: TranscriptState = { ...prev, messages: prev.messages.slice() };
   const idx = state.messages.length - 1;
-  // Ensure the tail is a mutable assistant message we can push blocks onto.
+  // Ensure the tail is a mutable assistant message we can push blocks onto. Spread the
+  // rest of the message (not just role/blocks) so the harness fields below (toolCalls,
+  // fileDiffs, planItems, checkpointTurnId) survive every OTHER event this message
+  // receives -- a narrower `{ role, blocks: a.blocks.slice() }` would silently drop them
+  // on the very next think/answer/tool event.
   if (idx >= 0 && state.messages[idx].role === "assistant") {
     const a = state.messages[idx] as AssistantMessage;
-    state.messages[idx] = { role: "assistant", blocks: a.blocks.slice() };
+    state.messages[idx] = { ...a, blocks: a.blocks.slice() };
   }
   const assistant = currentAssistant(state);
 
@@ -462,6 +483,30 @@ export function applyEvent(prev: TranscriptState, ev: AgentEvent): TranscriptSta
           cost_usd: ev.cost_usd,
         },
       };
+
+    // Harness workspace tools: a dedicated tool_call marker feeds the condensed
+    // ToolTimeline (on top of the generic tool/tool_result blocks already handled
+    // above), file_diff feeds FileDiffCard (one per edit_file call), plan_update
+    // REPLACES the plan (the tool always emits the full current state, not a delta),
+    // and checkpoint records this message's rewind point (RewindMenu).
+    case "tool_call":
+      assistant.toolCalls = [...(assistant.toolCalls ?? []), { id: ev.id, name: ev.name, ok: ev.ok }];
+      return state;
+
+    case "file_diff":
+      assistant.fileDiffs = [...(assistant.fileDiffs ?? []), { id: ev.id, diff: ev.diff }];
+      return state;
+
+    case "plan_update":
+      assistant.planItems = ev.items;
+      return state;
+
+    case "checkpoint":
+      assistant.checkpointTurnId = ev.turn_id;
+      return state;
+
+    case "workspace_detached":
+      return { ...state, workspaceDetached: { workspaceId: ev.workspace_id, text: ev.text } };
 
     case "error":
       return { ...state, error: ev.text, running: false };

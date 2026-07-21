@@ -6,10 +6,14 @@ import { downloadWorkspaceFile } from "../api/client";
 import type { ProducedFile } from "../api/events";
 import { openExternal } from "../platform";
 import { type Attachment, parseAttachments } from "../state/attachments";
+import { FileDiffCard } from "./FileDiffCard";
 import { Icon } from "./Icon";
 import { ImageZoom } from "./ImageZoom";
+import { PlanCard } from "./PlanCard";
 import { QuestionCard } from "./QuestionCard";
 import { RetryModelMenu } from "./RetryModelMenu";
+import { RewindMenu } from "./RewindMenu";
+import { ToolTimeline } from "./ToolTimeline";
 import {
   type ArtifactBlock,
   answerText,
@@ -136,6 +140,7 @@ function AssistantBubbleImpl({
   onAnswerQuestion,
   onFeedback,
   onBranch,
+  onRestoreCheckpoint,
 }: {
   msg: AssistantMessage;
   isLast: boolean;
@@ -148,6 +153,10 @@ function AssistantBubbleImpl({
   onAnswerQuestion?: (id: string, text: string) => void;
   onFeedback?: () => void;
   onBranch?: () => void;
+  // Harness rewind (RewindMenu): restores the attached workspace's files to their
+  // state before this message. Undefined when no workspace is attached — the menu
+  // simply doesn't render rather than offering a restore that has nowhere to act.
+  onRestoreCheckpoint?: (turnId: string, what: "files") => void;
 }) {
   const answer = answerText(msg);
   const streaming = msg.blocks.some((b) => (b.kind === "answer" || b.kind === "thinking") && b.streaming);
@@ -164,6 +173,15 @@ function AssistantBubbleImpl({
       {msg.blocks.map((b, i) => (
         <BlockView key={i} block={b} busy={busy} onOpenArtifact={onOpenArtifact} onAnswerQuestion={onAnswerQuestion} />
       ))}
+      {/* Harness workspace activity for this message, accumulated off the tool_call/
+          file_diff/plan_update/checkpoint events (see state/transcript.ts). Absent
+          entirely when the turn had no attached workspace. */}
+      {msg.toolCalls && msg.toolCalls.length > 0 && <ToolTimeline calls={msg.toolCalls} />}
+      {msg.fileDiffs?.map((d) => <FileDiffCard key={d.id} diff={d.diff} />)}
+      {msg.planItems && msg.planItems.length > 0 && <PlanCard items={msg.planItems} />}
+      {msg.checkpointTurnId && onRestoreCheckpoint && (
+        <RewindMenu turnId={msg.checkpointTurnId} onRestore={onRestoreCheckpoint} />
+      )}
       {!streaming && answer && (
         <div className={`msg-actions ${isLast ? "pinned" : ""}`}>
           <CopyButton getText={() => answer} />

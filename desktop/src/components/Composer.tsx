@@ -19,6 +19,7 @@ import { Icon } from "./Icon";
 import { ImageZoom } from "./ImageZoom";
 import { MicPicker, type VoiceInfo } from "./MicPicker";
 import { ModelPicker } from "./ModelPicker";
+import { WorkspaceBar, type WorkspaceMode } from "./WorkspaceBar";
 
 // Backwards-compatible effort list (kept for existing imports/tests).
 export const EFFORT_LEVELS = ["Low", "Medium", "High", "Extra", "Max"] as const;
@@ -96,6 +97,17 @@ export interface ModelControlInfo {
   onMoreModels: () => void;
 }
 
+// The attached code workspace (harness), if any, + the actions the WorkspaceBar (or the
+// bare "Attach folder" affordance shown when nothing is attached) needs. `current: null`
+// means no folder is attached yet — the caller owns attach/detach/mode state entirely;
+// the composer only renders what it's given.
+export interface WorkspaceControlInfo {
+  current: { root: string; mode: WorkspaceMode } | null;
+  onAttach: () => void;
+  onModeChange: (mode: WorkspaceMode) => void;
+  onDetach: () => void;
+}
+
 // The message composer card: textarea on top, a control row underneath — `+` add
 // menu and tools on the left, model + effort + mic + send on the right (mirroring
 // the reference). Used both pinned at the bottom of a conversation and centered in
@@ -114,6 +126,8 @@ export function Composer({
   modelControl,
   voice,
   modeToggle,
+  workspace,
+  workspaceDetached,
 }: {
   busy: boolean;
   onSend: (text: string, images?: string[]) => void;
@@ -130,6 +144,13 @@ export function Composer({
   // Chat | Cowork mode switch (reference parity): flips the whole surface between
   // an interactive chat and delegating an autonomous background task.
   modeToggle?: { mode: "chat" | "cowork"; onMode: (m: "chat" | "cowork") => void };
+  // Harness (code workspaces): omit entirely to hide both the bar AND the attach
+  // affordance (e.g. the project-home composer, which doesn't offer this yet).
+  workspace?: WorkspaceControlInfo;
+  // The current turn's workspace_id didn't resolve server-side — a dismissible notice
+  // (state.workspaceDetached; see state/transcript.ts). Dismissal is local/display-only:
+  // the notice naturally clears from the caller's state on the next turn regardless.
+  workspaceDetached?: { workspaceId: string; text: string } | null;
 }) {
   const [text, setTextState] = useState(initialText);
   const [sel, setSel] = useState(0);
@@ -143,6 +164,9 @@ export function Composer({
   const [subOpen, setSubOpen] = useState<"project" | "skills" | "connectors" | "plugins" | "style" | null>(null);
   const [modelOpen, setModelOpen] = useState(false);
   const [micOpen, setMicOpen] = useState(false);
+  // Local dismiss for the workspace_detached notice: keyed on its content, so a NEW
+  // notice (different workspace/text) reappears even if the prior one was dismissed.
+  const [dismissedNotice, setDismissedNotice] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const addRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
@@ -171,6 +195,10 @@ export function Composer({
   const open = suggestions.length > 0 && !dismissed;
   const active = Math.min(sel, Math.max(0, suggestions.length - 1));
   const canSend = (text.trim().length > 0 || attachments.length > 0 || images.length > 0) && !busy;
+  // The workspace_detached notice, keyed by its content so a NEW notice (different
+  // workspace/text) reappears even if the prior one was dismissed.
+  const noticeKey = workspaceDetached ? `${workspaceDetached.workspaceId}:${workspaceDetached.text}` : null;
+  const showNotice = noticeKey !== null && noticeKey !== dismissedNotice;
 
   // Wrap setText so every change is mirrored to the per-conversation draft store.
   const setText = (t: string) => {
@@ -334,6 +362,37 @@ export function Composer({
         if (!busy) void addFiles(e.dataTransfer.files);
       }}
     >
+      {showNotice && workspaceDetached && (
+        <div className="workspace-detached-banner" role="status">
+          <span>{workspaceDetached.text}</span>
+          <button
+            type="button"
+            aria-label="Dismiss"
+            title="Dismiss"
+            onClick={() => setDismissedNotice(noticeKey)}
+          >
+            ✕
+          </button>
+        </div>
+      )}
+      {workspace &&
+        (workspace.current ? (
+          <WorkspaceBar
+            root={workspace.current.root}
+            mode={workspace.current.mode}
+            onModeChange={workspace.onModeChange}
+            onDetach={workspace.onDetach}
+          />
+        ) : (
+          <button
+            type="button"
+            className="workspace-attach"
+            title="Attach a folder as a code workspace"
+            onClick={workspace.onAttach}
+          >
+            <Icon name="folder" size={14} /> Attach folder
+          </button>
+        ))}
       {dragDepth > 0 && (
         <div className="composer-drop-overlay" aria-hidden="true">
           Drop files to attach

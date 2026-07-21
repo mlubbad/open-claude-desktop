@@ -518,3 +518,119 @@ describe("image attachments on user turns", () => {
     expect(hist[0]).toEqual({ role: "user", content: "look", kind: "user" });
   });
 });
+
+describe("harness workspace events", () => {
+  it("accumulates tool_call markers alongside the generic tool/tool_result blocks", () => {
+    const s = drive([
+      { type: "tool", id: "c1", name: "read_file", input: "a.txt", label_running: "Reading", label_done: "Read", icon: "file" },
+      { type: "tool_result", id: "c1", name: "read_file", summary: "1 line" },
+      { type: "tool_call", id: "c1", name: "read_file", ok: true },
+    ]);
+    expect(assistant(s).toolCalls).toEqual([{ id: "c1", name: "read_file", ok: true }]);
+    // The generic tool card is untouched — tool_call is additive, not a replacement.
+    const cards = assistant(s).blocks.filter((b) => b.kind === "tool") as ToolCard[];
+    expect(cards).toHaveLength(1);
+    expect(cards[0].status).toBe("done");
+  });
+
+  it("collects multiple tool_call events across a turn, in order", () => {
+    const s = drive([
+      { type: "tool_call", id: "c1", name: "read_file", ok: true },
+      { type: "tool_call", id: "c2", name: "edit_file", ok: true },
+    ]);
+    expect(assistant(s).toolCalls).toEqual([
+      { id: "c1", name: "read_file", ok: true },
+      { id: "c2", name: "edit_file", ok: true },
+    ]);
+  });
+
+  it("collects file_diff events (one per edit_file call)", () => {
+    const s = drive([
+      { type: "file_diff", id: "c1", diff: "-a\n+b" },
+      { type: "file_diff", id: "c2", diff: "-c\n+d" },
+    ]);
+    expect(assistant(s).fileDiffs).toEqual([
+      { id: "c1", diff: "-a\n+b" },
+      { id: "c2", diff: "-c\n+d" },
+    ]);
+  });
+
+  it("plan_update REPLACES the plan rather than appending", () => {
+    const s = drive([
+      { type: "plan_update", items: [{ id: 1, subject: "step one", status: "in_progress" }] },
+      {
+        type: "plan_update",
+        items: [
+          { id: 1, subject: "step one", status: "completed" },
+          { id: 2, subject: "step two", status: "in_progress" },
+        ],
+      },
+    ]);
+    expect(assistant(s).planItems).toEqual([
+      { id: 1, subject: "step one", status: "completed" },
+      { id: 2, subject: "step two", status: "in_progress" },
+    ]);
+  });
+
+  it("records the turn's checkpoint id on the assistant message", () => {
+    const s = drive([{ type: "checkpoint", turn_id: "t1" }]);
+    expect(assistant(s).checkpointTurnId).toBe("t1");
+  });
+
+  it("harness fields survive later non-harness events on the same message (clone-bug regression)", () => {
+    const s = drive([
+      { type: "tool_call", id: "c1", name: "read_file", ok: true },
+      { type: "file_diff", id: "c1", diff: "-a\n+b" },
+      { type: "plan_update", items: [{ id: 1, subject: "step one", status: "pending" }] },
+      { type: "checkpoint", turn_id: "t1" },
+      // A plain answer delta re-clones the tail assistant message -- the harness fields
+      // set above must not be dropped by that clone.
+      { type: "answer_open" },
+      { type: "delta", scope: "answer", text: "done" },
+    ]);
+    const a = assistant(s);
+    expect(a.toolCalls).toEqual([{ id: "c1", name: "read_file", ok: true }]);
+    expect(a.fileDiffs).toEqual([{ id: "c1", diff: "-a\n+b" }]);
+    expect(a.planItems).toEqual([{ id: 1, subject: "step one", status: "pending" }]);
+    expect(a.checkpointTurnId).toBe("t1");
+    expect(answerText(a)).toBe("done");
+  });
+
+  it("sets workspaceDetached from the SSE event", () => {
+    const s = drive([
+      { type: "workspace_detached", workspace_id: "w1", text: "Workspace not found — continuing without folder access." },
+    ]);
+    expect(s.workspaceDetached).toEqual({
+      workspaceId: "w1",
+      text: "Workspace not found — continuing without folder access.",
+    });
+  });
+
+  it("a fresh turn (startTurn) clears a prior workspaceDetached notice", () => {
+    const detached = applyEvent(startTurn(initialState(), "hi"), {
+      type: "workspace_detached",
+      workspace_id: "w1",
+      text: "gone",
+    });
+    expect(detached.workspaceDetached).not.toBeNull();
+    const next = startTurn(detached, "again");
+    expect(next.workspaceDetached).toBeNull();
+  });
+
+  it("retryFrom and editFrom also clear a prior workspaceDetached notice", () => {
+    const detached = applyEvent(startTurn(initialState(), "hi"), {
+      type: "workspace_detached",
+      workspace_id: "w1",
+      text: "gone",
+    });
+    expect(retryFrom(detached, 0).workspaceDetached).toBeNull();
+    expect(editFrom(detached, 0, "edited").workspaceDetached).toBeNull();
+  });
+
+  it("fresh assistant slots from retryFrom/editFrom carry no harness fields", () => {
+    // Guards against accidentally defaulting toolCalls/fileDiffs/etc. to [] on every new
+    // slot -- Message.tsx's rendering is gated on these being present, not empty-vs-unset.
+    const s = retryFrom(startTurn(initialState(), "hi"), 0);
+    expect(assistant(s)).toEqual({ role: "assistant", blocks: [] });
+  });
+});

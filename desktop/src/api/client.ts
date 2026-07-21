@@ -249,6 +249,9 @@ export interface AgentTurnRequest {
   images?: string[];
   // Response style: normal | concise | explanatory | formal (or custom text).
   style?: string;
+  // Attaches a code workspace (harness file tools) for this turn. An unknown/stale id
+  // degrades to no workspace server-side, surfaced back as a workspace_detached event.
+  workspace_id?: string | null;
 }
 
 // The backend routes non-project chats under this implicit project.
@@ -558,6 +561,23 @@ export const code = {
     ),
 };
 
+// A harness code workspace (attached folder): the registry entry the backend resolves
+// workspace_id against. `rules`/`protected` are per-workspace permission overrides
+// (not surfaced in the UI yet); the composer only needs id + root.
+export interface WorkspaceInfo {
+  id: string;
+  root: string;
+  rules: { allow: string[]; deny: string[]; ask: string[] };
+  protected: string[];
+  last_used: number;
+}
+
+export const workspaces = {
+  // Registers (or re-resolves, if already known) a folder as a code workspace. Throws
+  // ApiError(400, …) if the path doesn't exist / isn't a directory.
+  create: (root: string) => api.post<WorkspaceInfo>("/harness/workspaces", { root }),
+};
+
 // Download a workspace file a code_execution run produced (a chart PNG, the merged CSV…).
 // Fetches with auth (a plain <a href> wouldn't carry the token), then saves it as a blob.
 export async function downloadWorkspaceFile(path: string, project?: string): Promise<void> {
@@ -739,4 +759,17 @@ export function replyPermission(
   decision: "approve" | "decline",
 ): Promise<{ resolved: boolean; decision: string }> {
   return api.post(`/agent/turn/${turnId}/permission`, { tool_call_id: toolCallId, decision });
+}
+
+// Restore a workspace's files to the state captured by a turn's checkpoint (RewindMenu).
+// Note the /harness prefix (not /workspaces -- that's the unrelated tenancy concept) and
+// that turnId IS the checkpoint id (one checkpoint per turn, keyed by its turn_id). A
+// checkpoint that belongs to a DIFFERENT workspace 404s (see backend restore_checkpoint) --
+// callers should surface ApiError.detail rather than assume success.
+export function restoreCheckpoint(
+  workspaceId: string,
+  turnId: string,
+  what: "files" = "files",
+): Promise<{ ok: boolean; restored: number }> {
+  return api.post(`/harness/workspaces/${workspaceId}/checkpoints/${turnId}/restore`, { what });
 }

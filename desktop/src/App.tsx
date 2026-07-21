@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { conversations, settings as settingsApi } from "./api/client";
+import { conversations, restoreCheckpoint, settings as settingsApi, workspaces } from "./api/client";
 import { notify, onTrayNewChat, registerSummonHotkey, setCloseToTray, unregisterSummonHotkey } from "./platform";
 import { loadDesktopPrefs, onDesktopPrefsChange } from "./state/desktopPrefs";
 import { ApprovalPrompt } from "./components/ApprovalPrompt";
@@ -15,7 +15,12 @@ import { SetInstructionsModal } from "./components/SetInstructionsModal";
 import { CodePanel } from "./components/CodePanel";
 import { CoworkPanel } from "./components/CoworkPanel";
 import { type Command, CommandPalette } from "./components/CommandPalette";
-import { type AddMenuInfo, Composer, type ModelControlInfo } from "./components/Composer";
+import {
+  type AddMenuInfo,
+  Composer,
+  type ModelControlInfo,
+  type WorkspaceControlInfo,
+} from "./components/Composer";
 import type { VoiceInfo } from "./components/MicPicker";
 import { Icon } from "./components/Icon";
 import { InfoPanel } from "./components/InfoPanel";
@@ -27,6 +32,7 @@ import { SettingsModal, type SettingsPage } from "./components/SettingsModal";
 import { ShortcutsHelp } from "./components/ShortcutsHelp";
 import { Sidebar } from "./components/Sidebar";
 import { UsageMeter } from "./components/UsageMeter";
+import type { WorkspaceMode } from "./components/WorkspaceBar";
 import { type ChatOptions, DEFAULT_CHAT_OPTIONS } from "./state/chatOptions";
 import { greeting } from "./state/greeting";
 import { exportSlug, toMarkdown } from "./state/exportConversation";
@@ -77,6 +83,12 @@ export default function App() {
   // HITL autonomy (set in Settings): "strict" asks before every step, "ask" only before
   // sensitive actions (default), "auto" runs autonomously. Plan mode overrides it.
   const [approvalMode, setApprovalMode] = useState("ask");
+  // Harness: the code workspace (folder) attached to the chat, if any. Attaching hands
+  // permission-mode control to the WorkspaceBar's own selector (see `config` below) —
+  // there's no native folder-picker plugin yet (that's a Tauri shell change, out of
+  // scope here), so attach is a bare path prompt for now; swapping in a real dialog
+  // later only touches attachWorkspace, not the harness components themselves.
+  const [workspace, setWorkspace] = useState<{ id: string; root: string; mode: WorkspaceMode } | null>(null);
   // Projects is a full-page destination (list + per-project home), distinct from the
   // chat/code/cowork surface tabs. `projectsScreen` shows it; `projectDetail` is the
   // open project's id (null = the grid). Edit-details / instructions modals hang off it.
@@ -106,14 +118,44 @@ export default function App() {
     view === "cowork",
   );
 
+  // Attach a folder as a harness code workspace. No native folder-picker plugin is wired
+  // up yet (Tauri dialog is a shell change, out of scope for the harness UI itself), so
+  // this is a bare path prompt for now — functional, if unpolished; a real dialog can
+  // replace just this handler later. Mirrors the window.prompt affordance already used
+  // for project text notes (see onAddText below).
+  const attachWorkspace = useCallback(async () => {
+    const path = window.prompt("Folder path to attach as a code workspace:");
+    if (!path?.trim()) return;
+    try {
+      const ws = await workspaces.create(path.trim());
+      setWorkspace({ id: ws.id, root: ws.root, mode: "default" });
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : "Couldn't attach that folder.");
+    }
+  }, []);
+
+  const workspaceControl: WorkspaceControlInfo = useMemo(
+    () => ({
+      current: workspace ? { root: workspace.root, mode: workspace.mode } : null,
+      onAttach: () => void attachWorkspace(),
+      onModeChange: (mode) => setWorkspace((w) => (w ? { ...w, mode } : w)),
+      onDetach: () => setWorkspace(null),
+    }),
+    [workspace, attachWorkspace],
+  );
+
   const config = useMemo(
     () => ({
       provider: active.provider,
       model: active.model,
       effort: active.effort,
       style: active.style,
-      permissionMode: planMode ? "plan" : approvalMode,
+      // Attaching a workspace hands permission-mode control to its own selector (the
+      // harness modes: default/acceptEdits/plan/strict/bypass) — it supersedes the plain
+      // chat-level plan toggle / HITL autonomy setting while attached.
+      permissionMode: workspace ? workspace.mode : planMode ? "plan" : approvalMode,
       projectId: proj.active,
+      workspaceId: workspace?.id ?? null,
       // Feed the turn the ACTIVE set (intent ∩ healthy), not raw intent, so an
       // erroring connector isn't reached for — while the user's choice is preserved.
       enabledMcp: connectors.active,
@@ -129,7 +171,7 @@ export default function App() {
         ...(view === "code" ? { text_editor: true, bash: true, subagents: true } : {}),
       },
     }),
-    [active, proj.active, connectors.active, pluginMgr.enabled, view, planMode, approvalMode],
+    [active, proj.active, connectors.active, pluginMgr.enabled, view, planMode, approvalMode, workspace],
   );
   const {
     state,
@@ -153,6 +195,27 @@ export default function App() {
     move,
     branchAt,
   } = useConversations(config, incognito);
+
+  // A turn's workspace_id failed to resolve server-side (workspace_detached) — the
+  // folder is gone/stale, so drop the local attachment too rather than keep sending a
+  // dead id on every follow-up turn. The composer's own notice (state.workspaceDetached)
+  // explains why to the user; this just stops repeating the mistake.
+  useEffect(() => {
+    if (state.workspaceDetached) setWorkspace(null);
+  }, [state.workspaceDetached]);
+
+  // Restore a workspace's files to their state before a given message (RewindMenu).
+  // Undefined while nothing is attached — Message.tsx only renders the menu when both
+  // a checkpoint AND this handler are present. Scoped to the CURRENTLY attached
+  // workspace: a checkpoint from a since-detached/replaced workspace 404s server-side
+  // (owned_by check) rather than silently restoring the wrong folder.
+  const restoreCheckpointFor = workspace
+    ? (turnId: string, what: "files") => {
+        void restoreCheckpoint(workspace.id, turnId, what).catch((e) => {
+          window.alert(e instanceof Error ? e.message : "Couldn't restore that checkpoint.");
+        });
+      }
+    : undefined;
 
   // The branch family (tree) of the open conversation, powering the transcript's branch
   // switcher. Incognito chats never persist, so they can't branch — skip the fetch.
@@ -583,6 +646,8 @@ export default function App() {
                 addMenu={addMenu}
                 modelControl={modelControl}
                 voice={voice}
+                workspace={workspaceControl}
+                workspaceDetached={state.workspaceDetached}
               />
             }
             onBack={openProjectsPage}
@@ -661,6 +726,8 @@ export default function App() {
                   modelControl={modelControl}
                   voice={voice}
                   modeToggle={{ mode: "chat", onMode: (m) => m === "cowork" && goView("cowork") }}
+                  workspace={workspaceControl}
+                  workspaceDetached={state.workspaceDetached}
                 />
               </div>
               <div className="chips">
@@ -716,6 +783,7 @@ export default function App() {
                 onAnswerQuestion={answerQuestion}
                 onFeedback={() => setFeedbackFor(current?.cid ?? "new")}
                 onBranch={canBranch ? () => void branchAt(i) : undefined}
+                onRestoreCheckpoint={restoreCheckpointFor}
               />
             ),
           )}
@@ -759,6 +827,8 @@ export default function App() {
               modelControl={modelControl}
               voice={voice}
               modeToggle={{ mode: "chat", onMode: (m) => m === "cowork" && goView("cowork") }}
+              workspace={workspaceControl}
+              workspaceDetached={state.workspaceDetached}
             />
             <p className="footer-note">AI can make mistakes — double-check important information.</p>
           </footer>

@@ -8,6 +8,7 @@ files under the app data dir. Bash-side mutations are NOT tracked (documented li
 """
 from __future__ import annotations
 
+import os
 import shutil
 from pathlib import Path
 
@@ -54,6 +55,12 @@ class CheckpointStore:
             return
         rel = target.relative_to(Path(workspace_root).resolve()).as_posix()  # NOT casefolded
         man = self._manifest(checkpoint_id)
+        if "workspace" not in man:
+            # Stamp the OWNING workspace on first write so a checkpoint can never be
+            # restored into a different workspace later (see owned_by()) -- a turn_id
+            # is not itself a secret/unique-per-workspace value, so without this stamp
+            # a same-named turn_id from workspace B could restore workspace A's files.
+            man["workspace"] = str(Path(workspace_root).resolve())
         if rel in man["files"]:
             return  # already snapshotted this turn — keep the earliest state
         d = self._ckpt_dir(checkpoint_id)
@@ -72,9 +79,20 @@ class CheckpointStore:
             return []
         return [{"checkpoint_id": checkpoint_id, "files": sorted(man["files"].keys())}]
 
+    def owned_by(self, checkpoint_id: str, workspace_root) -> bool:
+        """True iff this checkpoint exists and was produced by ``workspace_root``.
+        Unstamped/legacy manifests fail closed (False)."""
+        man = self._manifest(checkpoint_id)
+        stamp = man.get("workspace")
+        if not stamp or not man.get("files"):
+            return False
+        return os.path.normcase(stamp) == os.path.normcase(str(Path(workspace_root).resolve()))
+
     def restore(self, checkpoint_id: str, workspace_root, what: str = "files") -> int:
         if what not in ("files", "both"):
             return 0
+        if not self.owned_by(checkpoint_id, workspace_root):
+            return 0   # CRITICAL: never restore a checkpoint into a different workspace
         man = self._manifest(checkpoint_id)
         d = self._ckpt_dir(checkpoint_id)
         restored = 0

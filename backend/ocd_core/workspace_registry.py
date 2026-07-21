@@ -26,12 +26,19 @@ def _id_for(root: str) -> str:
 
 
 def register(root: str) -> dict:
+    resolved = Path(root).resolve()
+    if not resolved.is_dir():
+        # is_dir() is False for both "doesn't exist" and "exists but is a file" --
+        # covers both in one check. Fail loud: a silently-accepted bogus root (a
+        # nonexistent path, or C:\Windows) would surface later as confusing jail/tool
+        # errors deep inside a turn instead of at registration time.
+        raise ValueError(f"workspace root does not exist or is not a directory: {root!r}")
     data = _load()
     wid = _id_for(root)
     for w in data["workspaces"]:
         if w["id"] == wid:
             return w
-    ws = {"id": wid, "root": str(Path(root).resolve()),
+    ws = {"id": wid, "root": str(resolved),
           "rules": {"allow": [], "deny": [], "ask": []},
           "protected": list(_DEFAULT_PROTECTED),
           "last_used": max((w.get("last_used", 0) for w in data["workspaces"]), default=0) + 1}

@@ -1389,10 +1389,21 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
         tools.append(_plan.PLAN_TOOL_SPEC)
         _claude = _rules.load_claude_ruleset(workspace_root)
         _reg = workspace_rules or {}
+        # Protected paths (spec S5) are not filesystem-blocked -- they're generated
+        # ask-rules, so a write/edit always prompts for confirmation even in acceptEdits
+        # (rules are consulted before mode defaults; ask beats the mode's "allow"). Both
+        # a bare-name and a "*/name" variant are generated: fnmatch's "*" crosses "/"
+        # freely, but a pattern with NO leading "*/" only matches a path with zero
+        # separators, so the bare form alone would miss a nested match, and the "*/"
+        # form alone would miss a top-level (no-separator) match.
+        _protected_ask = []
+        for _g in _reg.get("protected", []) or []:
+            _protected_ask.extend([f"edit_file({_g})", f"write_file({_g})",
+                                   f"edit_file(*/{_g})", f"write_file(*/{_g})"])
         ws_ruleset = _rules.RuleSet(
             allow=list(_reg.get("allow", [])) + _claude.allow,
             deny=list(_reg.get("deny", [])) + _claude.deny,
-            ask=list(_reg.get("ask", [])) + _claude.ask)
+            ask=list(_reg.get("ask", [])) + _claude.ask + _protected_ask)
         ws = {"root": workspace_root, "read_paths": set(), "plan": _plan.Plan(),
               "ckpt": _ckpt.CheckpointStore(config.REPO_ROOT / "checkpoints"),
               "ckpt_turn": turn_id or "adhoc"}

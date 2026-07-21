@@ -100,3 +100,48 @@ def test_checkpoint_id_dotdot_alone_is_neutralized(tmp_path):
     assert not (tmp_path / "manifest.json").exists()   # nothing escaped to ckpt's parent
     assert not (tmp_path / "0.blob").exists()
     assert cp.list("..")[0]["files"] == ["a.txt"]   # consistently bucketed, still round-trips
+
+
+def test_owned_by_true_for_owner_false_for_other_workspace(tmp_path):
+    ws_a = tmp_path / "ws_a"
+    ws_a.mkdir()
+    ws_b = tmp_path / "ws_b"
+    ws_b.mkdir()
+    (ws_a / "a.txt").write_text("x\n")
+    cp = checkpoints.CheckpointStore(tmp_path / "ckpt")
+    cp.snapshot_before_edit("t", ws_a, "a.txt")   # stamps the manifest with ws_a's root
+    assert cp.owned_by("t", ws_a) is True
+    assert cp.owned_by("t", ws_b) is False
+
+
+def test_owned_by_fails_closed_for_nonexistent_and_unstamped_manifests(tmp_path):
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    cp = checkpoints.CheckpointStore(tmp_path / "ckpt")
+    # No manifest at all yet.
+    assert cp.owned_by("never-created", ws) is False
+    # A legacy manifest that has files but predates the "workspace" stamp.
+    d = cp._ckpt_dir("legacy")
+    d.mkdir(parents=True)
+    (d / "manifest.json").write_text('{"files": {"a.txt": {"blob": null, "existed": false}}}')
+    assert cp.owned_by("legacy", ws) is False
+
+
+def test_restore_refuses_a_checkpoint_owned_by_a_different_workspace(tmp_path):
+    ws_a = tmp_path / "ws_a"
+    ws_a.mkdir()
+    ws_b = tmp_path / "ws_b"
+    ws_b.mkdir()
+    (ws_a / "shared.txt").write_text("A-orig\n")
+    (ws_b / "shared.txt").write_text("B-orig\n")
+    cp = checkpoints.CheckpointStore(tmp_path / "ckpt")
+    cp.snapshot_before_edit("t", ws_a, "shared.txt")
+    (ws_a / "shared.txt").write_text("A-changed\n")
+
+    n = cp.restore("t", ws_b, what="files")   # B must not receive A's checkpoint
+    assert n == 0
+    assert (ws_b / "shared.txt").read_text() == "B-orig\n"
+
+    n = cp.restore("t", ws_a, what="files")   # A can restore its own
+    assert n == 1
+    assert (ws_a / "shared.txt").read_text() == "A-orig\n"

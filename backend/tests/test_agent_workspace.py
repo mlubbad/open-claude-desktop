@@ -169,3 +169,89 @@ def test_schema_permission_mode_full_contract():
     assert mode("BYPASS") == "bypass"             # case-insensitive match...
     assert mode("ACCEPTEDITS") == "acceptEdits"   # ...canonical casing preserved
     assert mode("nonsense") == "strict"           # unknown fails closed
+
+
+_PROTECTED_RULES = {"allow": [], "deny": [], "ask": [], "protected": [".env", "*.pem", "id_*"]}
+
+
+def _one_call_then_done(tcs):
+    calls = iter([tcs, []])
+
+    async def _fake_stream(llm, model, messages, tools, temperature, max_tokens,
+                           content_scope="answer", fallback_model=None, **_kw):
+        try:
+            these = next(calls)
+        except StopIteration:
+            these = []
+        if these:
+            yield {"__done__": {"content": "", "note": None, "tool_calls": these}}
+        else:
+            yield {"type": "delta", "scope": "answer", "text": "done"}
+            yield {"__done__": {"content": "done", "tool_calls": [], "note": None}}
+
+    return _fake_stream
+
+
+def test_workspace_protected_path_prompts_even_in_accept_edits(monkeypatch, tmp_path):
+    """Spec S5: a write to a protected path always prompts, even in acceptEdits mode --
+    the registry's `protected` globs are wired as generated ask-rules (ask beats the
+    acceptEdits mode default, and rules are consulted before mode defaults)."""
+    fake_stream = _one_call_then_done(
+        [_FakeToolCall("c1", "write_file", '{"path": ".env", "content": "SECRET=1"}')])
+    monkeypatch.setattr(agent, "_stream_llm", fake_stream)
+
+    async def scenario():
+        events = []
+        async for ev in agent.run_turn("write env", [], None, "m", effort="Low",
+                                       workspace_root=str(tmp_path),
+                                       permission_mode="acceptEdits", turn_id="t1",
+                                       workspace_rules=_PROTECTED_RULES):
+            events.append(ev)
+        return events
+
+    events = asyncio.run(scenario())
+    assert any(e.get("type") == "approval_required" and e.get("name") == "write_file"
+               for e in events)
+    assert not (tmp_path / ".env").exists()   # suspended, not auto-run
+
+
+def test_workspace_protected_path_prompts_for_nested_file(monkeypatch, tmp_path):
+    """The generated ask-rule must catch a protected name at ANY depth, not just the
+    workspace root (a bare glob only matches a path with no separators at all)."""
+    (tmp_path / "sub").mkdir()
+    fake_stream = _one_call_then_done(
+        [_FakeToolCall("c1", "write_file", '{"path": "sub/.env", "content": "SECRET=1"}')])
+    monkeypatch.setattr(agent, "_stream_llm", fake_stream)
+
+    async def scenario():
+        events = []
+        async for ev in agent.run_turn("write env", [], None, "m", effort="Low",
+                                       workspace_root=str(tmp_path),
+                                       permission_mode="acceptEdits", turn_id="t1",
+                                       workspace_rules=_PROTECTED_RULES):
+            events.append(ev)
+        return events
+
+    events = asyncio.run(scenario())
+    assert any(e.get("type") == "approval_required" and e.get("name") == "write_file"
+               for e in events)
+    assert not (tmp_path / "sub" / ".env").exists()
+
+
+def test_workspace_non_protected_path_auto_runs_in_accept_edits(monkeypatch, tmp_path):
+    fake_stream = _one_call_then_done(
+        [_FakeToolCall("c1", "write_file", '{"path": "notes.txt", "content": "hi"}')])
+    monkeypatch.setattr(agent, "_stream_llm", fake_stream)
+
+    async def scenario():
+        events = []
+        async for ev in agent.run_turn("write notes", [], None, "m", effort="Low",
+                                       workspace_root=str(tmp_path),
+                                       permission_mode="acceptEdits", turn_id="t1",
+                                       workspace_rules=_PROTECTED_RULES):
+            events.append(ev)
+        return events
+
+    events = asyncio.run(scenario())
+    assert not any(e.get("type") == "approval_required" for e in events)
+    assert (tmp_path / "notes.txt").read_text() == "hi"

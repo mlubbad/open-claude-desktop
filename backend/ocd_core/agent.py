@@ -1043,9 +1043,16 @@ async def _run_one_tool(name, args, tc_id, active_project, goal, top_k,
 
         if name == "bash":
             from . import integrations
-            result = await asyncio.to_thread(integrations.run_bash,
-                                             args.get("command", ""),
-                                             bool(args.get("restart")))
+            if ws is not None:
+                result = await asyncio.to_thread(
+                    integrations.run_bash, args.get("command", ""),
+                    bool(args.get("restart")), root=ws["root"],
+                    allow=integrations.WORKSPACE_BASH_ALLOW,
+                    timeout=config.WORKSPACE_BASH_TIMEOUT_SEC)
+            else:
+                result = await asyncio.to_thread(integrations.run_bash,
+                                                 args.get("command", ""),
+                                                 bool(args.get("restart")))
             ok = not result.startswith(("Rejected:", "Error:", "Timed out"))
             out = {"id": tc_id, "name": name, "ok": ok, "result": result,
                    "summary": result[:300]}

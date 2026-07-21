@@ -255,3 +255,46 @@ def test_workspace_non_protected_path_auto_runs_in_accept_edits(monkeypatch, tmp
     events = asyncio.run(scenario())
     assert not any(e.get("type") == "approval_required" for e in events)
     assert (tmp_path / "notes.txt").read_text() == "hi"
+
+
+def test_workspace_bash_passes_root_and_allow(monkeypatch, tmp_path):
+    """In a workspace turn, the bash tool calls run_bash with the workspace root,
+    the runner allowlist, and the workspace timeout."""
+    from ocd_core import config, integrations
+
+    captured = {}
+
+    def _fake_run_bash(command, restart=False, *, root=None, allow=None, timeout=None):
+        captured.update(command=command, root=root, allow=allow, timeout=timeout)
+        return "ran"
+
+    monkeypatch.setattr(integrations, "run_bash", _fake_run_bash)
+
+    calls = iter([[_FakeToolCall("c1", "bash", '{"command": "pytest -q"}')], []])
+
+    async def _fake_stream(llm, model, messages, tools, temperature, max_tokens,
+                           content_scope="answer", fallback_model=None, **_kw):
+        try:
+            tcs = next(calls)
+        except StopIteration:
+            tcs = []
+        if tcs:
+            yield {"__done__": {"content": "", "note": None, "tool_calls": tcs}}
+        else:
+            yield {"type": "delta", "scope": "answer", "text": "done"}
+            yield {"__done__": {"content": "done", "tool_calls": [], "note": None}}
+
+    monkeypatch.setattr(agent, "_stream_llm", _fake_stream)
+
+    async def scenario():
+        events = []
+        async for ev in agent.run_turn("test it", [], None, "m", effort="Low", bash=True,
+                                       workspace_root=str(tmp_path),
+                                       permission_mode="bypass", turn_id="t1"):
+            events.append(ev)
+        return events
+
+    asyncio.run(scenario())
+    assert captured["root"] == str(tmp_path)
+    assert captured["allow"] is integrations.WORKSPACE_BASH_ALLOW
+    assert captured["timeout"] == config.WORKSPACE_BASH_TIMEOUT_SEC

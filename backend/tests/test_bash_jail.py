@@ -183,3 +183,19 @@ def test_run_bash_workspace_strips_secret_env(tmp_path, monkeypatch):
     out = I.run_bash("python dump.py", root=tmp_path, allow=I.WORKSPACE_BASH_ALLOW, timeout=10)
     assert "TOKLEAK-abc" not in out and "KEYLEAK-abc" not in out
     assert "TOK=" in out   # the script DID run (var just empty)
+
+
+def test_run_bash_blocks_value_fronted_eval(tmp_path):
+    # eval flag hidden behind a value-taking option must still be caught
+    for cmd in ('node --require ./foo.js -e "console.log(1)"',
+                'node -r ./foo.js -e "console.log(1)"',
+                'python --check-hash-based-pycs default -c "print(1)"'):
+        out = I.run_bash(cmd, root=tmp_path, allow=I.WORKSPACE_BASH_ALLOW, timeout=5)
+        assert "workspace file" in out.lower() and "rejected" in out.lower(), cmd
+
+
+def test_run_bash_allows_module_downstream_flags(tmp_path):
+    # after -m, the module's own -c/-p are NOT the interpreter's eval flag
+    out = I.run_bash("python -m pytest -c pytest.ini -p no:cacheprovider --version",
+                     root=tmp_path, allow=I.WORKSPACE_BASH_ALLOW, timeout=15)
+    assert "must run a workspace file" not in out.lower()

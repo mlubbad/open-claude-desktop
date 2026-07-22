@@ -1507,9 +1507,6 @@ _EVAL_FLAGS = {
 }
 _INTERPRETERS = frozenset(_EVAL_FLAGS)          # keep the name other code references
 _INLINE_EVAL_FLAGS = {"-c", "-e", "-p", "-r", "--eval", "--print"}  # kept for the constants test
-# Interpreter options that take a SEPARATE value token (so a following non-dash token is
-# that value, not the script) — lets the scan reach a later eval flag (python -W x -c CODE).
-_INTERP_VALUE_OPTS = {"-W", "-X"}
 
 
 def _is_inline_eval_flag(name: str, tok: str) -> bool:
@@ -1528,27 +1525,22 @@ def _is_inline_eval_flag(name: str, tok: str) -> bool:
 
 
 def _interpreter_runs_inline(parts: list) -> bool:
-    """True if ANY interpreter token in ``parts`` is invoked for inline code or a bare
-    REPL (rather than a workspace script file or `-m module`). Scans each interpreter's
-    own option cluster, stopping at the script/module boundary so a downstream tool flag
-    (e.g. `python -m pytest -c cfg`) is NOT misread as the interpreter's own -c."""
+    """True if an interpreter token in ``parts`` runs inline code or a bare REPL rather
+    than a workspace script / `-m module`. An eval flag counts only if it appears BEFORE
+    any `-m` — anything after `-m <module>` belongs to that module (e.g. `python -m pytest
+    -c cfg` is pytest's -c, not python's), so no per-interpreter value-option list is
+    needed and value-fronted forms (`node --require x.js -e CODE`) can't hide an eval flag."""
     for i, tok in enumerate(parts):
         if tok not in _INTERPRETERS:
             continue
         rest = parts[i + 1:]
         if not rest:
-            return True                              # bare REPL
-        k = 0
-        while k < len(rest):
-            a = rest[k]
+            return True                         # bare REPL
+        for a in rest:
+            if a == "-m":
+                break                           # module takes over; its flags aren't the interpreter's
             if _is_inline_eval_flag(tok, a):
-                return True
-            if a == "-m" or not a.startswith("-"):
-                break                                # module/script boundary — hands off
-            if a in _INTERP_VALUE_OPTS:
-                k += 2                               # skip the option AND its value token
-                continue
-            k += 1
+                return True                     # eval flag before any -m = the interpreter's own
     return False
 
 

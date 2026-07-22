@@ -58,7 +58,7 @@ def test_workspace_bash_constants_exist():
     assert {"pytest", "npm", "python", "git"} <= I.WORKSPACE_BASH_ALLOW
     assert I._BASH_ALLOW <= I.WORKSPACE_BASH_ALLOW
     assert not ({"find", "npx", "env"} & I.WORKSPACE_BASH_ALLOW)
-    assert I._INLINE_EVAL_FLAGS == {"-c", "-e", "--eval", "-"}
+    assert I._INLINE_EVAL_FLAGS == {"-c", "-e", "-p", "-r", "--eval", "--print"}
     assert {"python", "node"} <= I._INTERPRETERS
 
 
@@ -137,5 +137,49 @@ def test_run_bash_workspace_allows_runner_via_uv(tmp_path):
 def test_run_bash_workspace_missing_root_errors(tmp_path):
     ghost = tmp_path / "does" / "not" / "exist"
     out = I.run_bash("python x.py", root=ghost, allow=I.WORKSPACE_BASH_ALLOW, timeout=5)
-    assert "does not exist" in out.lower()
+    assert "not a directory" in out.lower()
     assert not ghost.exists()   # not fabricated
+
+
+def test_run_bash_blocks_attached_inline_eval(tmp_path):
+    for cmd in ('python -cprint(1)', 'python3 -cprint(1)', 'node --eval=1', 'node -p1'):
+        out = I.run_bash(cmd, root=tmp_path, allow=I.WORKSPACE_BASH_ALLOW, timeout=5)
+        assert "workspace file" in out.lower() and "rejected" in out.lower(), cmd
+
+
+def test_run_bash_blocks_eval_after_value_option(tmp_path):
+    out = I.run_bash('python -W ignore -c "print(1)"', root=tmp_path,
+                     allow=I.WORKSPACE_BASH_ALLOW, timeout=5)
+    assert "workspace file" in out.lower()
+
+
+def test_run_bash_allows_module_tool_with_own_c_flag(tmp_path):
+    # `python -m pytest -c cfg` must NOT be misread as python's -c eval (pytest's -c).
+    out = I.run_bash("python -m pytest -c pytest.ini --version", root=tmp_path,
+                     allow=I.WORKSPACE_BASH_ALLOW, timeout=15)
+    assert "must run a workspace file" not in out.lower()   # not blocked by the eval guard
+
+
+def test_arg_jail_blocks_flag_value_path(tmp_path):
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    assert I._bash_arg_escapes_jail("--git-dir=/etc/passwd", ws) is True
+    assert I._bash_arg_escapes_jail("--work-tree=C:/Windows", ws) is True
+    assert I._bash_arg_escapes_jail("--config=subdir/x", ws) is False   # inside root, fine
+
+
+def test_run_bash_git_dir_escape_blocked(tmp_path):
+    out = I.run_bash("git --git-dir=/etc/passwd log", root=tmp_path,
+                     allow=I.WORKSPACE_BASH_ALLOW, timeout=5)
+    assert "outside" in out.lower() and "rejected" in out.lower()
+
+
+def test_run_bash_workspace_strips_secret_env(tmp_path, monkeypatch):
+    monkeypatch.setenv("OCD_API_TOKEN", "TOKLEAK-abc")
+    monkeypatch.setenv("MY_PROVIDER_KEY", "KEYLEAK-abc")
+    (tmp_path / "dump.py").write_text(
+        "import os\nprint('TOK=' + os.environ.get('OCD_API_TOKEN', ''))\n"
+        "print('KEY=' + os.environ.get('MY_PROVIDER_KEY', ''))\n")
+    out = I.run_bash("python dump.py", root=tmp_path, allow=I.WORKSPACE_BASH_ALLOW, timeout=10)
+    assert "TOKLEAK-abc" not in out and "KEYLEAK-abc" not in out
+    assert "TOK=" in out   # the script DID run (var just empty)

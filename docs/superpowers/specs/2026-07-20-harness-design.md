@@ -269,15 +269,16 @@ spec text where they differ:
   restore/list verify it (`owned_by`), so one workspace can never restore into another
   (cross-workspace overwrite was a review-caught Critical).
 - **Rewind is file-restore only in v1**; conversation restore is deferred (desktop-side).
-- **`bash` cwd is NOT the workspace in P1.** §6 envisioned `bash` running with
-  `cwd=workspace_root`; the implementation left `bash` as the existing read-only,
-  allowlisted (`integrations._BASH_ALLOW`) sandbox tool running in `SANDBOX_ROOT`. The
-  rules/mode gate + catastrophic breaker DO govern `bash` decisions in a workspace turn
-  (policy layer ready), but execution still targets the sandbox, and the allowlist is
-  read-only. The file tools cover the core edit/search loop; **running commands/tests in
-  the attached folder is a deliberate fast-follow** (needs `run_bash` to accept a jailed
-  workspace cwd + a broader, gated command allowlist — adjacent to the P4 sandbox runner).
-- **Deferred to a fast-follow (not P1 blockers):** workspace-cwd bash (above); checkpoint
+- **`bash` cwd — SHIPPED in the P1.5 fast-follow** (spec/plan `2026-07-21-workspace-cwd-bash`,
+  branch `feat/harness-bash`). P1 left `bash` on the read-only `SANDBOX_ROOT` sandbox; the
+  fast-follow gives `run_bash` a jailed workspace cwd + a curated runner allowlist
+  (`WORKSPACE_BASH_ALLOW`: pytest/npm/cargo/go/make/… + `python`/`node` on the repo's own
+  script files, inline `-c`/`-e`/REPL blocked), a `--flag=<path>` arg-jail, and secret-env
+  stripping — all behind the existing mode gate + catastrophic breaker. Runners still
+  prompt in `default`/`acceptEdits` unless rule-allowed. Adversarially verified (attached-eval,
+  interpreter-front, arg-jail, DoS, env-leak). It is host execution, not a sandbox — the
+  P4 container runner remains the answer for untrusted repos.
+- **Deferred to a fast-follow (not P1 blockers):** checkpoint
   FIFO pruning (`MAX_CHECKPOINTS` reserved); `glob`/`grep`/env-map walk-then-filter perf on
   large `.git`/`node_modules`; the `env_context` depth-cap has no "truncated" marker.
 - **Unknown/stale `workspace_id`** degrades to a normal (folderless) chat AND emits a

@@ -134,3 +134,59 @@ def test_word_count_trailing_newline_adds_no_line():
 def test_word_count_blank_line_between_content():
     assert _counts("a\n\nb") == ("words: 2\nlines: 3\ncharacters: 4\n"
                                  "characters (no whitespace): 2")
+
+
+# ------------------------ F-04: color_convert rgb() syntax ------------------------ #
+
+def _color(value: str) -> str:
+    return _plugin("color_convert").run({"color": value})
+
+
+def test_color_hex_to_rgb():
+    assert _color("#1e90ff") == "#1e90ff = rgb(30, 144, 255)"
+
+
+def test_color_hex_without_hash():
+    assert _color("1e90ff") == "#1e90ff = rgb(30, 144, 255)"
+
+
+def test_color_uppercase_hex():
+    assert _color("#1E90FF") == "#1e90ff = rgb(30, 144, 255)"
+
+
+def test_color_bare_rgb_triple():
+    assert _color("30,144,255") == "rgb(30, 144, 255) = #1e90ff"
+
+
+def test_color_round_trips_its_own_rgb_output():
+    assert _color("rgb(30, 144, 255)") == "rgb(30, 144, 255) = #1e90ff"
+
+
+def test_color_rgb_wrapper_case_and_whitespace():
+    assert _color("RGB( 30 ,144,  255 )") == "rgb(30, 144, 255) = #1e90ff"
+
+
+def test_color_component_above_255_rejected():
+    assert _color("rgb(300, 0, 0)") == "RGB components must be 0–255."
+    assert _color("999,0,0") == "RGB components must be 0–255."
+
+
+def test_color_negative_component_rejected():
+    assert _color("-1,0,0").startswith("Could not parse color")
+
+
+def test_color_missing_component_rejected():
+    assert _color("rgb(30, 144)").startswith("Could not parse color")
+
+
+def test_color_extra_component_rejected():
+    assert _color("rgb(30, 144, 255, 10)").startswith("Could not parse color")
+
+
+def test_color_unbalanced_wrapper_rejected():
+    assert _color("rgb(30, 144, 255").startswith("Could not parse color")
+    assert _color("30, 144, 255)").startswith("Could not parse color")
+
+
+def test_color_malformed_trailing_input_rejected():
+    assert _color("30,144,255 junk").startswith("Could not parse color")

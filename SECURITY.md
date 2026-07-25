@@ -48,6 +48,18 @@ model-written code, so several guards are enforced in code:
   stripped) in the workspace directory, behind the permission-mode gate + the
   catastrophic-command breaker. This is host execution, not a sandbox. See
   `backend/tests/test_bash_jail.py`.
+- **Hooks are app-owned, and fail closed.** Harness lifecycle hooks (shell commands run
+  at `PreToolUse`, `PostToolUse`, etc.) are read **only** from the app's own settings — a
+  workspace/repo can never contribute one, because a hook *executes* where a workspace
+  permission rule only *restricts*. Tool input reaches a hook as stdin JSON (never
+  interpolated into its command line), hooks run `shell=False` with the same
+  secret-stripped environment as workspace bash, a timed-out hook's whole process tree is
+  killed, and a failing/timing-out `PreToolUse` hook **denies** the tool call. A hook that
+  requests approval in an unattended run (Cowork/scheduler, where no one can answer) also
+  denies rather than proceeding. Note the converse power: a hook returning `allow` skips
+  the approval prompt — including for sensitive built-ins — so treat a broad-matcher
+  `allow` hook with the same caution as `bypass` permission mode. See
+  `backend/tests/test_harness_hooks.py`.
 - **SSRF-guarded fetches.** `web_fetch` and REST connectors block private/internal
   hosts and drop custom auth headers on cross-origin redirects.
   See `backend/tests/test_connector_ssrf.py`.

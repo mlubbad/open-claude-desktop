@@ -237,7 +237,9 @@ plan card. New settings page: Workspaces (roots, rules, protected paths).
 | Phase | Contents |
 |---|---|
 | **P1 — SHIPPED** (branch `feat/harness`, 2026-07-21) | workspace + jail, fs tool suite, modes + rules, checkpoints/rewind, plan tool, env context, SSE/UI |
-| **P2** | hooks (Claude JSON stdin/stdout contract: PreToolUse/PostToolUse/UserPromptSubmit/Stop/SessionStart, matchers, allow/deny/additionalContext); generalized subagents (`.claude/agents/*.md`-compatible defs, Agent tool, fresh context, tool scoping); skills/commands upgraded to full Claude formats (`$ARGUMENTS`, `allowed-tools`) |
+| **P2a — SHIPPED** (2026-07-22, `feat/harness-hooks`) | hooks (Claude JSON stdin/stdout contract: PreToolUse/PostToolUse/UserPromptSubmit/Stop/SessionStart, matchers, allow/deny/additionalContext) — app-settings-only trust, fail-closed on the blocking events, tighten-only vs the P1 gate. Spec: `2026-07-22-harness-hooks-design.md` |
+| **P2b** | generalized subagents (`.claude/agents/*.md`-compatible defs, Agent tool, fresh context, tool scoping). **Open safety issue to design:** subagents run `permission_mode="auto"`, so giving them workspace file tools would mean ungated writes — resolve deliberately |
+| **P2c** | skills/commands upgraded to full Claude formats (`$ARGUMENTS`, `allowed-tools`, `argument-hint`) — small and independent |
 | **P3** | compaction upgrade (tool-aware: preserves call/result pairs; optional LLM summarization above today's extractive `context.py`); memory hierarchy (workspace `CLAUDE.md`/`AGENTS.md` + user-level, injected cache-friendly); background bash + job-queue integration |
 | **P4** | opt-in container sandbox runner (`backend/sandbox/`); ACP server exposure; checkpoint-git integration; auto permission mode (classifier-reviewed) if/where model support allows |
 

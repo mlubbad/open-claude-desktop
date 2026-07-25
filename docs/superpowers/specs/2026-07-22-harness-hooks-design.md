@@ -62,22 +62,40 @@ builds on top of this feature, not things we ship.
 | `PostToolUse` | after a tool returns its outcome | `additionalContext` (observational) |
 | `Stop` | the turn is about to finish | `additionalContext` (observational) |
 
-**Ordering at a tool call** (the important one):
+**Ordering at a tool call** (as built — corrected 2026-07-22 after implementation):
 ```
-rules.gate()  →  [deny? stop]  →  PreToolUse hook  →  [deny? stop | ask? prompt | allow? skip prompt]
-              →  HITL prompt (if still "ask")  →  execute  →  PostToolUse hook
+PreToolUse hook  →  [deny? stop | ask-with-no-channel? stop]
+                 →  rules.gate()  →  [deny? stop | allow (and no hook "ask")? run]
+                 →  HITL prompt (if "ask" from either)  →  execute  →  PostToolUse hook
 ```
+> The hook runs **before** `rules.gate`, not after as originally drafted: the gate's own
+> `allow` branch `continue`s straight to execution, so a hook placed after it would never
+> be consulted for a workspace tool in a permissive mode. Security is unaffected — the
+> gate's `deny` branch and the catastrophic-bash breaker never consult the hook's decision,
+> so a hook still cannot loosen either (verified adversarially). The gate's `allow` branch
+> **does** check `_hook_forces_ask`, so a hook can still tighten.
 
 **Explicitly, per gate outcome** (an implementer will hit all three):
 
-| `rules.gate` says | `PreToolUse` runs? | Effect of the hook's answer |
-|---|---|---|
-| `deny` | **No** — the call is already blocked; nothing to gate | n/a (a hook can never resurrect it) |
-| `ask` | Yes | `deny` → block; `allow` → skip the prompt; `ask`/none → prompt as usual |
-| `allow` | Yes | `deny` → block; `ask` → **force** the prompt (tightening); `allow`/none → run |
+| `rules.gate` says | Effect of the hook's answer |
+|---|---|
+| `deny` | Hook already ran, but the gate's deny is unconditional — a hook can never resurrect it |
+| `ask` | `deny` → block; `allow` → skip the prompt; `ask`/none → prompt as usual |
+| `allow` | `deny` → block; `ask` → **force** the prompt (tightening); `allow`/none → run |
 
-Non-workspace turns have no `rules.gate` (it is workspace-scoped), so `PreToolUse` runs
-before the existing `permissions.requires_approval` check and can tighten it the same way.
+Non-workspace turns have no `rules.gate` (it is workspace-scoped), so `PreToolUse` tightens
+the existing `permissions.requires_approval` check the same way.
+
+**Unattended runs (no HITL channel).** When `gate_on` is false — `permission_mode="auto"`,
+i.e. Cowork/scheduler — there is no one to prompt. A hook's `deny` still blocks
+(unconditional). A hook's **`ask` also blocks**: "ask with nobody to ask" fails closed
+rather than silently proceeding, so the tighten signal cannot invert into "allow" exactly
+when no human is watching (§6.7).
+
+**A hook's `allow` skips the HITL prompt — including for sensitive built-ins.** That is the
+intended trust delegation (only the app operator can author a hook at all), and it is the
+same power `bypass` mode already grants. It deserves the same caution in SECURITY.md: a
+broad-matcher `allow` hook effectively disables approval prompts.
 
 ## 4. Contract (Claude-compatible)
 
@@ -199,6 +217,22 @@ configured behaves byte-for-byte as today (and pays no subprocess cost).
   (loop-level).
 - **Docs** README (a Harness → Hooks subsection), SECURITY.md (hooks are app-settings-only,
   fail-closed on PreToolUse), and the P1 spec's roadmap row for P2a.
+
+## 9b. Known limitations (adversarially verified 2026-07-22, accepted for v1)
+
+13 attack classes were probed against the built feature; 10 held clean and 3 escapes were
+found and fixed (hook `ask` evaporating in unattended runs; a detached grandchild surviving
+a timed-out hook — now killed tree-wide; `DATABASE_URL`-style credential env vars passing
+the secret filter — pattern widened, which also hardens workspace bash). Two findings were
+accepted rather than fixed, and are documented for the operator:
+
+- **`PreToolUse` latency scales with hook count.** Hooks for one event run sequentially, so
+  aggregate worst case is `N × timeout`. Each hook is individually capped (default 30s, max
+  120s) and every `PreToolUse` hook blocks each tool call — keep them few and fast.
+- **A pathological matcher regex can hang the loop.** `matches()` has no regex timeout, so a
+  catastrophic-backtracking pattern (e.g. `^([a-z_]+)+$`) written into app settings will
+  stall. Tool names come from a fixed internal vocabulary (an injected name is rejected
+  before the hook loop), so this is self-inflicted only — but it is the one unbounded path.
 
 ## 10. Deferred (explicitly not v1)
 `http`/`prompt`/`agent` hook types; `SubagentStart`/`SubagentStop`/`PreCompact`/`Notification`

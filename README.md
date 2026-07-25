@@ -67,10 +67,21 @@ folder — a Claude-Code-style **harness** layered on the same engine (`backend/
   restore into another).
 - **Plan card & tool timeline** — a model-driven task plan and per-tool activity/diffs
   stream into the chat.
+- **Hooks** — run your own shell command at lifecycle events (`SessionStart`,
+  `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop`). It receives the event as JSON
+  on stdin and can inject context, block a prompt, or tighten a tool decision
+  (`allow`/`deny`/`ask`) — Claude Code's hook contract, so existing hook scripts port over.
+  Hooks are configured in **app settings only** (never loaded from a workspace folder,
+  because a hook *executes* where a workspace permission rule only *restricts*), run with
+  the same secret-stripped environment as workspace bash, and receive tool input as stdin
+  JSON — never interpolated into their command line. A `PreToolUse` hook that fails, times
+  out, or emits garbage **denies** the call rather than silently allowing it; the same
+  goes for a hook that asks for approval in an unattended run where no one can answer.
 
 Workspace + checkpoint APIs live under `/harness/workspaces`. Execution is on the host
 behind the jail + permission gate (an opt-in container runner is a later phase). Design
-and roadmap: `docs/superpowers/specs/2026-07-20-harness-design.md`.
+and roadmap: `docs/superpowers/specs/2026-07-20-harness-design.md`; hooks:
+`docs/superpowers/specs/2026-07-22-harness-hooks-design.md`.
 
 ## Security posture (local-first)
 

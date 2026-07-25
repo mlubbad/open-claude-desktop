@@ -88,3 +88,56 @@ describe("styles.css layout contract", () => {
     expect(rule(".model-more")).not.toBe("");
   });
 });
+
+// The app is a fixed-viewport shell, not a scrolling document: the transcript is the
+// only thing that scrolls. This broke once — in a short or narrow window the composer
+// was pushed past the viewport, so the DOCUMENT grew a scrollbar of its own on top of
+// the transcript's ("scroll above scroll"), and scrolling it slid the whole app up so
+// transcript content ran underneath the footer. Each rule below holds that shut.
+describe("styles.css app-shell scroll containment", () => {
+  it("locks the document so only inner regions scroll", () => {
+    for (const sel of ["html", "body", "#root"]) {
+      expect(rule(sel), `${sel} must be pinned to the viewport`).toMatch(/height:\s*100%/);
+    }
+    for (const sel of ["html", "body"]) {
+      expect(rule(sel), `${sel} must not scroll`).toMatch(/overflow:\s*hidden/);
+    }
+  });
+
+  it("clips the shell so nothing can escape into the document", () => {
+    const shell = rule(".app-shell");
+    expect(shell).toMatch(/overflow:\s*hidden/);
+    // 100vh ignores a horizontal scrollbar and any browser/OS chrome; 100% tracks the
+    // real box the shell was given.
+    expect(shell).toMatch(/height:\s*100%/);
+    expect(shell).not.toMatch(/height:\s*100vh/);
+  });
+
+  it("lets every column in the chat layout shrink below its content", () => {
+    // Without min-height:0 a flex column refuses to shrink past its content's
+    // min-content height, so the overflow lands on the document instead of the
+    // transcript. .transcript also needs it despite overflow-y:auto — its padding
+    // otherwise floors the box and pushes the footer out of view.
+    for (const sel of [".app", ".workarea", ".chat-col", ".transcript"]) {
+      expect(rule(sel), `${sel} needs min-height: 0`).toMatch(/min-height:\s*0/);
+    }
+  });
+
+  it("compacts the composer in short windows so it never needs to escape", () => {
+    // The footer's optional chrome yields before the layout does.
+    expect(rule(".footer-note")).toMatch(/display:\s*none/);
+  });
+
+  it("keeps the composer's popovers unclipped by never scrolling the footer", () => {
+    // .tools-menu / .mp-pop open upward out of the footer; an overflow container here
+    // would cut them off. The transcript above absorbs the space instead.
+    expect(rule(".footer")).not.toMatch(/overflow/);
+  });
+
+  it("centres the empty-state hero with margin:auto, not align-items:center", () => {
+    // align-items:center on an overflowing scroll container puts the top of the content
+    // above the scroll origin, where it can never be reached.
+    expect(rule(".hero")).not.toMatch(/align-items:\s*center/);
+    expect(rule(".hero-inner")).toMatch(/margin:\s*auto/);
+  });
+});

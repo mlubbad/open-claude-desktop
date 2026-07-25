@@ -16,6 +16,7 @@ import asyncio
 import json
 import re
 import shlex
+import time
 from dataclasses import dataclass
 
 from .. import config, settings
@@ -139,6 +140,7 @@ async def _run_one(hook: dict, event: str, payload: dict, cwd: str | None) -> Ho
     from .. import integrations, observability
     cmd = str(hook.get("command") or "")
     timeout = _timeout_for(hook)
+    started = time.monotonic()
     try:
         parts = shlex.split(cmd, posix=False)
     except ValueError:
@@ -161,7 +163,10 @@ async def _run_one(hook: dict, event: str, payload: dict, cwd: str | None) -> Ho
         if proc is not None:
             try:
                 proc.kill()
-            except OSError:
+                # Reap it: without this the transport is torn down by GC later, which
+                # leaks a dangling pipe/loop reference (the process itself IS killed).
+                await proc.wait()
+            except (OSError, ProcessLookupError):
                 pass
         decision = _fail(event, f"hook timed out after {timeout}s: {cmd}")
     except (OSError, ValueError) as e:                 # not found, bad exe, etc.
@@ -171,7 +176,9 @@ async def _run_one(hook: dict, event: str, payload: dict, cwd: str | None) -> Ho
     decision.context = integrations._scrub_secrets(decision.context)
     observability.audit({"event": "hook_run", "hook_event": event,
                          "command": cmd, "tool": payload.get("tool_name"),
-                         "decision": decision.decision or "none"})
+                         "decision": decision.decision or "none",
+                         "duration_ms": int((time.monotonic() - started) * 1000),
+                         "ok": not decision.denied})
     return decision
 
 

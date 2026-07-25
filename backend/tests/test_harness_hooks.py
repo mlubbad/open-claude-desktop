@@ -96,6 +96,27 @@ def test_parse_other_nonzero_is_no_opinion_for_observational_event():
     assert d.decision is None            # fail OPEN
 
 
+def test_userpromptsubmit_fails_closed_like_pretooluse():
+    """Both BLOCKING_EVENTS must deny on every failure class — not just PreToolUse."""
+    for code, out, err in [(1, "", "boom"), (0, '{"bad json', ""),
+                           (0, '{"permissionDecision":"banana"}', "")]:
+        assert hooks.parse_output(code, out, err, "UserPromptSubmit").decision == "deny"
+        assert hooks.parse_output(code, out, err, "PreToolUse").decision == "deny"
+
+
+def test_audit_includes_duration_and_ok(monkeypatch, tmp_path):
+    """Spec §6 requires duration_ms + ok in the audit record."""
+    from ocd_core import observability
+    seen = []
+    monkeypatch.setattr(observability, "audit", lambda rec: seen.append(rec))
+    s = tmp_path / "ok.py"
+    s.write_text("print('{}')\n", encoding="utf-8")
+    _hook_settings(monkeypatch, "SessionStart", f'"{sys.executable}" "{s}"')
+    asyncio.run(hooks.run("SessionStart", {}))
+    assert seen and "duration_ms" in seen[0] and "ok" in seen[0]
+    assert isinstance(seen[0]["duration_ms"], int) and seen[0]["ok"] is True
+
+
 def test_parse_malformed_json_denies_for_blocking_event():
     d = hooks.parse_output(0, '{"permissionDecision": ', "", "PreToolUse")
     assert d.decision == "deny"

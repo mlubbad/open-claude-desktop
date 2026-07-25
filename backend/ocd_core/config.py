@@ -45,7 +45,19 @@ CHROMA_PATH = os.getenv("CHROMA_PATH", str(REPO_ROOT / "chroma_db"))
 SKILLS_DIR = Path(os.getenv("SKILLS_DIR", str(REPO_ROOT / "skills")))
 PLUGINS_DIR = Path(os.getenv("PLUGINS_DIR", str(REPO_ROOT / "plugins")))
 # Bundled, vetted plugin catalog the marketplace installs FROM (into PLUGINS_DIR).
-MARKETPLACE_DIR = Path(os.getenv("MARKETPLACE_DIR", str(REPO_ROOT / "content" / "marketplace")))
+def _default_marketplace_dir() -> Path:
+    """The immutable bundled catalog. A frozen build ships it INSIDE the executable
+    (PyInstaller datas — backend/ocd-backend.spec), extracted under sys._MEIPASS:
+    the per-user data root starts EMPTY on a fresh install, so resolving the catalog
+    under REPO_ROOT there would leave the packaged marketplace with no entries.
+    Source/dev keeps the historical repo-checkout default."""
+    if getattr(sys, "frozen", False):
+        bundle = getattr(sys, "_MEIPASS", "") or str(Path(sys.executable).resolve().parent)
+        return Path(bundle) / "content" / "marketplace"
+    return REPO_ROOT / "content" / "marketplace"
+
+
+MARKETPLACE_DIR = Path(os.getenv("MARKETPLACE_DIR", str(_default_marketplace_dir())))
 # User-added marketplace sources: git repos cloned locally that contribute installable
 # plugins alongside the bundled catalog, plus the JSON registry of added sources.
 MARKETPLACE_SOURCES_DIR = Path(os.getenv(

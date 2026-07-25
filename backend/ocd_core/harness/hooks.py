@@ -12,6 +12,7 @@ Security posture (see docs/superpowers/specs/2026-07-22-harness-hooks-design.md)
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 from .. import settings
@@ -48,3 +49,19 @@ def load_hooks(event: str) -> list[dict]:
         if isinstance(e, dict) and str(e.get("command") or "").strip():
             out.append(e)
     return out
+
+
+def matches(hook: dict, tool_name: str | None) -> bool:
+    """Does ``hook``'s matcher apply to ``tool_name``? A missing/empty/``*`` matcher
+    matches everything; otherwise it is a FULLY-ANCHORED regex on the tool name (so
+    "edit" does not match "edit_file"). Non-tool events pass tool_name=None and always
+    match. A malformed regex matches nothing (fail closed toward not-running the hook)."""
+    if tool_name is None:
+        return True
+    m = str(hook.get("matcher") or "").strip()
+    if not m or m == "*":
+        return True
+    try:
+        return re.fullmatch(m, tool_name) is not None
+    except re.error:
+        return False

@@ -12,8 +12,10 @@ Security posture (see docs/superpowers/specs/2026-07-22-harness-hooks-design.md)
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import re
+import shlex
 from dataclasses import dataclass
 
 from .. import config, settings
@@ -122,3 +124,67 @@ def merge(decisions: list) -> HookDecision:
     return HookDecision(decision=best.decision,
                         reason=best.reason or "; ".join(reasons),
                         context="\n".join(ctx))
+
+
+def _timeout_for(hook: dict) -> int:
+    try:
+        t = int(hook.get("timeout") or config.HOOK_TIMEOUT_SEC)
+    except (TypeError, ValueError):
+        t = config.HOOK_TIMEOUT_SEC
+    return max(1, min(t, config.HOOK_TIMEOUT_MAX_SEC))
+
+
+async def _run_one(hook: dict, event: str, payload: dict, cwd: str | None) -> HookDecision:
+    """Execute ONE hook. Never raises — every failure becomes a HookDecision."""
+    from .. import integrations, observability
+    cmd = str(hook.get("command") or "")
+    timeout = _timeout_for(hook)
+    try:
+        parts = shlex.split(cmd, posix=False)
+    except ValueError:
+        return _fail(event, f"hook command could not be parsed: {cmd!r}")
+    if not parts:
+        return _fail(event, "hook command was empty")
+    # posix=False keeps Windows paths intact but leaves quotes on tokens — strip them.
+    parts = [p.strip('"') for p in parts]
+    proc = None
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *parts, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE, cwd=cwd,
+            env=integrations._sanitized_child_env())
+        raw = json.dumps({"event": event, **payload}).encode("utf-8")
+        out_b, err_b = await asyncio.wait_for(proc.communicate(raw), timeout=timeout)
+        decision = parse_output(proc.returncode, out_b.decode("utf-8", "replace"),
+                                err_b.decode("utf-8", "replace"), event)
+    except TimeoutError:            # asyncio.TimeoutError is an alias of the builtin
+        if proc is not None:
+            try:
+                proc.kill()
+            except OSError:
+                pass
+        decision = _fail(event, f"hook timed out after {timeout}s: {cmd}")
+    except (OSError, ValueError) as e:                 # not found, bad exe, etc.
+        decision = _fail(event, f"hook could not run ({e}): {cmd}")
+    # Scrub anything secret-shaped a hook printed before it reaches the model or the log.
+    decision.reason = integrations._scrub_secrets(decision.reason)
+    decision.context = integrations._scrub_secrets(decision.context)
+    observability.audit({"event": "hook_run", "hook_event": event,
+                         "command": cmd, "tool": payload.get("tool_name"),
+                         "decision": decision.decision or "none"})
+    return decision
+
+
+async def run(event: str, payload: dict, cwd: str | None = None) -> HookDecision:
+    """Run every hook matching ``event`` (and the payload's tool_name) and merge the
+    results. Returns a no-opinion decision when nothing is configured — costing no
+    subprocess and leaving the turn byte-for-byte as it was before hooks existed."""
+    configured = load_hooks(event)
+    if not configured:
+        return HookDecision()
+    tool = payload.get("tool_name")
+    applicable = [h for h in configured if matches(h, tool)]
+    if not applicable:
+        return HookDecision()
+    results = [await _run_one(h, event, payload, cwd) for h in applicable]
+    return merge(results)

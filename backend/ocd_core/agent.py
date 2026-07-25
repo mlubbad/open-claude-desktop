@@ -1788,7 +1788,9 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
                             "skip_breaker": True,
                             "result": f"BLOCKED: '{name}' denied by the active permission mode/rules."})
                         continue
-                    if _decision == "allow":
+                    # A PreToolUse hook may only TIGHTEN: if it asked for a prompt, the
+                    # rule/mode 'allow' must NOT skip past the HITL gate below (spec §6.4).
+                    if _decision == "allow" and not _hook_forces_ask:
                         calls.append((tc.id, name, args))
                         continue
                     # _decision == "ask" -> fall through to the existing HITL prompt below

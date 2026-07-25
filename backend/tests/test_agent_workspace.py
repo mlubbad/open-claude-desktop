@@ -315,6 +315,31 @@ def _fake_stream_factory(calls):
     return _fake_stream
 
 
+def test_pretooluse_hook_ask_forces_prompt_even_when_mode_allows(monkeypatch, tmp_path):
+    """A hook may TIGHTEN (spec §6.4): its "ask" must force the HITL prompt even when the
+    rules gate/mode would auto-allow the tool (bypass mode on a workspace file tool)."""
+    from ocd_core.harness import hooks
+
+    async def _fake_run(event, payload, cwd=None):
+        if event == "PreToolUse":
+            return hooks.HookDecision(decision="ask")
+        return hooks.HookDecision()
+
+    monkeypatch.setattr(hooks, "run", _fake_run)
+    (tmp_path / "a.txt").write_text("old\n")
+    calls = iter([[_FakeToolCall("c1", "read_file", '{"path": "a.txt"}')], []])
+    monkeypatch.setattr(agent, "_stream_llm", _fake_stream_factory(calls))
+
+    async def scenario():
+        return [ev async for ev in agent.run_turn(
+            "read it", [], None, "m", effort="Low", workspace_root=str(tmp_path),
+            permission_mode="bypass", turn_id="t1")]
+
+    events = asyncio.run(scenario())
+    assert any(e.get("type") == "approval_required" and e.get("name") == "read_file"
+               for e in events), "hook 'ask' was silently dropped by the rules-gate allow"
+
+
 def test_pretooluse_hook_denies_tool(monkeypatch, tmp_path):
     """A PreToolUse deny blocks the tool and the model sees the reason."""
     from ocd_core.harness import hooks

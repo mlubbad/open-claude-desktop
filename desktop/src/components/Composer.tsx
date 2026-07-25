@@ -9,7 +9,7 @@ import {
   isImageFile,
   withAttachments,
 } from "../state/attachments";
-import { applySlash, slashSuggestions } from "../state/slashCommands";
+import { applySlash, type SkillInfo, slashSuggestions, withBuiltins } from "../state/slashCommands";
 import { useMenuFit } from "../state/useMenuFit";
 import type { McpSlashPrompt } from "../state/useMcpPrompts";
 
@@ -189,7 +189,7 @@ export function Composer({
   useMenuFit(addMenuRef, addOpen);
   useMenuFit(subMenuRef, subOpen !== null);
   const suggestions = useMemo(
-    () => slashSuggestions<SlashItem>([...skills, ...mcpPrompts], text),
+    () => slashSuggestions(withBuiltins<SlashItem>([...skills, ...mcpPrompts]), text),
     [skills, mcpPrompts, text],
   );
   // Escape hides the menu without erasing the draft; typing re-arms it.
@@ -300,7 +300,7 @@ export function Composer({
     setAttachments((a) => [...a, ...readTexts.filter((x) => x.content)]);
   }
 
-  function accept(item: SlashItem) {
+  function accept(item: SlashItem | SkillInfo) {
     if ("sid" in item) {
       // MCP prompt (P1-2): render it server-side and insert the resulting text —
       // the user reviews/edits before sending.

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { applySlash, slashSuggestions } from "./slashCommands";
+import { applySlash, BUILTIN_COMMANDS, slashSuggestions, withBuiltins } from "./slashCommands";
 
 const skills = [
   { name: "hero", description: "Hero slide reporting" },
@@ -35,6 +35,49 @@ describe("slashSuggestions", () => {
 describe("applySlash", () => {
   it("produces a ready-to-argue draft", () => {
     expect(applySlash({ name: "hero" })).toBe("/hero ");
+  });
+});
+
+describe("built-in commands", () => {
+  it("exposes /skill-builder, which is otherwise undiscoverable (it is not a skill)", () => {
+    expect(BUILTIN_COMMANDS.map((c) => c.name)).toContain("skill-builder");
+    expect(BUILTIN_COMMANDS.every((c) => c.description)).toBe(true);
+  });
+
+  it("is suggested alongside skills and filters like one", () => {
+    const merged = withBuiltins(skills);
+    expect(slashSuggestions(merged, "/").map((s) => s.name)).toContain("skill-builder");
+    expect(slashSuggestions(merged, "/skill").map((s) => s.name)).toEqual(["skill-builder"]);
+    // Committed command → stop suggesting so the argument can be typed.
+    expect(slashSuggestions(merged, "/skill-builder a curation report")).toEqual([]);
+  });
+
+  it("puts built-ins first and drops a skill that shadows one", () => {
+    // The backend parses the command before resolve_skill, so a skill named
+    // "skill-builder" can never run — listing it would be a dead entry.
+    const merged = withBuiltins([...skills, { name: "skill-builder", description: "mine" }]);
+    expect(merged.map((s) => s.name)).toEqual([
+      "skill-builder",
+      "hero",
+      "summarize",
+      "chart",
+    ]);
+    expect(merged[0].description).toBe(BUILTIN_COMMANDS[0].description);
+  });
+
+  it("leaves an unrelated skill list untouched apart from the prefix", () => {
+    expect(withBuiltins(skills).slice(BUILTIN_COMMANDS.length)).toEqual(skills);
+  });
+
+  it("accepting one produces a draft ready for its argument", () => {
+    expect(applySlash(BUILTIN_COMMANDS[0])).toBe("/skill-builder ");
+  });
+
+  it("lists only commands a backend route consumes", () => {
+    // Legacy Chainlit intents (/projects, /skills, /reload-skills, …) are still parsed
+    // by ocd_core/commands.py but no route acts on them — suggesting one would send its
+    // literal text to the model.
+    expect(BUILTIN_COMMANDS.map((c) => c.name)).toEqual(["skill-builder"]);
   });
 });
 

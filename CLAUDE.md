@@ -131,8 +131,14 @@ system-prompt section, wired the same way as `artifact_tools`.
   (which returns the FIRST name match). A name held by a bundled skill is refused.
 - Frontmatter is line-oriented and `triggers` is comma-split, so `skill_tools` flattens
   newlines/commas out of the single-line fields before writing.
-- Not yet surfaced: `desktop/src/state/slashCommands.ts` suggests *skills* only, so
-  `/skill-builder` doesn't appear in the composer's `/` menu — it works when typed.
+- Discoverability: `desktop/src/state/slashCommands.ts` carries `BUILTIN_COMMANDS` +
+  `withBuiltins()`, which prepends built-ins to the composer's `/` suggestions and drops
+  a skill that shadows one (the route parses the command before `resolve_skill`, so such
+  a skill could never run). Keep that list to commands a route actually consumes — the
+  rest of `commands.py` (`/projects`, `/skills`, `/reload-skills`, `/set-instructions`,
+  `/learn-finding`, `/lint-knowledge`, `/refresh-catalog`) is legacy from the retired
+  Chainlit client and nothing reads those intents, so suggesting one would send its
+  literal text to the model.
 
 ## Workspace tenancy (hosted-SaaS seam)
 

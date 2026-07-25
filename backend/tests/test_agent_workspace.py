@@ -435,3 +435,80 @@ def test_userpromptsubmit_deny_ends_turn(monkeypatch, tmp_path):
 
     events = asyncio.run(scenario())
     assert any("prompt refused" in str(e.get("text", "")) for e in events)
+
+
+def test_sessionstart_context_reaches_system_prompt(monkeypatch):
+    from ocd_core.harness import hooks
+    seen = {}
+
+    async def _fake_run(event, payload, cwd=None):
+        if event == "SessionStart":
+            return hooks.HookDecision(context="SESSION-MARKER-42")
+        return hooks.HookDecision()
+
+    monkeypatch.setattr(hooks, "run", _fake_run)
+
+    async def _fake_stream(llm, model, messages, tools, temperature, max_tokens,
+                           content_scope="answer", fallback_model=None, **_kw):
+        seen["system"] = messages[0]["content"]
+        yield {"type": "delta", "scope": "answer", "text": "ok"}
+        yield {"__done__": {"content": "ok", "tool_calls": [], "note": None}}
+
+    monkeypatch.setattr(agent, "_stream_llm", _fake_stream)
+
+    async def scenario():
+        return [ev async for ev in agent.run_turn("hi", [], None, "m", effort="Low",
+                                                  turn_id="t1")]
+
+    asyncio.run(scenario())
+    assert "SESSION-MARKER-42" in seen["system"]
+
+
+def test_posttooluse_hook_observes_without_changing_outcome(monkeypatch, tmp_path):
+    from ocd_core.harness import hooks
+    calls_seen = []
+
+    async def _fake_run(event, payload, cwd=None):
+        if event == "PostToolUse":
+            calls_seen.append(payload.get("tool_name"))
+        return hooks.HookDecision()
+
+    monkeypatch.setattr(hooks, "run", _fake_run)
+    (tmp_path / "a.txt").write_text("hello\n")
+    calls = iter([[_FakeToolCall("c1", "read_file", '{"path": "a.txt"}')], []])
+    monkeypatch.setattr(agent, "_stream_llm", _fake_stream_factory(calls))
+
+    async def scenario():
+        return [ev async for ev in agent.run_turn(
+            "read it", [], None, "m", effort="Low", workspace_root=str(tmp_path),
+            permission_mode="bypass", turn_id="t1")]
+
+    events = asyncio.run(scenario())
+    assert "read_file" in calls_seen
+    assert any(e.get("type") == "tool_result" for e in events)      # outcome unchanged
+
+
+def test_stop_hook_fires_once_at_end(monkeypatch):
+    from ocd_core.harness import hooks
+    fired = []
+
+    async def _fake_run(event, payload, cwd=None):
+        if event == "Stop":
+            fired.append(event)
+        return hooks.HookDecision()
+
+    monkeypatch.setattr(hooks, "run", _fake_run)
+
+    async def _fake_stream(llm, model, messages, tools, temperature, max_tokens,
+                           content_scope="answer", fallback_model=None, **_kw):
+        yield {"type": "delta", "scope": "answer", "text": "ok"}
+        yield {"__done__": {"content": "ok", "tool_calls": [], "note": None}}
+
+    monkeypatch.setattr(agent, "_stream_llm", _fake_stream)
+
+    async def scenario():
+        return [ev async for ev in agent.run_turn("hi", [], None, "m", effort="Low",
+                                                  turn_id="t1")]
+
+    asyncio.run(scenario())
+    assert fired == ["Stop"]

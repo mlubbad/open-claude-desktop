@@ -1303,6 +1303,12 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
 
     bq_on = bigquery_tools.enabled()
     extra_sections = []
+    # Hooks (P2a): SessionStart may inject context into the system prompt.
+    _hk_start = await _hooks.run("SessionStart",
+                                 {"turn_id": turn_id or "", "cwd": workspace_root or ""},
+                                 cwd=workspace_root)
+    if _hk_start.context:
+        extra_sections.append(_hk_start.context)
     if plan_mode:
         extra_sections.append(PLAN_MODE_SECTION)
     if bq_on:
@@ -1857,6 +1863,15 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
                         outcomes.append(out)
                         for ev in _completion_events(out, streamed):
                             yield ev
+                        _hk_post = await _hooks.run(
+                            "PostToolUse",
+                            {"tool_name": out.get("name"), "tool_input": {},
+                             "tool_response": str(out.get("result", ""))[:2000],
+                             "turn_id": turn_id or "", "cwd": workspace_root or ""},
+                            cwd=workspace_root)
+                        if _hk_post.context:
+                            messages.append({"role": "user",
+                                             "content": _hk_post.context})
                         # A checkpoint is the file's pre-mutation restore point, already
                         # captured by snapshot_before_edit inside _run_one_tool; the event
                         # just tells the UI a rewind point now exists for this turn. The id
@@ -1971,3 +1986,12 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
     # ---- Usage / cost meter (one event at the end of a successful turn) ----
     yield usage.build_usage(model, messages, "".join(out_parts),
                             reported=reported if reported["rounds"] else None)
+
+    # Hooks (P2a): Stop fires once, at the very end of the normal flow (never on the
+    # UserPromptSubmit early-return above) — observational only, so its context (if
+    # any) is streamed as a trailing answer delta rather than altering the outcome.
+    _hk_stop = await _hooks.run("Stop", {"turn_id": turn_id or "",
+                                         "cwd": workspace_root or ""},
+                                cwd=workspace_root)
+    if _hk_stop.context:
+        yield {"type": "delta", "scope": "answer", "text": f"\n\n{_hk_stop.context}"}

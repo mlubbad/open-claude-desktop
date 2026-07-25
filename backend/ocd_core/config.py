@@ -131,6 +131,10 @@ DEFAULT_SETTINGS = {"model": AGENT_MODEL,
                     #   "ask"    — ask before sensitive actions only (code/shell/files/DB) [default]
                     #   "auto"   — autonomous: never ask (auto-pilot)
                     "permission_mode": os.getenv("PERMISSION_MODE", "ask"),
+                    # Lifecycle hooks (harness P2a): {event: [{matcher, command, timeout}]}.
+                    # APP-OWNED ONLY — never loaded from a workspace folder, because a hook
+                    # EXECUTES (unlike workspace permission rules, which only restrict).
+                    "hooks": {},
                     # Memory: let the agent search PAST conversations mid-turn
                     # (the search_past_chats tool). Local + read-only; on by default.
                     "memory_search": True,
@@ -162,6 +166,10 @@ DEFAULT_SETTINGS = {"model": AGENT_MODEL,
                     "opik_url": os.getenv("OPIK_URL_OVERRIDE", ""),
                     "opik_project": os.getenv("OPIK_PROJECT_NAME", "open-claude-desktop"),
                     "opik_workspace": os.getenv("OPIK_WORKSPACE", "")}
+# Hook execution bounds (harness P2a).
+HOOK_TIMEOUT_SEC = int(os.getenv("OCD_HOOK_TIMEOUT_SEC", "30"))
+HOOK_TIMEOUT_MAX_SEC = int(os.getenv("OCD_HOOK_TIMEOUT_MAX_SEC", "120"))
+HOOK_OUTPUT_MAX_CHARS = 8000
 OPIK_MODES = ("local", "cloud")
 THEME_CHOICES = ("system", "light", "dark")
 SEARCH_PROVIDERS = ("ddg", "searxng")

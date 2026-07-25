@@ -227,3 +227,18 @@ def test_run_caps_timeout_at_max(monkeypatch, tmp_path):
     _hook_settings(monkeypatch, "SessionStart", f'"{sys.executable}" "{s}"', timeout=99999)
     # must not raise; the cap is applied internally
     assert asyncio.run(hooks.run("SessionStart", {})).decision is None
+
+
+def test_secret_env_filter_covers_dsn_and_cloud_names(monkeypatch):
+    from ocd_core import integrations
+    monkeypatch.setenv("DATABASE_URL", "postgresql://u:LEAKPW@h/db")
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "AKIALEAK")
+    monkeypatch.setenv("PATH_SHOULD_SURVIVE", "keepme")
+    env = integrations._sanitized_child_env()
+    assert "DATABASE_URL" not in env and "AWS_ACCESS_KEY_ID" not in env
+    assert env.get("PATH_SHOULD_SURVIVE") == "keepme"
+    assert "PATH" in env          # runners still resolvable
+
+
+def test_kill_tree_helper_exists():
+    assert callable(hooks._kill_tree)

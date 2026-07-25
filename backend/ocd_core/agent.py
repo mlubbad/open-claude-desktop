@@ -1766,6 +1766,18 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
                 continue
             _hook_forces_ask = _hk_pretool.decision == "ask"
             _hook_allows = _hk_pretool.decision == "allow"
+            # A hook asked for a human, but there is no HITL channel (unattended run:
+            # perm_mode="auto" or no turn_id). "Ask with nobody to ask" must fail CLOSED
+            # — otherwise the tighten signal silently inverts into "proceed" exactly when
+            # nobody is watching (spec §6.7).
+            if _hook_forces_ask and not gate_on:
+                yield {"type": "tool_error", "id": tc.id, "name": name,
+                       "text": "Blocked by hook: approval required but this run is unattended."}
+                blocked_outcomes.append({"id": tc.id, "name": name, "ok": False,
+                    "skip_breaker": True,
+                    "result": ("BLOCKED: a PreToolUse hook required approval, but this run "
+                               "has no interactive approval channel.")})
+                continue
             # Harness workspace rule gate: for a workspace turn, allow/deny/ask rules
             # (workspace_rules + the workspace's .claude/settings.json, merged into
             # ws_ruleset above) and the active permission mode are consulted BEFORE the

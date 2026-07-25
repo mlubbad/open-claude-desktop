@@ -577,3 +577,27 @@ def test_posttooluse_receives_tool_input(monkeypatch, tmp_path):
     asyncio.run(scenario())
     assert got.get("tool_name") == "read_file"
     assert got.get("tool_input", {}).get("path") == "a.txt"
+
+
+def test_hook_ask_fails_closed_when_unattended(monkeypatch, tmp_path):
+    """A hook's 'ask' must BLOCK (not silently run) when there is no HITL channel."""
+    from ocd_core.harness import hooks
+
+    async def _fake_run(event, payload, cwd=None):
+        if event == "PreToolUse":
+            return hooks.HookDecision(decision="ask")
+        return hooks.HookDecision()
+
+    monkeypatch.setattr(hooks, "run", _fake_run)
+    (tmp_path / "a.txt").write_text("old\n")
+    calls = iter([[_FakeToolCall("c1", "read_file", '{"path": "a.txt"}')], []])
+    monkeypatch.setattr(agent, "_stream_llm", _fake_stream_factory(calls))
+
+    async def scenario():   # unattended: auto mode, no turn_id
+        return [ev async for ev in agent.run_turn(
+            "read it", [], None, "m", effort="Low", workspace_root=str(tmp_path),
+            permission_mode="auto")]
+
+    events = asyncio.run(scenario())
+    assert any(e.get("type") == "tool_error" and "unattended" in e.get("text", "").lower()
+               for e in events)

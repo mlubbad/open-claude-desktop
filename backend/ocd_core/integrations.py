@@ -2148,7 +2148,9 @@ def run_python(code: str) -> str:
     return format_execution_result(execute_code(code, None))
 
 
-_SECRET_ENV_RE = re.compile(r"(TOKEN|SECRET|PASSWORD|CREDENTIAL|_KEY$|API[_-]?KEY|OCD_API)", re.I)
+_SECRET_ENV_RE = re.compile(
+    r"(TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|_KEY$|API[_-]?KEY|OCD_API"
+    r"|_URL$|_URI$|_DSN$|_CONNECTION|AWS_|AZURE_|GCP_|GOOGLE_APPLICATION)", re.I)
 
 
 def _sanitized_child_env() -> dict:

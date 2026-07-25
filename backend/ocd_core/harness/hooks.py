@@ -14,8 +14,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import re
 import shlex
+import signal
+import subprocess
+import sys
 import time
 from dataclasses import dataclass
 
@@ -137,6 +141,23 @@ def _timeout_for(hook: dict) -> int:
     return max(1, min(t, config.HOOK_TIMEOUT_MAX_SEC))
 
 
+def _kill_tree(proc) -> None:
+    """Kill a timed-out hook AND its descendants. proc.kill() only reaches the immediate
+    child, so a hook that spawned a detached grandchild would otherwise leave it running."""
+    try:
+        if sys.platform == "win32":
+            subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                           capture_output=True, timeout=10, check=False)
+        else:
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+    except Exception:
+        pass
+    try:
+        proc.kill()          # belt-and-braces; harmless if already dead
+    except (OSError, ProcessLookupError):
+        pass
+
+
 async def _run_one(hook: dict, event: str, payload: dict, cwd: str | None) -> HookDecision:
     """Execute ONE hook. Never raises — every failure becomes a HookDecision."""
     from .. import integrations, observability
@@ -156,15 +177,19 @@ async def _run_one(hook: dict, event: str, payload: dict, cwd: str | None) -> Ho
         proc = await asyncio.create_subprocess_exec(
             *parts, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE, cwd=cwd,
-            env=integrations._sanitized_child_env())
+            env=integrations._sanitized_child_env(),
+            # POSIX: its own session so a timeout can kill the WHOLE process group
+            # (a hook that spawns a detached grandchild otherwise outlives it). No-op
+            # on Windows, where _kill_tree uses `taskkill /T` instead.
+            start_new_session=True)
         raw = json.dumps({"event": event, **payload}).encode("utf-8")
         out_b, err_b = await asyncio.wait_for(proc.communicate(raw), timeout=timeout)
         decision = parse_output(proc.returncode, out_b.decode("utf-8", "replace"),
                                 err_b.decode("utf-8", "replace"), event)
     except TimeoutError:            # asyncio.TimeoutError is an alias of the builtin
         if proc is not None:
+            _kill_tree(proc)
             try:
-                proc.kill()
                 # Reap it: without this the transport is torn down by GC later, which
                 # leaks a dangling pipe/loop reference (the process itself IS killed).
                 await proc.wait()

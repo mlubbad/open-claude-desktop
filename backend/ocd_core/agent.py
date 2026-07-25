@@ -94,6 +94,7 @@ from . import (
     util,
     vision,
 )
+from .harness import hooks as _hooks
 from .llm import LLMConfigError, reasoning_of, resolve_turn_client
 from .llm import catalog as llm_catalog
 
@@ -1346,6 +1347,21 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
                         *user_content[1:]]
     else:
         user_content = f"{stamp}\n\n{user_content}"
+    # Hooks (P2a): UserPromptSubmit may inject context or block the turn outright.
+    _hk = await _hooks.run("UserPromptSubmit",
+                           {"prompt": goal, "turn_id": turn_id or "",
+                            "cwd": workspace_root or ""}, cwd=workspace_root)
+    if _hk.denied:
+        yield {"type": "error", "text": f"Blocked by hook: {_hk.reason}"}
+        yield {"type": "done"}
+        return
+    if _hk.context:
+        if isinstance(user_content, list):
+            user_content = [{"type": "text",
+                             "text": f"{_hk.context}\n\n{user_content[0]['text']}"},
+                            *user_content[1:]]
+        else:
+            user_content = f"{_hk.context}\n\n{user_content}"
     messages = [{"role": "system",
                  "content": prompts.build_system_prompt(
                      extra_sections=extra_sections or None, memory=memory,
@@ -1719,6 +1735,31 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
                         continue
                     egress_policy.registry.approve(active_project, egress_host)
                     domain_gate_prompted = True
+            # Hooks (P2a): PreToolUse must be consulted for EVERY tool call before any
+            # gate can shortcut past it — including the workspace rule gate's own
+            # `allow` branch below (e.g. bypass mode auto-allows read_file, `continue`ing
+            # before a hook placed after it would ever run). Placed here, a hook can
+            # still never LOOSEN a rule-gate deny: that branch's `continue` is
+            # unconditional and never consults `_hook_allows` (see immediately below),
+            # so hook order relative to it cannot matter for that invariant — only a
+            # hook's own `deny` (handled here, immediately) or the final HITL condition
+            # (which folds in `_hook_forces_ask`/`_hook_allows`) are affected by this call.
+            # Reset per tool call: a previous iteration's values must never leak forward.
+            _hook_forces_ask = False
+            _hook_allows = False
+            _hk = await _hooks.run("PreToolUse",
+                                   {"tool_name": name, "tool_input": args,
+                                    "turn_id": turn_id or "",
+                                    "cwd": workspace_root or ""}, cwd=workspace_root)
+            if _hk.denied:
+                yield {"type": "tool_error", "id": tc.id, "name": name,
+                       "text": f"Blocked by hook: {_hk.reason}"}
+                blocked_outcomes.append({"id": tc.id, "name": name, "ok": False,
+                    "skip_breaker": True,
+                    "result": f"BLOCKED by a PreToolUse hook: {_hk.reason}"})
+                continue
+            _hook_forces_ask = _hk.decision == "ask"
+            _hook_allows = _hk.decision == "allow"
             # Harness workspace rule gate: for a workspace turn, allow/deny/ask rules
             # (workspace_rules + the workspace's .claude/settings.json, merged into
             # ws_ruleset above) and the active permission mode are consulted BEFORE the
@@ -1754,7 +1795,9 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
             # HITL: suspend for a user decision before running a sensitive tool. Pass
             # args so a memory *mutation* (create/delete/…) is gated even though the
             # memory tool is otherwise read-only "safe".
-            if gate_on and not domain_gate_prompted and permissions.requires_approval(name, perm_mode, args):
+            if (gate_on and not domain_gate_prompted and not _hook_allows
+                    and (_hook_forces_ask
+                         or permissions.requires_approval(name, perm_mode, args))):
                 yield {"type": "approval_required", "turn_id": turn_id, "id": tc.id,
                        "name": name, "input": _tool_input(name, args)}
                 permissions.registry.describe(

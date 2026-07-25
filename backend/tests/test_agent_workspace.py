@@ -298,3 +298,115 @@ def test_workspace_bash_passes_root_and_allow(monkeypatch, tmp_path):
     assert captured["root"] == str(tmp_path)
     assert captured["allow"] is integrations.WORKSPACE_BASH_ALLOW
     assert captured["timeout"] == config.WORKSPACE_BASH_TIMEOUT_SEC
+
+
+def _fake_stream_factory(calls):
+    async def _fake_stream(llm, model, messages, tools, temperature, max_tokens,
+                           content_scope="answer", fallback_model=None, **_kw):
+        try:
+            tcs = next(calls)
+        except StopIteration:
+            tcs = []
+        if tcs:
+            yield {"__done__": {"content": "", "note": None, "tool_calls": tcs}}
+        else:
+            yield {"type": "delta", "scope": "answer", "text": "done"}
+            yield {"__done__": {"content": "done", "tool_calls": [], "note": None}}
+    return _fake_stream
+
+
+def test_pretooluse_hook_denies_tool(monkeypatch, tmp_path):
+    """A PreToolUse deny blocks the tool and the model sees the reason."""
+    from ocd_core.harness import hooks
+
+    async def _fake_run(event, payload, cwd=None):
+        if event == "PreToolUse":
+            return hooks.HookDecision(decision="deny", reason="blocked by my gate")
+        return hooks.HookDecision()
+
+    monkeypatch.setattr(hooks, "run", _fake_run)
+    (tmp_path / "a.txt").write_text("old\n")
+    calls = iter([[_FakeToolCall("c1", "read_file", '{"path": "a.txt"}')], []])
+    monkeypatch.setattr(agent, "_stream_llm", _fake_stream_factory(calls))
+
+    async def scenario():
+        return [ev async for ev in agent.run_turn(
+            "read it", [], None, "m", effort="Low", workspace_root=str(tmp_path),
+            permission_mode="bypass", turn_id="t1")]
+
+    events = asyncio.run(scenario())
+    assert any(e.get("type") == "tool_error" and "blocked by my gate" in e.get("text", "")
+               for e in events)
+
+
+def test_pretooluse_hook_allow_cannot_override_gate_deny(monkeypatch, tmp_path):
+    """A hook 'allow' must NOT resurrect a tool the rules gate already denied
+    (plan mode denies write_file)."""
+    from ocd_core.harness import hooks
+
+    async def _fake_run(event, payload, cwd=None):
+        return hooks.HookDecision(decision="allow")
+
+    monkeypatch.setattr(hooks, "run", _fake_run)
+    calls = iter([[_FakeToolCall("c1", "write_file", '{"path":"x.txt","content":"y"}')], []])
+    monkeypatch.setattr(agent, "_stream_llm", _fake_stream_factory(calls))
+
+    async def scenario():
+        return [ev async for ev in agent.run_turn(
+            "write it", [], None, "m", effort="Low", workspace_root=str(tmp_path),
+            permission_mode="plan", turn_id="t1")]
+
+    events = asyncio.run(scenario())
+    assert not (tmp_path / "x.txt").exists()          # never ran
+    assert any(e.get("type") == "tool_error" for e in events)
+
+
+def test_userpromptsubmit_context_reaches_model(monkeypatch, tmp_path):
+    from ocd_core.harness import hooks
+    seen = {}
+
+    async def _fake_run(event, payload, cwd=None):
+        if event == "UserPromptSubmit":
+            return hooks.HookDecision(context="REMEMBER-XYZ")
+        return hooks.HookDecision()
+
+    monkeypatch.setattr(hooks, "run", _fake_run)
+
+    async def _fake_stream(llm, model, messages, tools, temperature, max_tokens,
+                           content_scope="answer", fallback_model=None, **_kw):
+        seen["messages"] = messages
+        yield {"type": "delta", "scope": "answer", "text": "ok"}
+        yield {"__done__": {"content": "ok", "tool_calls": [], "note": None}}
+
+    monkeypatch.setattr(agent, "_stream_llm", _fake_stream)
+
+    async def scenario():
+        return [ev async for ev in agent.run_turn("hi", [], None, "m", effort="Low",
+                                                  turn_id="t1")]
+
+    asyncio.run(scenario())
+    assert any("REMEMBER-XYZ" in str(m.get("content", "")) for m in seen["messages"])
+
+
+def test_userpromptsubmit_deny_ends_turn(monkeypatch, tmp_path):
+    from ocd_core.harness import hooks
+
+    async def _fake_run(event, payload, cwd=None):
+        if event == "UserPromptSubmit":
+            return hooks.HookDecision(decision="deny", reason="prompt refused")
+        return hooks.HookDecision()
+
+    monkeypatch.setattr(hooks, "run", _fake_run)
+
+    async def _never(*a, **k):
+        raise AssertionError("the model must not be called when the prompt is blocked")
+        yield {}
+
+    monkeypatch.setattr(agent, "_stream_llm", _never)
+
+    async def scenario():
+        return [ev async for ev in agent.run_turn("hi", [], None, "m", effort="Low",
+                                                  turn_id="t1")]
+
+    events = asyncio.run(scenario())
+    assert any("prompt refused" in str(e.get("text", "")) for e in events)

@@ -1488,29 +1488,84 @@ _FETCH_CACHE: dict = {}
 # + path-jail into no containment at all. Use grep/ls for discovery instead.
 _BASH_ALLOW = {"ls", "cat", "echo", "pwd", "grep", "wc", "head", "tail",
                "type", "dir", "date", "whoami", "sort", "uniq", "cut"}
+# Workspace bash: the read-only base PLUS build/test runners — used ONLY when run_bash
+# gets an explicit `allow` (a workspace turn). find/npx/env are deliberately EXCLUDED
+# (find -delete/-exec; npx runs arbitrary packages; env fronts an interpreter) — a user
+# can add them per-workspace via an `allow` rule. See the workspace-cwd-bash spec.
+WORKSPACE_BASH_ALLOW = _BASH_ALLOW | {
+    "pytest", "python", "python3", "node", "npm", "pnpm", "yarn",
+    "go", "cargo", "make", "tsc", "ruff", "mypy", "eslint", "jest", "vitest",
+    "git", "which", "tox", "poetry", "uv",
+}
+# Per-interpreter inline-eval flags (spaced form). Attached (-cCODE) and =-joined
+# (--eval=CODE) forms are handled by _is_inline_eval_flag. deno/ruby/perl/php are
+# forward-looking (not in WORKSPACE_BASH_ALLOW yet; the guard already covers them).
+_EVAL_FLAGS = {
+    "python": {"-c"}, "python3": {"-c"},
+    "node": {"-e", "--eval", "-p", "--print"}, "deno": {"-e", "--eval", "-p", "--print"},
+    "ruby": {"-e"}, "perl": {"-e"}, "php": {"-r"},
+}
+_INTERPRETERS = frozenset(_EVAL_FLAGS)          # keep the name other code references
+_INLINE_EVAL_FLAGS = {"-c", "-e", "-p", "-r", "--eval", "--print"}  # kept for the constants test
 
 
-def _bash_arg_escapes_jail(tok: str) -> bool:
-    """C2: reject a bash argument that reaches outside the sandbox.
+def _is_inline_eval_flag(name: str, tok: str) -> bool:
+    """True if tok is an inline-eval flag for interpreter ``name`` in ANY form:
+    spaced (-c), attached (-cCODE), =-joined (--eval=CODE), or stdin ('-')."""
+    flags = _EVAL_FLAGS.get(name, set())
+    if tok == "-" or tok in flags:
+        return True
+    for f in flags:
+        if f.startswith("--"):
+            if tok.startswith(f + "="):
+                return True
+        elif len(tok) > 2 and tok.startswith(f) and tok[2] != "-":   # -cCODE / -eCODE
+            return True
+    return False
 
-    The command loop already sets cwd to SANDBOX_ROOT and blocks '..' and shell
-    metacharacters, but ABSOLUTE-path arguments still escaped the jail (e.g.
-    ``cat /etc/passwd`` or ``cat /home/user/app/.env``). Flags (leading '-') are
-    fine. Anything that looks like an absolute POSIX path, a home-relative path,
-    a Windows drive/UNC path, or that resolves outside SANDBOX_ROOT is rejected.
+
+def _interpreter_runs_inline(parts: list) -> bool:
+    """True if an interpreter token in ``parts`` runs inline code or a bare REPL rather
+    than a workspace script / `-m module`. An eval flag counts only if it appears BEFORE
+    any `-m` — anything after `-m <module>` belongs to that module (e.g. `python -m pytest
+    -c cfg` is pytest's -c, not python's), so no per-interpreter value-option list is
+    needed and value-fronted forms (`node --require x.js -e CODE`) can't hide an eval flag."""
+    for i, tok in enumerate(parts):
+        if tok not in _INTERPRETERS:
+            continue
+        rest = parts[i + 1:]
+        if not rest:
+            return True                         # bare REPL
+        for a in rest:
+            if a == "-m":
+                break                           # module takes over; its flags aren't the interpreter's
+            if _is_inline_eval_flag(tok, a):
+                return True                     # eval flag before any -m = the interpreter's own
+    return False
+
+
+def _bash_arg_escapes_jail(tok: str, root: Path | None = None) -> bool:
+    """Reject a bash argument that reaches outside ``root`` (default ``SANDBOX_ROOT``).
+
+    The command loop blocks '..' and shell metacharacters, but ABSOLUTE-path arguments
+    still escape (e.g. ``cat /etc/passwd``). Flags (leading '-') are fine. Anything that
+    looks like an absolute POSIX path, a home-relative path, a Windows drive/UNC path, or
+    that resolves outside ``root`` is rejected.
     """
+    root = root if root is not None else SANDBOX_ROOT
     t = (tok or "").strip()
-    if not t or t.startswith("-"):
-        return False  # empty or a flag — not a path escape
-    # Absolute / home / Windows-absolute / UNC paths never allowed.
+    if not t:
+        return False
+    if t.startswith("-"):
+        # A --flag=value can smuggle a path in its value (git --git-dir=/etc). Inspect it.
+        return _bash_arg_escapes_jail(t.partition("=")[2], root) if "=" in t else False
     if t.startswith(("/", "~", "\\")):
         return True
     if len(t) >= 2 and t[1] == ":" and t[0].isalpha():  # C:\ or C:/
         return True
-    # Relative token: it must resolve to somewhere inside the sandbox root.
     try:
-        target = (SANDBOX_ROOT / t).resolve()
-        target.relative_to(SANDBOX_ROOT.resolve())
+        target = (root / t).resolve()
+        target.relative_to(Path(root).resolve())
         return False
     except Exception:
         return True
@@ -2093,11 +2148,29 @@ def run_python(code: str) -> str:
     return format_execution_result(execute_code(code, None))
 
 
+_SECRET_ENV_RE = re.compile(r"(TOKEN|SECRET|PASSWORD|CREDENTIAL|_KEY$|API[_-]?KEY|OCD_API)", re.I)
+
+
+def _sanitized_child_env() -> dict:
+    """The backend env minus secret-shaped variable NAMES (OCD_API_TOKEN, *_KEY,
+    *_TOKEN, *_SECRET, provider keys) — so a workspace script can't read them."""
+    return {k: v for k, v in os.environ.items() if not _SECRET_ENV_RE.search(k)}
+
+
 # ---- bash (default OFF, allowlisted + cwd-jailed) ---- #
-def run_bash(command: str, restart: bool = False) -> str:
+def run_bash(command: str, restart: bool = False, *,
+             root: Path | None = None, allow: set | None = None,
+             timeout: int | None = None) -> str:
     import shlex
     import subprocess
-    _ensure_dir(SANDBOX_ROOT)
+    active_root = Path(root) if root is not None else SANDBOX_ROOT
+    active_allow = allow if allow is not None else _BASH_ALLOW
+    active_timeout = timeout if timeout is not None else 30
+    if root is not None:
+        if not active_root.is_dir():
+            return f"Rejected: workspace root is not a directory: {active_root}"
+    else:
+        _ensure_dir(active_root)   # SANDBOX_ROOT is create-on-demand (scratch dir)
     if restart:
         return "Bash session restarted."
     command = (command or "").strip()
@@ -2106,27 +2179,37 @@ def run_bash(command: str, restart: bool = False) -> str:
     if any(tok in command for tok in ("&&", "||", "|", ";", "&", ">", "<", "`",
                                       "$(", "${", "..", "\n")):
         return ("Rejected: pipes, redirects, chaining, and path traversal are not "
-                "allowed in the sandbox. Run one simple allowlisted command.")
+                "allowed. Run one simple allowlisted command.")
     try:
         parts = shlex.split(command)
     except Exception:
         return "Rejected: could not parse command."
-    if not parts or parts[0] not in _BASH_ALLOW:
+    if not parts or parts[0] not in active_allow:
         return (f"Rejected: '{parts[0] if parts else ''}' is not allowlisted. Allowed: "
-                + ", ".join(sorted(_BASH_ALLOW)))
-    # C2: no argument may point outside the sandbox (blocks absolute-path reads
-    # like `cat /etc/passwd` that the metacharacter/`..` filter did not catch).
-    escaping = next((a for a in parts[1:] if _bash_arg_escapes_jail(a)), None)
+                + ", ".join(sorted(active_allow)))
+    # Interpreters must run a workspace FILE — never inline code the model wrote
+    # (-c/-e/-p/--eval/--print/stdin) and never a bare REPL. Per-interpreter, position-
+    # aware scan (handles attached -cCODE, =-joined --eval=CODE, and a front like
+    # `uv run python -c`) without misreading a downstream tool's own -c (python -m
+    # pytest -c cfg). Unreachable in non-workspace mode (interpreters aren't in
+    # _BASH_ALLOW), so it's safe to apply unconditionally.
+    if _interpreter_runs_inline(parts):
+        return ("Rejected: an interpreter must run a workspace file, not inline code "
+                "(-c/-e/-p/--eval/--print/stdin) or an interactive REPL. Run e.g. "
+                "`python script.py`.")
+    # No argument may point outside the active root (blocks `cat /etc/passwd` etc.).
+    escaping = next((a for a in parts[1:] if _bash_arg_escapes_jail(a, active_root)), None)
     if escaping is not None:
-        return ("Rejected: argument outside the sandbox is not allowed "
-                f"('{escaping}'). Only paths inside the session workspace are permitted.")
+        return ("Rejected: argument outside the workspace is not allowed "
+                f"('{escaping}'). Only paths inside the working directory are permitted.")
     try:
-        proc = subprocess.run(parts, cwd=str(SANDBOX_ROOT), capture_output=True,
-                              text=True, timeout=30, shell=False)
+        proc = subprocess.run(parts, cwd=str(active_root), capture_output=True,
+                              text=True, timeout=active_timeout, shell=False,
+                              env=_sanitized_child_env() if root is not None else None)
         out = (proc.stdout or "") + (proc.stderr or "")
         return _scrub_secrets(_cap(out, 16000)) or "(no output)"
     except subprocess.TimeoutExpired:
-        return "Timed out after 30s."
+        return f"Timed out after {active_timeout}s."
     except FileNotFoundError:
         return f"Rejected: '{parts[0]}' is not available on this system."
     except Exception as e:

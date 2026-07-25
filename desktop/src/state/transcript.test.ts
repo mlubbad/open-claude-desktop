@@ -518,3 +518,229 @@ describe("image attachments on user turns", () => {
     expect(hist[0]).toEqual({ role: "user", content: "look", kind: "user" });
   });
 });
+
+describe("harness workspace events", () => {
+  it("accumulates tool_call markers alongside the generic tool/tool_result blocks", () => {
+    const s = drive([
+      { type: "tool", id: "c1", name: "read_file", input: "a.txt", label_running: "Reading", label_done: "Read", icon: "file" },
+      { type: "tool_result", id: "c1", name: "read_file", summary: "1 line" },
+      { type: "tool_call", id: "c1", name: "read_file", ok: true },
+    ]);
+    expect(assistant(s).toolCalls).toEqual([{ id: "c1", name: "read_file", ok: true }]);
+    // The generic tool card is untouched — tool_call is additive, not a replacement.
+    const cards = assistant(s).blocks.filter((b) => b.kind === "tool") as ToolCard[];
+    expect(cards).toHaveLength(1);
+    expect(cards[0].status).toBe("done");
+  });
+
+  it("collects multiple tool_call events across a turn, in order", () => {
+    const s = drive([
+      { type: "tool_call", id: "c1", name: "read_file", ok: true },
+      { type: "tool_call", id: "c2", name: "edit_file", ok: true },
+    ]);
+    expect(assistant(s).toolCalls).toEqual([
+      { id: "c1", name: "read_file", ok: true },
+      { id: "c2", name: "edit_file", ok: true },
+    ]);
+  });
+
+  it("collects file_diff events (one per edit_file call)", () => {
+    const s = drive([
+      { type: "file_diff", id: "c1", diff: "-a\n+b" },
+      { type: "file_diff", id: "c2", diff: "-c\n+d" },
+    ]);
+    expect(assistant(s).fileDiffs).toEqual([
+      { id: "c1", diff: "-a\n+b" },
+      { id: "c2", diff: "-c\n+d" },
+    ]);
+  });
+
+  it("plan_update REPLACES the plan rather than appending", () => {
+    const s = drive([
+      { type: "plan_update", items: [{ id: 1, subject: "step one", status: "in_progress" }] },
+      {
+        type: "plan_update",
+        items: [
+          { id: 1, subject: "step one", status: "completed" },
+          { id: 2, subject: "step two", status: "in_progress" },
+        ],
+      },
+    ]);
+    expect(assistant(s).planItems).toEqual([
+      { id: 1, subject: "step one", status: "completed" },
+      { id: 2, subject: "step two", status: "in_progress" },
+    ]);
+  });
+
+  it("records the turn's checkpoint id on the assistant message", () => {
+    const s = drive([{ type: "checkpoint", turn_id: "t1" }]);
+    expect(assistant(s).checkpointTurnId).toBe("t1");
+  });
+
+  it("harness fields survive later non-harness events on the same message (clone-bug regression)", () => {
+    const s = drive([
+      { type: "tool_call", id: "c1", name: "read_file", ok: true },
+      { type: "file_diff", id: "c1", diff: "-a\n+b" },
+      { type: "plan_update", items: [{ id: 1, subject: "step one", status: "pending" }] },
+      { type: "checkpoint", turn_id: "t1" },
+      // A plain answer delta re-clones the tail assistant message -- the harness fields
+      // set above must not be dropped by that clone.
+      { type: "answer_open" },
+      { type: "delta", scope: "answer", text: "done" },
+    ]);
+    const a = assistant(s);
+    expect(a.toolCalls).toEqual([{ id: "c1", name: "read_file", ok: true }]);
+    expect(a.fileDiffs).toEqual([{ id: "c1", diff: "-a\n+b" }]);
+    expect(a.planItems).toEqual([{ id: 1, subject: "step one", status: "pending" }]);
+    expect(a.checkpointTurnId).toBe("t1");
+    expect(answerText(a)).toBe("done");
+  });
+
+  it("sets workspaceDetached from the SSE event", () => {
+    const s = drive([
+      { type: "workspace_detached", workspace_id: "w1", text: "Workspace not found — continuing without folder access." },
+    ]);
+    expect(s.workspaceDetached).toEqual({
+      workspaceId: "w1",
+      text: "Workspace not found — continuing without folder access.",
+    });
+  });
+
+  it("a fresh turn (startTurn) clears a prior workspaceDetached notice", () => {
+    const detached = applyEvent(startTurn(initialState(), "hi"), {
+      type: "workspace_detached",
+      workspace_id: "w1",
+      text: "gone",
+    });
+    expect(detached.workspaceDetached).not.toBeNull();
+    const next = startTurn(detached, "again");
+    expect(next.workspaceDetached).toBeNull();
+  });
+
+  it("retryFrom and editFrom also clear a prior workspaceDetached notice", () => {
+    const detached = applyEvent(startTurn(initialState(), "hi"), {
+      type: "workspace_detached",
+      workspace_id: "w1",
+      text: "gone",
+    });
+    expect(retryFrom(detached, 0).workspaceDetached).toBeNull();
+    expect(editFrom(detached, 0, "edited").workspaceDetached).toBeNull();
+  });
+
+  it("fresh assistant slots from retryFrom/editFrom carry no harness fields", () => {
+    // Guards against accidentally defaulting toolCalls/fileDiffs/etc. to [] on every new
+    // slot -- Message.tsx's rendering is gated on these being present, not empty-vs-unset.
+    const s = retryFrom(startTurn(initialState(), "hi"), 0);
+    expect(assistant(s)).toEqual({ role: "assistant", blocks: [] });
+  });
+});
+
+// Regression (code review): answerQuestionState/resolveApprovalState/restoreApprovalState
+// and mutateArtifact (exercised via artifact_close) each rebuilt the changed assistant
+// message as `{ role: "assistant", blocks }` -- a narrower literal than the message's
+// actual shape once harness fields exist, silently dropping toolCalls/fileDiffs/
+// planItems/checkpointTurnId (and with them, the RewindMenu) on the next unrelated
+// action. Every case below first gives the assistant message harness activity, THEN
+// exercises the helper, and asserts the harness fields are still there afterward.
+describe("harness fields survive other message-mutating helpers (regression)", () => {
+  function withHarnessActivity(events: AgentEvent[]): TranscriptState {
+    return drive([
+      { type: "tool_call", id: "h1", name: "read_file", ok: true },
+      { type: "file_diff", id: "h1", diff: "-a\n+b" },
+      { type: "plan_update", items: [{ id: 1, subject: "step one", status: "pending" }] },
+      { type: "checkpoint", turn_id: "t1" },
+      ...events,
+    ]);
+  }
+
+  function expectHarnessFieldsIntact(s: TranscriptState) {
+    const a = assistant(s);
+    expect(a.toolCalls).toEqual([{ id: "h1", name: "read_file", ok: true }]);
+    expect(a.fileDiffs).toEqual([{ id: "h1", diff: "-a\n+b" }]);
+    expect(a.planItems).toEqual([{ id: 1, subject: "step one", status: "pending" }]);
+    expect(a.checkpointTurnId).toBe("t1");
+  }
+
+  it("answerQuestionState preserves harness fields on the same message", () => {
+    const s = withHarnessActivity([
+      { type: "question", id: "q1", questions: [{ title: "Which file?", options: ["a", "b"] }] },
+    ]);
+    const answered = answerQuestionState(s, "q1");
+    const q = answered.messages
+      .flatMap((m) => (m.role === "assistant" ? m.blocks : []))
+      .find((b) => b.kind === "question");
+    expect(q && q.kind === "question" && q.answered).toBe(true); // the helper did its job
+    expectHarnessFieldsIntact(answered);
+  });
+
+  it("resolveApprovalState preserves harness fields on the same message", () => {
+    const s = withHarnessActivity([
+      { type: "tool", id: "c1", name: "edit_file", input: "a.py", label_running: "Editing", label_done: "Edited", icon: "file" },
+      { type: "approval_required", turn_id: "t1", id: "c1", name: "edit_file", input: "a.py" },
+    ]);
+    expect(s.pendingApproval).not.toBeNull();
+    const resolved = resolveApprovalState(s, "approve", "c1");
+    const tool = assistant(resolved).blocks.find((b) => b.kind === "tool") as ToolCard;
+    expect(tool.status).toBe("running"); // the helper did its job
+    expectHarnessFieldsIntact(resolved);
+  });
+
+  it("restoreApprovalState preserves harness fields on the same message", () => {
+    const s = withHarnessActivity([
+      { type: "tool", id: "c1", name: "edit_file", input: "a.py", label_running: "Editing", label_done: "Edited", icon: "file" },
+    ]);
+    const restored = restoreApprovalState(s, { turnId: "t1", toolCallId: "c1", name: "edit_file", input: "a.py" });
+    const tool = assistant(restored).blocks.find((b) => b.kind === "tool") as ToolCard;
+    expect(tool.status).toBe("awaiting_approval"); // the helper did its job
+    expectHarnessFieldsIntact(restored);
+  });
+
+  it("mutateArtifact (via artifact_close) preserves harness fields on the same message", () => {
+    const s = withHarnessActivity([
+      { type: "artifact_open", id: "a1", title: "demo.py", kind: "code", language: "python" },
+      { type: "artifact_delta", id: "a1", text: "print(1)" },
+      { type: "artifact_close", id: "a1", version: 1 },
+    ]);
+    const doc = findArtifact(s, "a1");
+    expect(doc?.version).toBe(1); // the helper did its job
+    expectHarnessFieldsIntact(s);
+  });
+});
+
+// Code review (Important): rewind must target the workspace a message's turn actually
+// ran under, not whatever happens to be attached when the user later clicks Restore.
+// The fix stamps workspace_id onto the assistant message AT TURN-CREATION time (the SSE
+// stream never carries it — checkpoint only has turn_id), so RewindMenu can key off the
+// message itself instead of a closure over "the current workspace".
+describe("workspaceId is stamped on the assistant message at turn creation", () => {
+  it("startTurn stamps the workspace_id the turn is sent under", () => {
+    const s = startTurn(initialState(), "hi", undefined, "ws-a");
+    expect(assistant(s).workspaceId).toBe("ws-a");
+  });
+
+  it("startTurn omits the key entirely when no workspace is attached", () => {
+    const s = startTurn(initialState(), "hi");
+    expect("workspaceId" in assistant(s)).toBe(false);
+  });
+
+  it("retryFrom stamps the (possibly different) workspace_id of the retry", () => {
+    const s0 = startTurn(initialState(), "hi", undefined, "ws-a");
+    const s1 = retryFrom(s0, 0, "ws-b");
+    expect(assistant(s1).workspaceId).toBe("ws-b");
+  });
+
+  it("editFrom stamps the workspace_id of the edited resend", () => {
+    const s0 = startTurn(initialState(), "hi", undefined, "ws-a");
+    const s1 = editFrom(s0, 0, "hi again", "ws-c");
+    expect(assistant(s1).workspaceId).toBe("ws-c");
+  });
+
+  it("a stamped workspaceId is preserved through the whole turn's events, including the regression-prone helpers", () => {
+    let s = startTurn(initialState(), "hi", undefined, "ws-a");
+    s = applyEvent(s, { type: "checkpoint", turn_id: "t1" });
+    s = applyEvent(s, { type: "question", id: "q1", questions: [{ title: "ok?", options: ["yes"] }] });
+    s = answerQuestionState(s, "q1"); // one of the four previously-buggy helpers
+    expect(assistant(s).workspaceId).toBe("ws-a");
+    expect(assistant(s).checkpointTurnId).toBe("t1");
+  });
+});

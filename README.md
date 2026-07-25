@@ -41,6 +41,37 @@ logic and data; the frontend is a thin client.
 The invariant: `ocd_core` never imports FastAPI or any UI/transport — the CLI, the
 desktop app, and a self-hosted server are all thin frontends over one engine.
 
+## Harness (code workspaces)
+
+Attach a chat to a local folder and the agent becomes a coding agent scoped to that
+folder — a Claude-Code-style **harness** layered on the same engine (`backend/ocd_core/harness/`):
+
+- **File tools** jailed to the workspace: `read_file`, `edit_file` (unique-`old_string`
+  guard), `write_file` (read-before-overwrite), `glob`, `grep` — behind a
+  symlink/junction-safe path jail. These are the coding workhorses.
+- **Run in the folder** — in a workspace, `bash` runs build/test **runners** (`pytest`,
+  `npm test`, `cargo test`, `python script.py`, …) in the attached folder via a curated
+  allowlist. Interpreters run the repo's own script files but inline code (`-c`/`-e`/
+  `--eval`/stdin) and interactive REPLs are blocked, path args can't leave the workspace,
+  and secret-shaped env vars are stripped from the subprocess. Runners prompt by default
+  (`allow` a command to auto-run it); `rm -rf /`-class stays hard-blocked in every mode.
+- **Permission modes** — `default` (prompt), `acceptEdits` (auto-approve jailed edits +
+  safe bash), `plan` (read-only), `strict`, `bypass` — plus `allow`/`deny`/`ask` rules
+  (`bash(git *)`, `edit_file(src/**)`; precedence deny > ask > allow > mode). A
+  workspace's `.claude/settings.json` permission rules are honored. Sensitive built-ins
+  (`code_execution`, etc.) always keep their existing approval prompt; `rm -rf /`-class
+  commands are hard-blocked in every mode. Secret-shaped paths (`.env`, `*.pem`, `id_*`)
+  stay write-gated even in `acceptEdits`.
+- **Checkpoints & rewind** — files are snapshotted before each edit; a per-message rewind
+  restores them (checkpoints are bound to their workspace, so one folder can never
+  restore into another).
+- **Plan card & tool timeline** — a model-driven task plan and per-tool activity/diffs
+  stream into the chat.
+
+Workspace + checkpoint APIs live under `/harness/workspaces`. Execution is on the host
+behind the jail + permission gate (an opt-in container runner is a later phase). Design
+and roadmap: `docs/superpowers/specs/2026-07-20-harness-design.md`.
+
 ## Security posture (local-first)
 
 - **Fail-closed networking.** The backend binds `127.0.0.1` by default and *refuses to

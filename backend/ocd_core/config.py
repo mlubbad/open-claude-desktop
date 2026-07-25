@@ -210,6 +210,10 @@ ALLOW_WRITES = os.getenv("AJ360_ALLOW_WRITES", "false").strip().lower() in ("1",
 PERMISSION_MODE = os.getenv("PERMISSION_MODE", "ask").strip().lower()
 PERMISSION_TIMEOUT_SEC = int(os.getenv("PERMISSION_TIMEOUT_SEC", "300"))
 
+# Timeout for bash run in an attached code workspace (builds/tests exceed the 30s
+# sandbox default). See docs/superpowers/specs/2026-07-21-workspace-cwd-bash-design.md.
+WORKSPACE_BASH_TIMEOUT_SEC = int(os.getenv("OCD_WORKSPACE_BASH_TIMEOUT_SEC", "120"))
+
 # --- capability switches. stdio MCP defaults ON for local-first desktop
 # (Claude Desktop's core local-tool feature; safe because netguard enforces
 # loopback-only binding and gated approval requires user consent). The rest

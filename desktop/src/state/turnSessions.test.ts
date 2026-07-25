@@ -191,6 +191,28 @@ describe("turnSessions — lifecycle", () => {
     expect(store.has("other")).toBe(true);
   });
 
+  it("stamps the workspace_id from the request config onto the new assistant slot (review fix)", () => {
+    // RewindMenu must restore the workspace a message's turn actually ran under, not
+    // whatever's attached when the user later clicks it -- so the id has to be
+    // captured at send time, from the SAME base the request itself carries it in.
+    store.loadInto("seo", "general", []);
+    store.sendActive("go", { ...BASE, workspace_id: "ws-1" });
+    const msgs = store.activeMessages();
+    expect((msgs[1] as AssistantMessage).workspaceId).toBe("ws-1");
+  });
+
+  it("retryActive/editActive stamp the CURRENT workspace_id, which may differ from the original turn's", () => {
+    // PRIOR = [user, assistant]; retryFrom keeps just the user message and appends a
+    // fresh assistant slot, so the new one is at index 1 either way.
+    store.loadInto("seo", "general", PRIOR);
+    store.retryActive({ ...BASE, workspace_id: "ws-2" });
+    expect((store.activeMessages()[1] as AssistantMessage).workspaceId).toBe("ws-2");
+    streams[0].onEvent({ type: "done" } as AgentEvent); // finish, so the session isn't busy
+
+    store.editActive(0, "audit it again", { ...BASE, workspace_id: "ws-3" });
+    expect((store.activeMessages()[1] as AssistantMessage).workspaceId).toBe("ws-3");
+  });
+
   it("a stream failure ends the turn and still reports the partial transcript", () => {
     const ended: { key: string; messages: Message[] }[] = [];
     store.onTurnEnd((s) => ended.push(s));

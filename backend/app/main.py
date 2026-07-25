@@ -38,6 +38,7 @@ from .routes import (  # noqa: E402
     code,
     conversations,
     cowork,
+    harness,
     health,
     integrations,
     knowledge,
@@ -180,3 +181,4 @@ app.include_router(code.router)
 app.include_router(cowork.router)
 app.include_router(scheduler_routes.router)
 app.include_router(workspaces.router)
+app.include_router(harness.router)

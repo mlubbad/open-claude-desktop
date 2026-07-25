@@ -42,7 +42,12 @@ model-written code, so several guards are enforced in code:
 - **Code execution fails shut.** The `code_execution` tool runs only inside a
   container (`docker --network none`); with no container runtime it refuses rather
   than running on the host. `bash` is allowlisted and path-jailed to its sandbox
-  (`python` is not allowlisted). See `backend/tests/test_bash_jail.py`.
+  (`python` is not allowlisted). When a chat is attached to a code **workspace**, `bash`
+  additionally allows curated build/test runners (incl. `python`/`node` on the repo's own
+  script files — inline `-c`/`-e`/REPL blocked, `--flag=<path>` jailed, secret env vars
+  stripped) in the workspace directory, behind the permission-mode gate + the
+  catastrophic-command breaker. This is host execution, not a sandbox. See
+  `backend/tests/test_bash_jail.py`.
 - **SSRF-guarded fetches.** `web_fetch` and REST connectors block private/internal
   hosts and drop custom auth headers on cross-origin redirects.
   See `backend/tests/test_connector_ssrf.py`.

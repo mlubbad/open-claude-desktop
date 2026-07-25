@@ -14,6 +14,7 @@ from ocd_core import (
     projects,
     settings,
     skills,
+    workspace_registry,
 )
 from sse_starlette.sse import EventSourceResponse
 
@@ -49,10 +50,35 @@ async def agent_turn(req: AgentTurnRequest, user: str = Depends(current_user)):
     turn_id = uuid.uuid4().hex
     user_profile = profile.render(settings.get_settings().get("profile") or {})
 
+    # Resolve an attached code workspace (harness tools) once, up front: an unknown/
+    # stale workspace_id degrades to no workspace rather than erroring the turn -- but
+    # that degradation must be VISIBLE (workspace_detached below), not silent, so a
+    # caller who thought they attached a folder isn't left guessing why the model has
+    # no file tools.
+    ws_root = None
+    ws_rules = None
+    ws_attach_failed = False
+    if req.workspace_id:
+        ws = workspace_registry.get(req.workspace_id)
+        if ws:
+            ws_root = ws["root"]
+            # Merge in the registry's protected-path globs so run_turn can generate
+            # ask-rules for them (spec S5: protected paths prompt even in acceptEdits).
+            ws_rules = {**(ws.get("rules") or {}), "protected": ws.get("protected") or []}
+            workspace_registry.touch(req.workspace_id)
+        else:
+            ws_attach_failed = True
+            observability.audit({"event": "workspace_attach_failed", "user": user,
+                                 "workspace_id": req.workspace_id})
+
     async def stream():
         # First frame carries the turn_id so the client can reply to permission prompts
         # (and, later, cancel the turn).
         yield format_event({"type": "turn_start", "turn_id": turn_id})
+        if ws_attach_failed:
+            yield format_event({
+                "type": "workspace_detached", "workspace_id": req.workspace_id,
+                "text": "Workspace not found — continuing without folder access."})
         try:
             # Opik observability (opt-in) taps the event stream without touching it —
             # a no-op pass-through unless opik_enabled is on and the SDK is installed.
@@ -63,7 +89,8 @@ async def agent_turn(req: AgentTurnRequest, user: str = Depends(current_user)):
                     code_exec=o.code_exec, bash=o.bash, text_editor=o.text_editor, memory=o.memory,
                     provider=req.provider, turn_id=turn_id, permission_mode=req.permission_mode,
                     artifacts=o.artifacts, user_profile=user_profile, subagents=o.subagents,
-                    project_memory=proj_mem, images=req.images, style=req.style or "")
+                    project_memory=proj_mem, images=req.images, style=req.style or "",
+                    workspace_root=ws_root, workspace_rules=ws_rules)
             async for ev in opik_tracing.traced(
                     turn, goal=goal, model=req.model, provider=req.provider,
                     effort=req.effort, turn_id=turn_id, tags=["chat"]):

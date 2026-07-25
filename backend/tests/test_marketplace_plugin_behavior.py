@@ -77,3 +77,60 @@ def test_base64_strict_decode_rejects_wrapped_input():
     a deliberate strictness decision recorded in the 2026-07-25 review."""
     out = _plugin("base64_tool").run({"text": "aGVs\nbG8=", "direction": "decode"})
     assert out.startswith("Could not decode:")
+
+
+# ------------------------- F-03: word_count whitespace ------------------------- #
+
+def _counts(text: str) -> str:
+    return _plugin("word_count").run({"text": text})
+
+
+def test_word_count_empty_string():
+    assert _counts("") == ("words: 0\nlines: 0\ncharacters: 0\n"
+                           "characters (no whitespace): 0")
+
+
+def test_word_count_spaces_only():
+    assert _counts("   ") == ("words: 0\nlines: 1\ncharacters: 3\n"
+                              "characters (no whitespace): 0")
+
+
+def test_word_count_lf():
+    assert _counts("a\nb") == ("words: 2\nlines: 2\ncharacters: 3\n"
+                               "characters (no whitespace): 2")
+
+
+def test_word_count_crlf():
+    assert _counts("a\r\nb") == ("words: 2\nlines: 2\ncharacters: 4\n"
+                                 "characters (no whitespace): 2")
+
+
+def test_word_count_bare_cr():
+    assert _counts("a\rb") == ("words: 2\nlines: 2\ncharacters: 3\n"
+                               "characters (no whitespace): 2")
+
+
+def test_word_count_tabs():
+    assert _counts("a\tb") == ("words: 2\nlines: 1\ncharacters: 3\n"
+                               "characters (no whitespace): 2")
+
+
+def test_word_count_non_breaking_space():
+    assert _counts("a b") == ("words: 2\nlines: 1\ncharacters: 3\n"
+                                   "characters (no whitespace): 2")
+
+
+def test_word_count_unicode_whitespace():
+    # EM SPACE (U+2003) and IDEOGRAPHIC SPACE (U+3000) are whitespace too.
+    assert _counts("a b　c") == ("words: 3\nlines: 1\ncharacters: 5\n"
+                                          "characters (no whitespace): 3")
+
+
+def test_word_count_trailing_newline_adds_no_line():
+    assert _counts("line\n") == ("words: 1\nlines: 1\ncharacters: 5\n"
+                                 "characters (no whitespace): 4")
+
+
+def test_word_count_blank_line_between_content():
+    assert _counts("a\n\nb") == ("words: 2\nlines: 3\ncharacters: 4\n"
+                                 "characters (no whitespace): 2")

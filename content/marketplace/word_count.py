@@ -21,8 +21,10 @@ TOOL = {
 def run(args: dict) -> str:
     text = str(args.get("text", ""))
     words = len(text.split())
-    lines = text.count("\n") + 1 if text else 0
+    # splitlines() honors \n, \r\n, \r and Unicode line boundaries; a trailing
+    # terminator does not open an extra empty line.
+    lines = len(text.splitlines())
     chars = len(text)
-    no_spaces = len(text.replace(" ", "").replace("\n", "").replace("\t", ""))
+    no_spaces = sum(1 for c in text if not c.isspace())
     return (f"words: {words}\nlines: {lines}\ncharacters: {chars}\n"
             f"characters (no whitespace): {no_spaces}")

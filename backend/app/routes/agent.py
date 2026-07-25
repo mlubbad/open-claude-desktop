@@ -13,6 +13,7 @@ from ocd_core import (
     profile,
     projects,
     settings,
+    skill_tools,
     skills,
     workspace_registry,
 )
@@ -31,12 +32,22 @@ async def agent_turn(req: AgentTurnRequest, user: str = Depends(current_user)):
         observability.audit({"event": "rate_limited", "user": user, "goal": req.goal[:200]})
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "rate limit exceeded")
 
-    # Scan the skills dir ONCE and reuse it for both resolution and instruction
-    # lookup (previously this parsed every skill file 2-3x per turn).
-    available_skills = skills.list_skills()
-    goal, skill_name, _ = commands.resolve_skill(req.goal, skills_list=available_skills)
-    skill_instr = ((skills.get_skill(skill_name, skills_list=available_skills) or {})
-                   .get("instructions", "") if skill_name else "")
+    # `/skill-builder` is checked BEFORE skill resolution: it authors a skill rather
+    # than running one, and a user who saved a skill whose name starts with
+    # "skill-builder" would otherwise shadow the command.
+    cmd = commands.parse(req.goal)
+    build_skill = cmd.name == "skill_builder"
+    if build_skill:
+        goal = skill_tools.BUILDER_BRIEF + (cmd.arg or
+                                            "Use the conversation so far as the source.")
+        skill_instr = ""
+    else:
+        # Scan the skills dir ONCE and reuse it for both resolution and instruction
+        # lookup (previously this parsed every skill file 2-3x per turn).
+        available_skills = skills.list_skills()
+        goal, skill_name, _ = commands.resolve_skill(req.goal, skills_list=available_skills)
+        skill_instr = ((skills.get_skill(skill_name, skills_list=available_skills) or {})
+                       .get("instructions", "") if skill_name else "")
     proj_instr = projects.get_project_instructions(req.project_id) if req.project_id else ""
     # Project memory is durable per-project context the user (or the agent) saved —
     # stored for a while, but never fed to the model until now (parity P0-4).
@@ -90,7 +101,8 @@ async def agent_turn(req: AgentTurnRequest, user: str = Depends(current_user)):
                     provider=req.provider, turn_id=turn_id, permission_mode=req.permission_mode,
                     artifacts=o.artifacts, user_profile=user_profile, subagents=o.subagents,
                     project_memory=proj_mem, images=req.images, style=req.style or "",
-                    workspace_root=ws_root, workspace_rules=ws_rules)
+                    workspace_root=ws_root, workspace_rules=ws_rules,
+                    skill_builder=build_skill)
             async for ev in opik_tracing.traced(
                     turn, goal=goal, model=req.model, provider=req.provider,
                     effort=req.effort, turn_id=turn_id, tags=["chat"]):

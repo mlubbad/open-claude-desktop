@@ -90,6 +90,7 @@ from . import (
     prompts,
     schema_catalog,
     settings,
+    skill_tools,
     usage,
     util,
     vision,
@@ -773,6 +774,7 @@ TOOL_LABELS = {
     "memory":        ("Updating memory",   "Updated memory",   "brain"),
     "create_artifact": ("Creating artifact", "Created artifact", "file-code"),
     "update_artifact": ("Updating artifact", "Updated artifact", "file-code"),
+    "save_skill":    ("Saving skill",       "Saved skill",      "sparkles"),
     "spawn_subagent": ("Delegating to subagent", "Subagent finished", "users"),
     "exit_plan_mode": ("Preparing plan", "Plan ready for review", "clipboard-list"),
     "authenticate":  ("Signing in connector", "Connector signed in", "key"),
@@ -834,6 +836,8 @@ def _tool_input(name: str, args: dict) -> str:
                 f"{args.get('path') or args.get('old_path', '')}").strip()[:300]
     if name in ("create_artifact", "update_artifact"):
         return (args.get("title") or args.get("id") or "").strip()[:300]
+    if name == "save_skill":
+        return (args.get("name") or "").strip()[:120]
     if name == "spawn_subagent":
         desc = (args.get("description") or "subtask").strip()
         prompt = (args.get("prompt") or "").strip().replace("\n", " ")
@@ -923,6 +927,17 @@ async def _run_one_tool(name, args, tc_id, active_project, goal, top_k,
             return {"id": tc_id, "name": name, "ok": True, "artifact": a,
                     "result": f"Updated artifact '{a['title']}' (id {a['id']}, v{a['version']}).",
                     "summary": f"{a['title']} · v{a['version']}"}
+
+        if name == "save_skill":
+            res = skill_tools.save(args)
+            if not res.get("ok"):
+                return {"id": tc_id, "name": name, "ok": False,
+                        "result": f"ERROR: {res.get('detail', 'could not save the skill')}"}
+            verb = "Saved" if res.get("created") else "Updated"
+            return {"id": tc_id, "name": name, "ok": True, "skill": res["name"],
+                    "result": f"{verb} skill '{res['name']}'. It persists across chats — "
+                              f"the user can run it as /{res['name']}. Tell them so.",
+                    "summary": f"/{res['name']}"}
 
         if name == "search_schema":
             q = args.get("question", goal)
@@ -1257,7 +1272,7 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
                    user_profile: str = "", subagents: bool = False,
                    workspace_root: str | None = None, workspace_rules: dict | None = None,
                    project_memory: str | None = None, images: list[str] | None = None,
-                   style: str = ""):
+                   style: str = "", skill_builder: bool = False):
     """Drive one agent turn, yielding events. `history` is prior (role/content) turns.
 
     `turn_id` + `permission_mode` enable the interactive HITL gate: when set (and the
@@ -1308,6 +1323,8 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
         extra_sections.append(bigquery_tools.system_prompt_section())
     if artifacts:
         extra_sections.append(artifact_tools.system_prompt_section())
+    if skill_builder:
+        extra_sections.append(skill_tools.system_prompt_section())
     if code_exec:
         extra_sections.append(CODE_EXEC_SECTION)
     if workspace_root:
@@ -1361,6 +1378,11 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
         tools.append(PROJECT_KB_TOOL)
     if artifacts:
         tools.extend(artifact_tools.TOOL_SPECS)
+    # Only ever set by the `/skill-builder` command on the user's own message: a saved
+    # skill becomes instructions later turns obey, so it must not be reachable from an
+    # unattended run or from anything a tool result could talk the model into.
+    if skill_builder:
+        tools.extend(skill_tools.TOOL_SPECS)
     artifact_store: dict = {}
     if web_search or research:
         tools.append(WEB_SEARCH_TOOL)

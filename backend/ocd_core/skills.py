@@ -180,6 +180,52 @@ def import_skill(filename: str, content: str) -> dict:
     return {"ok": True, "name": name}
 
 
+def save_skill(name: str, content: str) -> dict:
+    """Create-or-replace a skill authored in-app (the `/skill-builder` path).
+
+    Differs from `import_skill` on purpose: that one always lands a NEW file and
+    uniquifies the stem, which is right for uploads but wrong for authoring — asking
+    the model to "fix the trigger and save again" would leave two files with the same
+    frontmatter `name`, and `resolve_skill` only ever reaches the first. So this is
+    idempotent on ``name``: a re-save rewrites the file the previous save wrote.
+
+    A name already held by a skill this function did not write (bundled, or imported
+    under a different flow) is REFUSED rather than overwritten — the manifest is the
+    only thing that grants write access to a given file.
+    """
+    name = (name or "").strip()
+    if not name:
+        return {"ok": False, "detail": "a skill name is required"}
+    if len(content.encode("utf-8")) > _MAX_IMPORT_BYTES:
+        return {"ok": False, "detail":
+                f"skill is too large (max {_MAX_IMPORT_BYTES // (1024 * 1024)} MB)"}
+    if not _valid_skill(content):
+        return {"ok": False, "detail": "not a valid skill (empty instructions or disabled)"}
+
+    d = _dir()
+    d.mkdir(parents=True, exist_ok=True)
+    root = d.resolve()
+    imported = _load_imported(d)
+    existing = imported.get(name)
+    if existing:
+        path = (root / existing).resolve()
+        if path.parent != root:          # manifest tampering — never write outside the jail
+            return {"ok": False, "detail": "refusing to write outside the skills directory"}
+        created = False
+    else:
+        if any(s["name"] == name for s in list_skills(d)):
+            return {"ok": False, "detail":
+                    f"a skill named '{name}' already exists and was not created here — "
+                    "choose a different name"}
+        path = _unique_path(d, _safe_stem(name), set(imported.values()))
+        created = True
+
+    path.write_text(content, encoding="utf-8")
+    imported[name] = path.name
+    _save_imported(d, imported)
+    return {"ok": True, "name": name, "created": created}
+
+
 def remove_skill(name: str) -> dict:
     """Remove a previously-imported skill (never a bundled one), including any
     supporting assets imported alongside it (references/scripts/…)."""

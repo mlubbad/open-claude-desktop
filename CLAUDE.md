@@ -111,6 +111,29 @@ P0-1 ungated tool. The still-valid parts (prompt file listing, no-path-guessing
 guidance) were ported to the current architecture and extended with the exec
 workspace mirror. Tests: `backend/tests/test_knowledge_visibility.py`.
 
+## Authoring skills in chat (`/skill-builder`)
+
+`create_artifact` can render a skill-shaped *document*, but an artifact is not a skill —
+nothing writes it into `SKILLS_DIR`, so "build me a skill" used to end at a download
+button. `ocd_core/skill_tools.py` closes that: a `save_skill` tool + an authoring
+system-prompt section, wired the same way as `artifact_tools`.
+
+- **Gating (do not relax).** `run_turn(skill_builder=True)` is set ONLY by
+  `app.routes.agent` when `commands.parse` sees `/skill-builder` on the user's own
+  message. A saved skill is instructions that every later turn obeys, so an ambient
+  tool would let injected tool output write a persistent backdoor. Unattended paths
+  (Cowork, scheduler) never pass the flag. Test: `test_skill_builder.py`.
+- The route checks the command **before** `resolve_skill`, so a user-saved skill named
+  `skill-builder` can't shadow the built-in.
+- `skills.save_skill()` is create-or-replace keyed on the skill name and writes only
+  files recorded in the `.imported.json` manifest — re-saving while iterating replaces
+  the file instead of leaving duplicates that shadow each other in `resolve_skill`
+  (which returns the FIRST name match). A name held by a bundled skill is refused.
+- Frontmatter is line-oriented and `triggers` is comma-split, so `skill_tools` flattens
+  newlines/commas out of the single-line fields before writing.
+- Not yet surfaced: `desktop/src/state/slashCommands.ts` suggests *skills* only, so
+  `/skill-builder` doesn't appear in the composer's `/` menu — it works when typed.
+
 ## Workspace tenancy (hosted-SaaS seam)
 
 `ocd_core.tenancy` is the multi-tenant keystone, OFF by default (`OCD_MULTI_TENANT`

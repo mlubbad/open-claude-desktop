@@ -16,8 +16,11 @@ _EXACT_MULTI = {"refresh_catalog": {"/refresh-catalog", "/rebuild-catalog"}}
 #     after .strip()) never matches and falls through to skill matching.
 #   - "/set-instructions", "/learn-finding", "/lint-knowledge" have no trailing
 #     space, so they match both the bare command and "<cmd> <arg>".
+#   - "/skill-builder" likewise, so a bare "/skill-builder" is a valid ask (the model
+#     then works from the conversation so far).
 _PREFIX = {
     "project": "/project ",
+    "skill_builder": "/skill-builder",
     "set_instructions": "/set-instructions",
     "learn_finding": "/learn-finding",
     "lint_knowledge": "/lint-knowledge",

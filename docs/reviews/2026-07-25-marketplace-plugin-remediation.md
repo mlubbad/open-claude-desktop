@@ -34,21 +34,37 @@ deliberately free of `ocd_core` imports so it runs in seconds).
 - color_convert: only a *balanced* `rgb(...)` wrapper is accepted; unbalanced
   forms remain rejected.
 
-## UNRESOLVED RELEASE BLOCKER — packaged marketplace delivery
+## RESOLVED (2026-07-26) — packaged marketplace delivery
 
-Packaged desktop builds still have no delivery path for the bundled catalog:
+Packaged desktop builds previously had no delivery path for the bundled catalog:
 the sidecar's per-user data root starts without `content/marketplace/`, and
 neither `backend/ocd-backend.spec` nor `desktop/src-tauri/tauri.conf.json`
-bundles these assets — in a packaged install the marketplace is empty. Required
-(handoff "release-completeness correction"):
+bundled these assets — in a packaged install the marketplace was empty. The
+handoff's "release-completeness correction" required: (1) ship the catalog as
+immutable bundled assets exposed without copying them into live installed
+state; (2) keep user-installed plugins in the writable per-user `PLUGINS_DIR`;
+(3) an installed-package smoke test.
 
-1. ship the catalog as immutable bundled assets (PyInstaller datas or Tauri
-   resources), exposed without copying them into live installed state;
-2. keep user-installed plugins in the writable per-user `PLUGINS_DIR`;
-3. add an installed-package smoke test: fresh app-data dir → catalog visible,
-   entries uninstalled → install one → run it → uninstall → catalog intact.
+Resolution — **PyInstaller datas**, not Tauri resources: the backend is the
+catalog's only consumer, so the asset ships inside the frozen sidecar itself
+(`backend/ocd-backend.spec` bundles `content/marketplace` → extracted under
+`sys._MEIPASS`; stray `__pycache__` is stripped from datas so a dev-machine
+build never ships stale bytecode). A Tauri resource would have needed the shell
+to compute `resource_dir()` and pass a new env var — any launcher missing it
+(including a standalone run of the frozen sidecar, which `sidecar.py` supports)
+would silently regress to an empty marketplace, and CI can't exercise that path
+without a Rust build. `config._default_marketplace_dir()` resolves
+`MARKETPLACE_DIR` into the bundle when `sys.frozen` is set (the `MARKETPLACE_DIR`
+env override still wins; source/dev checkouts keep the repo-root default). The
+bundle is immutable and outside the data root, so the catalog can never be
+conflated with installed state; installs still only COPY into `PLUGINS_DIR`.
 
-Until then the marketplace catalog works in source/dev checkouts only.
+Tests (`backend/tests/test_marketplace_packaging.py`, 5): the spec keeps
+shipping the catalog at the exact in-bundle path config resolves; frozen
+resolution lands in the bundle, never the data root; dev resolution and the env
+override are pinned; and an installed-package smoke test runs the full
+lifecycle from an empty app-data dir (catalog visible, entries `installed=False`
+→ install one → run it → uninstall → catalog intact, bundle byte-identical).
 
 ## Validation
 

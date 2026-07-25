@@ -29,8 +29,12 @@ def run(args: dict) -> str:
     text = str(args.get("text", ""))
     direction = str(args.get("direction", "encode")).strip().lower()
     try:
+        if direction == "encode":
+            return base64.b64encode(text.encode("utf-8")).decode("ascii")
         if direction == "decode":
+            # Strict on purpose: non-alphabet bytes (including line-wrapped
+            # input) are rejected rather than repaired.
             return base64.b64decode(text.encode("ascii"), validate=True).decode("utf-8")
-        return base64.b64encode(text.encode("utf-8")).decode("ascii")
+        return "Direction must be 'encode' or 'decode'."
     except (binascii.Error, UnicodeDecodeError, ValueError) as e:
         return f"Could not {direction}: {e}"

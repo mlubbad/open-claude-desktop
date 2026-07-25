@@ -60,3 +60,63 @@ def test_matches_bad_regex_is_false_not_raise():
 def test_matches_true_when_no_tool_name():
     # non-tool events (SessionStart/Stop/UserPromptSubmit) ignore the matcher
     assert hooks.matches({"matcher": "bash", "command": "x"}, None) is True
+
+
+# add to backend/tests/test_harness_hooks.py
+def test_parse_json_decision():
+    d = hooks.parse_output(0, '{"permissionDecision":"deny","reason":"nope"}', "", "PreToolUse")
+    assert d.decision == "deny" and d.reason == "nope"
+
+
+def test_parse_json_context_only():
+    d = hooks.parse_output(0, '{"additionalContext":"remember X"}', "", "SessionStart")
+    assert d.decision is None and d.context == "remember X"
+
+
+def test_parse_exit_zero_non_json_is_no_opinion():
+    d = hooks.parse_output(0, "just some log text", "", "PreToolUse")
+    assert d.decision is None and d.context == ""
+
+
+def test_parse_exit_two_is_deny_with_stderr_reason():
+    d = hooks.parse_output(2, "", "policy says no", "PreToolUse")
+    assert d.decision == "deny" and "policy says no" in d.reason
+
+
+def test_parse_other_nonzero_denies_for_blocking_event():
+    d = hooks.parse_output(1, "", "boom", "PreToolUse")
+    assert d.decision == "deny"          # fail CLOSED
+
+
+def test_parse_other_nonzero_is_no_opinion_for_observational_event():
+    d = hooks.parse_output(1, "", "boom", "PostToolUse")
+    assert d.decision is None            # fail OPEN
+
+
+def test_parse_malformed_json_denies_for_blocking_event():
+    d = hooks.parse_output(0, '{"permissionDecision": ', "", "PreToolUse")
+    assert d.decision == "deny"
+
+
+def test_parse_malformed_json_is_no_opinion_for_observational_event():
+    assert hooks.parse_output(0, '{"nope": ', "", "Stop").decision is None
+
+
+def test_parse_unknown_decision_value_denies_for_blocking_event():
+    d = hooks.parse_output(0, '{"permissionDecision":"banana"}', "", "PreToolUse")
+    assert d.decision == "deny"
+
+
+def test_merge_strictest_wins():
+    a = hooks.HookDecision(decision="allow")
+    b = hooks.HookDecision(decision="ask")
+    c = hooks.HookDecision(decision="deny", reason="r")
+    assert hooks.merge([a, b]).decision == "ask"
+    assert hooks.merge([a, b, c]).decision == "deny"
+    assert hooks.merge([a]).decision == "allow"
+    assert hooks.merge([]).decision is None
+
+
+def test_merge_concatenates_context():
+    out = hooks.merge([hooks.HookDecision(context="one"), hooks.HookDecision(context="two")])
+    assert "one" in out.context and "two" in out.context

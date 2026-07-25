@@ -190,3 +190,26 @@ def test_color_unbalanced_wrapper_rejected():
 
 def test_color_malformed_trailing_input_rejected():
     assert _color("30,144,255 junk").startswith("Could not parse color")
+
+
+# ------------------- roman_numeral: regression pins (non-finding) ------------------- #
+# The 2026-07-25 review exhaustively verified this plugin; these tests pin the
+# verified behavior so it stays green.
+
+def test_roman_numeral_round_trips_full_range():
+    mod = _plugin("roman_numeral")
+    for n in range(1, 4000):
+        assert mod._from_roman(mod._to_roman(n)) == n
+
+
+def test_roman_numeral_run_converts_both_ways():
+    mod = _plugin("roman_numeral")
+    assert mod.run({"value": "1994"}) == "1994 = MCMXCIV"
+    assert mod.run({"value": "mcmxciv"}) == "MCMXCIV = 1994"
+
+
+def test_roman_numeral_rejects_malformed_and_out_of_range():
+    mod = _plugin("roman_numeral")
+    assert mod.run({"value": "IIII"}).startswith("Could not convert")
+    assert mod.run({"value": "0"}).startswith("Could not convert")
+    assert mod.run({"value": "4000"}).startswith("Could not convert")

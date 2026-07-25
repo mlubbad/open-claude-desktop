@@ -512,3 +512,68 @@ def test_stop_hook_fires_once_at_end(monkeypatch):
 
     asyncio.run(scenario())
     assert fired == ["Stop"]
+
+
+def test_posttooluse_context_lands_after_tool_replies(monkeypatch, tmp_path):
+    """A PostToolUse additionalContext must NOT sit between an assistant's tool_calls
+    and its tool replies — that sequence is invalid for real providers."""
+    from ocd_core.harness import hooks
+    seen = {}
+
+    async def _fake_run(event, payload, cwd=None):
+        if event == "PostToolUse":
+            return hooks.HookDecision(context="POST-CTX-1")
+        return hooks.HookDecision()
+
+    monkeypatch.setattr(hooks, "run", _fake_run)
+    (tmp_path / "a.txt").write_text("hello\n")
+    calls = iter([[_FakeToolCall("c1", "read_file", '{"path": "a.txt"}')], []])
+    inner = _fake_stream_factory(calls)
+
+    async def _spy(llm, model, messages, tools, temperature, max_tokens,
+                   content_scope="answer", fallback_model=None, **_kw):
+        seen.setdefault("rounds", []).append([dict(m) for m in messages])
+        async for ev in inner(llm, model, messages, tools, temperature, max_tokens,
+                              content_scope=content_scope, fallback_model=fallback_model):
+            yield ev
+
+    monkeypatch.setattr(agent, "_stream_llm", _spy)
+
+    async def scenario():
+        return [ev async for ev in agent.run_turn(
+            "read it", [], None, "m", effort="Low", workspace_root=str(tmp_path),
+            permission_mode="bypass", turn_id="t1")]
+
+    asyncio.run(scenario())
+    msgs = seen["rounds"][-1]                      # the round AFTER the tool ran
+    roles = [m.get("role") for m in msgs]
+    assert "POST-CTX-1" in str(msgs)               # the context did reach the model
+    # every tool reply must come before any hook-injected user message
+    last_tool = max(i for i, r in enumerate(roles) if r == "tool")
+    hook_idx = next(i for i, m in enumerate(msgs)
+                    if m.get("role") == "user" and "POST-CTX-1" in str(m.get("content")))
+    assert hook_idx > last_tool
+
+
+def test_posttooluse_receives_tool_input(monkeypatch, tmp_path):
+    from ocd_core.harness import hooks
+    got = {}
+
+    async def _fake_run(event, payload, cwd=None):
+        if event == "PostToolUse":
+            got.update(payload)
+        return hooks.HookDecision()
+
+    monkeypatch.setattr(hooks, "run", _fake_run)
+    (tmp_path / "a.txt").write_text("hello\n")
+    calls = iter([[_FakeToolCall("c1", "read_file", '{"path": "a.txt"}')], []])
+    monkeypatch.setattr(agent, "_stream_llm", _fake_stream_factory(calls))
+
+    async def scenario():
+        return [ev async for ev in agent.run_turn(
+            "read it", [], None, "m", effort="Low", workspace_root=str(tmp_path),
+            permission_mode="bypass", turn_id="t1")]
+
+    asyncio.run(scenario())
+    assert got.get("tool_name") == "read_file"
+    assert got.get("tool_input", {}).get("path") == "a.txt"

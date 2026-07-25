@@ -86,6 +86,11 @@ def test_parse_exit_two_is_deny_with_stderr_reason():
     assert d.decision == "deny" and "policy says no" in d.reason
 
 
+def test_exit_two_is_open_for_observational_event():
+    assert hooks.parse_output(2, "", "reason", "PostToolUse").decision is None
+    assert hooks.parse_output(2, "", "reason", "PreToolUse").decision == "deny"
+
+
 def test_parse_other_nonzero_denies_for_blocking_event():
     d = hooks.parse_output(1, "", "boom", "PreToolUse")
     assert d.decision == "deny"          # fail CLOSED

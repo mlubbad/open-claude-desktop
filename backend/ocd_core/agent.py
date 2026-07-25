@@ -1354,20 +1354,20 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
     else:
         user_content = f"{stamp}\n\n{user_content}"
     # Hooks (P2a): UserPromptSubmit may inject context or block the turn outright.
-    _hk = await _hooks.run("UserPromptSubmit",
-                           {"prompt": goal, "turn_id": turn_id or "",
-                            "cwd": workspace_root or ""}, cwd=workspace_root)
-    if _hk.denied:
-        yield {"type": "error", "text": f"Blocked by hook: {_hk.reason}"}
+    _hk_prompt = await _hooks.run("UserPromptSubmit",
+                                  {"prompt": goal, "turn_id": turn_id or "",
+                                   "cwd": workspace_root or ""}, cwd=workspace_root)
+    if _hk_prompt.denied:
+        yield {"type": "error", "text": f"Blocked by hook: {_hk_prompt.reason}"}
         yield {"type": "done"}
         return
-    if _hk.context:
+    if _hk_prompt.context:
         if isinstance(user_content, list):
             user_content = [{"type": "text",
-                             "text": f"{_hk.context}\n\n{user_content[0]['text']}"},
+                             "text": f"{_hk_prompt.context}\n\n{user_content[0]['text']}"},
                             *user_content[1:]]
         else:
-            user_content = f"{_hk.context}\n\n{user_content}"
+            user_content = f"{_hk_prompt.context}\n\n{user_content}"
     messages = [{"role": "system",
                  "content": prompts.build_system_prompt(
                      extra_sections=extra_sections or None, memory=memory,
@@ -1753,19 +1753,19 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
             # Reset per tool call: a previous iteration's values must never leak forward.
             _hook_forces_ask = False
             _hook_allows = False
-            _hk = await _hooks.run("PreToolUse",
-                                   {"tool_name": name, "tool_input": args,
-                                    "turn_id": turn_id or "",
-                                    "cwd": workspace_root or ""}, cwd=workspace_root)
-            if _hk.denied:
+            _hk_pretool = await _hooks.run("PreToolUse",
+                                           {"tool_name": name, "tool_input": args,
+                                            "turn_id": turn_id or "",
+                                            "cwd": workspace_root or ""}, cwd=workspace_root)
+            if _hk_pretool.denied:
                 yield {"type": "tool_error", "id": tc.id, "name": name,
-                       "text": f"Blocked by hook: {_hk.reason}"}
+                       "text": f"Blocked by hook: {_hk_pretool.reason}"}
                 blocked_outcomes.append({"id": tc.id, "name": name, "ok": False,
                     "skip_breaker": True,
-                    "result": f"BLOCKED by a PreToolUse hook: {_hk.reason}"})
+                    "result": f"BLOCKED by a PreToolUse hook: {_hk_pretool.reason}"})
                 continue
-            _hook_forces_ask = _hk.decision == "ask"
-            _hook_allows = _hk.decision == "allow"
+            _hook_forces_ask = _hk_pretool.decision == "ask"
+            _hook_allows = _hk_pretool.decision == "allow"
             # Harness workspace rule gate: for a workspace turn, allow/deny/ask rules
             # (workspace_rules + the workspace's .claude/settings.json, merged into
             # ws_ruleset above) and the active permission mode are consulted BEFORE the
@@ -1777,7 +1777,8 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
             # code_execution/authenticate/memory (CRITICAL — found in review), and let
             # "plan" mode hard-deny safe non-file tools like web_search. 'deny' blocks
             # the call outright (a mode/rule decision, not a fixable failure); 'allow'
-            # runs it immediately, skipping the HITL prompt below entirely; 'ask'
+            # runs it immediately, skipping the HITL prompt below entirely (unless a
+            # PreToolUse hook forced `ask` — see below); 'ask'
             # changes nothing — it falls through to the existing gate, which decides
             # using its own sensitivity list. Every other tool name is untouched by
             # this block and goes straight to the existing HITL gate, exactly as
@@ -1828,6 +1829,13 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
 
         streamed = done.get("streamed_artifacts") or set()
         outcomes = []
+        # PostToolUse (P2a): args for the real tool_input payload, and a buffer for
+        # additionalContext — collected per tool but appended as ONE user message
+        # after every tool reply below (never interleaved between an assistant's
+        # tool_calls and its replies, which is an invalid sequence for both the
+        # OpenAI-compatible and Anthropic-native providers).
+        _args_by_id = {c[0]: c[2] for c in calls}
+        _hook_post_ctx: list[str] = []
         if calls:
             loop = asyncio.get_running_loop()
             # Interim UI events (live code_execution output) flow through this queue;
@@ -1865,13 +1873,13 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
                             yield ev
                         _hk_post = await _hooks.run(
                             "PostToolUse",
-                            {"tool_name": out.get("name"), "tool_input": {},
+                            {"tool_name": out.get("name"),
+                             "tool_input": _args_by_id.get(out["id"], {}),
                              "tool_response": str(out.get("result", ""))[:2000],
                              "turn_id": turn_id or "", "cwd": workspace_root or ""},
                             cwd=workspace_root)
                         if _hk_post.context:
-                            messages.append({"role": "user",
-                                             "content": _hk_post.context})
+                            _hook_post_ctx.append(_hk_post.context)
                         # A checkpoint is the file's pre-mutation restore point, already
                         # captured by snapshot_before_edit inside _run_one_tool; the event
                         # just tells the UI a rewind point now exists for this turn. The id
@@ -1908,6 +1916,12 @@ async def run_turn(goal: str, history: list[dict], active_project: str | None,
                     elif n >= 3:
                         result += _REPEAT_FAIL_STOP.format(n=n, name=out["name"])
             messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
+        # PostToolUse hook context lands AFTER every tool reply: a user message
+        # between an assistant's tool_calls and its tool results is an invalid
+        # sequence for OpenAI-compatible and Anthropic-native providers alike.
+        if _hook_post_ctx:
+            messages.append({"role": "user", "content": "\n".join(_hook_post_ctx)})
+            _hook_post_ctx = []
         # Landing gear: tell the model the budget is nearly spent so it converges
         # instead of being cut off mid-gathering. <= plus the flag (not ==) so a
         # blank-answer round at the threshold can't silently skip the warning.

@@ -87,13 +87,15 @@ def parse_output(code: int, stdout: str, stderr: str, event: str) -> HookDecisio
     """Turn one hook's exit code + streams into a decision.
 
     exit 0 + JSON  -> that decision/context;  exit 0 + non-JSON -> no opinion
-    exit 2         -> deny (stderr is the reason)
+    exit 2         -> deny for a blocking event (stderr is the reason), else no opinion
     other non-zero -> deny for a blocking event, else no opinion
     """
     out = (stdout or "").strip()[:config.HOOK_OUTPUT_MAX_CHARS]
     err = (stderr or "").strip()[:config.HOOK_OUTPUT_MAX_CHARS]
     if code == 2:
-        return HookDecision(decision="deny", reason=err or "hook exited 2 (blocked)")
+        if event in BLOCKING_EVENTS:
+            return HookDecision(decision="deny", reason=err or "hook exited 2 (blocked)")
+        return HookDecision(reason=err or "hook exited 2")
     if code != 0:
         return _fail(event, f"hook failed (exit {code}): {err or 'no stderr'}")
     if not out.startswith("{"):

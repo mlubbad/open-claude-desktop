@@ -10,7 +10,9 @@
 
 > **Why VersoWork?** In bookmaking, *recto and verso* are the two facing pages of a folio: **conversational reasoning on the left, live interactive Artifacts and your local code repository on the right**, turning freely across **15+ cloud and local model providers** with your keys stored in your OS keychain and your data on your own machine.
 
-![VersoWork Native Desktop Workspace](docs/assets/versowork-workspace.png)
+![VersoWork Live Launch Demo](docs/assets/versowork-demo.gif)
+
+![VersoWork Split-Pane Artifact Workspace](docs/assets/versowork-workspace.png)
 
 ---
 

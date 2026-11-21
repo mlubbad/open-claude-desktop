@@ -1,0 +1,84 @@
+# ───────────────────────────────────────────────────────────────────
+#  Secrets & credentials — DENY BY DEFAULT. Never commit real secrets.
+# ───────────────────────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+
+# GCP service-account keys
+*-service-account*.json
+*-service-account*.json
+*serviceaccount*.json
+*-sa-*.json
+*.key
+*.pem
+*.p12
+*credentials*.json
+# EncryptedFileStore fallback (ocd_core.secrets) — the local secret store itself
+runtime/
+
+# ── Virtualenvs ────────────────────────────────────────────────────
+venv/
+venv312/
+.venv/
+
+# ── Local data stores / caches / logs / sandboxes ──────────────────
+logs/
+chroma_db/
+kuzu_db
+kuzu_db.wal
+_sandbox/
+agent_memory/
+# harness per-turn file checkpoints (ocd_core.harness.checkpoints), keyed by turn id
+checkpoints/
+__pycache__/
+*.pyc
+*.pyo
+reflex_*.log
+reflex_*.err
+
+# ── Proprietary / runtime DATA — do NOT version (was publicly exposed 2026-06-26) ──
+# Chat transcripts, uploaded files, dataset dumps, project workspaces.
+projects/
+# migration backups written by ocd_core.db.migrate
+projects.backup-*/
+.files/
+knowledge/
+extensions/
+local-notes.md
+local-notes-*.md
+*.csv
+
+# NOTE: non-secret APP config (settings.json, package.json, reflex configs) is
+# intentionally NOT ignored — only secret-shaped files are. Connector registries are
+# USER state though: tracking them shipped pre-defined connectors ("Demo Connector",
+# "GitHub API") to every install, so they are local-only now.
+mcp_servers.json
+connectors.json
+
+# Playwright MCP scratch (browser smoke tests)
+.playwright-mcp/
+
+# Reflex app is NOT a Chainlit app — keep its stray .chainlit/ scaffold out
+frontend/.chainlit/
+
+# Python build / tool caches
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Stray root node_modules (created if a tool runs from repo root)
+node_modules/
+
+# Local-first SQLite database (default DATABASE_URL)
+ocd.db
+cowork_tasks.json
+schedules.json
+ocd.db-journal
+ocd.db-wal
+ocd.db-shm
+# pre-migration snapshot written by engine.backup_sqlite_before_migration()
+ocd.db.pre-migration.bak

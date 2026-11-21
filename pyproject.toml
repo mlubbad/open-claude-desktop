@@ -1,0 +1,24 @@
+# Workspace-level tooling config (ruff + mypy) shared by pre-commit and CI.
+# The installable code lives in per-service packages:
+#   backend/  -> ocd-backend  (FastAPI + ocd_core domain)   see backend/pyproject.toml
+#   frontend/ -> Reflex app (transitional; React/Tauri client lands in Phase 3)
+# There is no root package to build and no root test suite — each service owns
+# its own tests (backend/tests, frontend/tests).
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = ["venv", "venv312", ".web", "frontend/.web", "node_modules", "reflex.lock"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+ignore = [
+  "E501",  # long lines tolerated in inline SQL / prompt strings
+  "B008",  # FastAPI Depends() pattern: call in default arg is intentional
+]
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+warn_unused_ignores = true
+exclude = ["venv/", "venv312/", "\\.web/", "node_modules/"]

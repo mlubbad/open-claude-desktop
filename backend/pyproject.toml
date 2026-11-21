@@ -1,0 +1,71 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "versowork-backend"
+version = "0.3.0"
+requires-python = ">=3.12"
+license = "MIT"
+dependencies = [
+  # Phase 1: a single OpenAI-compatible client drives every provider (OpenAI,
+  # Zhipu/GLM, DeepSeek, Qwen, OpenRouter, Ollama, vLLM, …). This replaces the
+  # hard-coded zhipuai SDK and removes its pyjwt<2.9 conflict with mcp.
+  "openai>=1.60.0,<3.0.0",
+  # The one exception: Claude goes through the NATIVE Messages API adapter
+  # (ocd_core.llm.anthropic_native) for prompt caching + extended thinking.
+  "anthropic>=0.117.0,<1.0.0",
+  "google-cloud-bigquery",
+  "google-auth",
+  "chromadb",
+  "pandas",
+  "pdfplumber",
+  # mcp.client.auth (OAuthClientProvider) is used by ocd_core.mcp_oauth and only
+  # exists in recent mcp — the venv's old 1.8.1 broke test collection. Verified on
+  # 1.28.1. NOTE: the incidental `markitdown-mcp` alpha pins mcp~=1.8 and must be
+  # dropped or updated, or it will refuse this floor.
+  "mcp>=1.28.0,<2.0.0",
+  "python-dotenv",
+  "sqlmodel",
+  "alembic",
+  "psycopg[binary]",
+  "fastapi",
+  "uvicorn",
+  "sse-starlette",
+  "httpx",
+  "python-multipart",
+  # C3: secrets go to the OS keychain (keyring) with an encrypted-file fallback
+  # (cryptography/Fernet) for headless installs. Never plaintext in tracked files.
+  "keyring",
+  "cryptography",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "ruff", "mypy", "respx"]
+# Opt-in Opik observability + evaluation (free/open-source, self-hostable:
+# https://github.com/comet-ml/opik). The app runs fine without it — the tracing
+# tap in ocd_core.opik_tracing no-ops when the package is absent.
+observability = ["opik"]
+
+# File-creation libraries for the LOCAL code-execution engine (the Docker engine
+# bakes these into backend/sandbox/Dockerfile instead). Opt in so "make me an
+# xlsx/docx/pptx/pdf" works when code runs on this device:
+#   pip install -e "./backend[files]"
+files = ["pandas", "numpy", "matplotlib", "openpyxl", "python-docx", "python-pptx",
+         "reportlab", "Pillow"]
+
+# The terminal client. Same engine (ocd_core) as the desktop app — no duplicate
+# agent logic — exposed as the `ocd` command.
+[project.scripts]
+verso = "ocd_cli.cli:main"
+ocd = "ocd_cli.cli:main"
+
+[tool.setuptools]
+# Flat package: all ocd_core/*.py modules (config, integrations, agent, …) ship
+# under this one entry. A future cleanup may split integrations into a subpackage.
+packages = ["ocd_core", "ocd_core.db", "ocd_core.llm", "ocd_core.harness", "app", "app.routes", "ocd_cli"]
+package-dir = {"" = "."}
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

@@ -1,0 +1,53 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "VersoWork",
+  "version": "0.1.0",
+  "identifier": "dev.versowork.app",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:1420",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "VersoWork",
+        "width": 1100,
+        "height": 780,
+        "minWidth": 720,
+        "minHeight": 500
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://esm.sh; connect-src 'self' http://127.0.0.1:18410 ws://127.0.0.1:18410 http://localhost:18410 ws://localhost:18410 http://127.0.0.1:8000 ws://127.0.0.1:8000; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; font-src 'self' data: https:"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "createUpdaterArtifacts": true,
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "externalBin": [
+      "binaries/ocd-backend",
+      "binaries/ocd-node"
+    ],
+    "resources": []
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/mlubbad/versowork/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDI5QTNBMkE2MjdBOUY2RTYKUldUbTlxa25wcUtqS2ZXMmVCaXVNNTUxN0tGNXkrMTNEa1NlQXUyekVnWU92b24xMUU0OHBZVkoK"
+    }
+  }
+}

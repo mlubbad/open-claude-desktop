@@ -1,0 +1,34 @@
+name: Bug Report
+description: Report a reproducible bug in the desktop app, backend, harness, or MCP connectors
+labels: ["bug", "triage"]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Clear description of the bug and what you expected instead.
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating System
+      options:
+        - macOS (Apple Silicon)
+        - macOS (Intel)
+        - Linux (Ubuntu / Debian / Arch / Fedora)
+        - Windows 11 / 10
+    validations:
+      required: true
+  - type: input
+    id: provider
+    attributes:
+      label: LLM Provider & Model
+      placeholder: "e.g. ollama / qwen2.5-coder:32b or anthropic / claude-sonnet-5"
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to Reproduce & Logs
+      render: shell
+    validations:
+      required: true

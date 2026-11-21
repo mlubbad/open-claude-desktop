@@ -1,0 +1,17 @@
+name: Feature / Provider / MCP Proposal
+description: Suggest a new capability, LLM provider preset, or workflow improvement
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or Workflow Need
+      description: What workflow is currently blocked or awkward?
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+    validations:
+      required: true

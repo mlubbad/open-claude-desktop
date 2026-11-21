@@ -1,0 +1,8 @@
+# Security-critical surfaces require explicit maintainer review.
+/backend/ocd_core/sql_guard.py       @mlubbad
+/backend/ocd_core/auth.py            @mlubbad
+/backend/ocd_core/netguard.py        @mlubbad
+/backend/ocd_core/launchguard.py     @mlubbad
+/backend/ocd_core/harness/           @mlubbad
+/.github/workflows/                  @mlubbad
+/.gitleaks.toml                      @mlubbad

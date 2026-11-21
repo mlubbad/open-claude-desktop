@@ -1,0 +1,123 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install backend (+ dev)
+        run: pip install -e ./backend[dev]
+      - name: Run backend tests
+        # Run from the repo root; tests import the installed package as `app` /
+        # `ocd_core` (the editable install exposes those top-level, not `backend`).
+        run: pytest backend/tests
+
+  packaging:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Verify non-editable wheel packages all submodules
+        run: |
+          python -m pip install --upgrade pip build
+          python -m pip wheel ./backend --no-deps -w /tmp/ocd-wheel
+          python -c '
+          import glob, zipfile
+          whls = glob.glob("/tmp/ocd-wheel/*.whl")
+          assert len(whls) == 1, whls
+          names = set(zipfile.ZipFile(whls[0]).namelist())
+          for req in ("ocd_core/agent.py", "ocd_core/harness/__init__.py", "ocd_core/harness/hooks.py", "ocd_core/skill_tools.py", "app/main.py", "ocd_cli/cli.py"):
+              assert req in names, f"Missing {req} from built wheel!"
+          print("Wheel verified:", len(names), "entries")
+          '
+
+  desktop:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - name: Install client deps
+        working-directory: desktop
+        run: npm ci
+      - name: Typecheck + test + build
+        working-directory: desktop
+        run: |
+          npm run typecheck
+          npm run test
+          npm run build
+
+  shell:
+    # Compile-check the Tauri desktop shell (Rust). The shell was previously
+    # uncovered by CI, so a broken lib.rs (e.g. the sidecar spawn / API-token
+    # wiring) was only caught by a local `cargo check`. This is NOT a full
+    # `tauri build`: `cargo check` validates the Rust + tauri.conf without
+    # freezing the backend, so it stays fast. Stub sidecars and a placeholder
+    # dist satisfy tauri-build's externalBin / frontendDist existence checks.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Linux WebView deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libsoup-3.0-dev \
+            build-essential curl wget file libxdo-dev libssl-dev \
+            libayatana-appindicator3-dev librsvg2-dev
+      - name: Stage stub sidecars + frontend dist
+        run: |
+          triple=x86_64-unknown-linux-gnu
+          printf '#!/bin/sh\n' > desktop/src-tauri/binaries/ocd-backend-$triple
+          printf '#!/bin/sh\n' > desktop/src-tauri/binaries/ocd-node-$triple
+          chmod +x desktop/src-tauri/binaries/ocd-backend-$triple \
+                   desktop/src-tauri/binaries/ocd-node-$triple
+          mkdir -p desktop/dist
+          echo '<!doctype html><title>stub</title>' > desktop/dist/index.html
+      - name: cargo check
+        working-directory: desktop/src-tauri
+        run: cargo check --locked
+
+  lint:
+    runs-on: ubuntu-latest
+    # Blocking: the repo is ruff-clean (lint debt burned down 2026-07-03).
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      # Pinned: a new ruff release must not redden a previously green tree.
+      # Bump the pin deliberately (and fix new findings in the same PR).
+      - run: pip install ruff==0.15.22
+      - run: ruff check . --output-format=github
+
+  secrets:
+    runs-on: ubuntu-latest
+    # gitleaks-action fetches the PR's commit list to scan the PR range, so the job
+    # token needs read access to contents + pull requests (else GitHub returns 403).
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Scan for committed secrets
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

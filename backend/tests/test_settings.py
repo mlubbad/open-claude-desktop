@@ -78,3 +78,15 @@ def test_invalid_effort_clamps_to_high(monkeypatch, tmp_path):
     importlib.reload(s)
     c.SETTINGS_FILE.write_text('{"effort": "Bogus"}', encoding="utf-8")
     assert s.get_settings()["effort"] == "High"
+
+
+def test_liquid_glass_themes_roundtrip(monkeypatch, tmp_path):
+    monkeypatch.setenv("OCD_DATA_DIR", str(tmp_path))
+    import ocd_core.config as c
+    import ocd_core.settings as s
+    importlib.reload(c)
+    importlib.reload(s)
+    for choice in ("glass", "glass-dark"):
+        saved = s.save_settings({"theme": choice})
+        assert saved["theme"] == choice
+        assert s.get_settings()["theme"] == choice

@@ -46,6 +46,10 @@ describe("GeneralPage", () => {
     await waitFor(() => expect(screen.getByLabelText("Full name")).toBeInTheDocument());
     fireEvent.click(screen.getByTitle("Dark"));
     expect(setTheme).toHaveBeenCalledWith("dark");
+    fireEvent.click(screen.getByTitle("Liquid Glass"));
+    expect(setTheme).toHaveBeenCalledWith("glass");
+    fireEvent.click(screen.getByTitle("Liquid Glass Dark"));
+    expect(setTheme).toHaveBeenCalledWith("glass-dark");
   });
 
   it("chat font select persists via uiPrefs onto <html> and applies the font", async () => {

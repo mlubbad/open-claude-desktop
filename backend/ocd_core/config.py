@@ -179,7 +179,7 @@ HOOK_TIMEOUT_SEC = int(os.getenv("OCD_HOOK_TIMEOUT_SEC", "30"))
 HOOK_TIMEOUT_MAX_SEC = int(os.getenv("OCD_HOOK_TIMEOUT_MAX_SEC", "120"))
 HOOK_OUTPUT_MAX_CHARS = 8000
 OPIK_MODES = ("local", "cloud")
-THEME_CHOICES = ("system", "light", "dark")
+THEME_CHOICES = ("system", "light", "dark", "glass", "glass-dark")
 SEARCH_PROVIDERS = ("ddg", "searxng")
 CODE_EXECUTION_MODES = ("auto", "docker", "local", "off")
 # User-selectable HITL autonomy levels (plan mode is a separate per-turn toggle).

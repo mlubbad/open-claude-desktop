@@ -11,6 +11,8 @@ export type IconName =
   | "sun"
   | "moon"
   | "half"
+  | "glass"
+  | "glass-dark"
   | "download"
   | "clock"
   | "folder"
@@ -69,6 +71,19 @@ const PATHS: Record<IconName, React.ReactNode> = {
     <>
       <circle cx="8" cy="8" r="5.5" />
       <path d="M8 2.5a5.5 5.5 0 0 1 0 11z" fill="currentColor" stroke="none" />
+    </>
+  ),
+  glass: (
+    <>
+      <rect x="2.5" y="2.5" width="11" height="11" rx="3.2" />
+      <path d="M5.2 6.2l1.8-1.6M5.2 9.4l4.2-4.2" />
+      <circle cx="10.8" cy="10.6" r="0.9" fill="currentColor" stroke="none" />
+    </>
+  ),
+  "glass-dark": (
+    <>
+      <rect x="2.5" y="2.5" width="11" height="11" rx="3.2" />
+      <path d="M9.8 5.2a3 3 0 1 0 1.2 5.4A3.1 3.1 0 0 1 9.8 5.2z" fill="currentColor" stroke="none" />
     </>
   ),
   download: <path d="M8 2.5v7M4.8 6.8L8 10l3.2-3.2M3 13h10" />,

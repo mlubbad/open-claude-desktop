@@ -140,4 +140,13 @@ describe("styles.css app-shell scroll containment", () => {
     expect(rule(".hero")).not.toMatch(/align-items:\s*center/);
     expect(rule(".hero-inner")).toMatch(/margin:\s*auto/);
   });
+
+  it("defines Apple Liquid Glass light and dark theme tokens with accessibility fallbacks", () => {
+    expect(rule(':root[data-theme="glass"]')).toMatch(/--glass-blur:/);
+    expect(rule(':root[data-theme="glass"]')).toMatch(/color-scheme:\s*light/);
+    expect(rule(':root[data-theme="glass-dark"]')).toMatch(/--glass-blur:/);
+    expect(rule(':root[data-theme="glass-dark"]')).toMatch(/color-scheme:\s*dark/);
+    expect(css).toMatch(/@media\s*\(prefers-reduced-transparency:\s*reduce\)/);
+    expect(css).toMatch(/@media\s*\(prefers-contrast:\s*more\)/);
+  });
 });

@@ -74,15 +74,17 @@ export function GeneralPage({ theme }: { theme: { pref: ThemePref; set: (p: Them
       </Section>
 
       <Section title="Preferences">
-        <Row label="Appearance">
+        <Row label="Appearance" desc="Editorial light/dark or Apple-style Liquid Glass.">
           <Segmented<ThemePref>
             label="Appearance"
             value={theme.pref}
             onChange={theme.set}
             options={[
-              { value: "system", label: <Icon name="half" size={14} />, title: "System" },
-              { value: "light", label: <Icon name="sun" size={14} />, title: "Light" },
-              { value: "dark", label: <Icon name="moon" size={14} />, title: "Dark" },
+              { value: "system", label: <><Icon name="half" size={13} /><span>Auto</span></>, title: "System" },
+              { value: "light", label: <><Icon name="sun" size={13} /><span>Light</span></>, title: "Light" },
+              { value: "dark", label: <><Icon name="moon" size={13} /><span>Dark</span></>, title: "Dark" },
+              { value: "glass", label: <><Icon name="glass" size={13} /><span>Glass</span></>, title: "Liquid Glass" },
+              { value: "glass-dark", label: <><Icon name="glass-dark" size={13} /><span>Dark Glass</span></>, title: "Liquid Glass Dark" },
             ]}
           />
         </Row>
